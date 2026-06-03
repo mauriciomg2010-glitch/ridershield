@@ -6,6 +6,7 @@ import {
   collection, getDocs, getDoc, addDoc, query, orderBy, limit, onSnapshot,
   where, Timestamp, updateDoc, serverTimestamp, writeBatch, doc, deleteDoc,
 } from 'firebase/firestore'
+import { getReferralCode } from '@/lib/firestore'
 import { ref as rtdbRef, remove as rtdbRemove } from 'firebase/database'
 import { db, rtdb } from '@/lib/firebase'
 import dynamic from 'next/dynamic'
@@ -192,9 +193,9 @@ export default function PainelAdmin() {
 
   useEffect(() => {
     const fetchReferral = async () => {
-      const userDoc = await getDoc(doc(db, 'users', firebaseUser?.uid || ''))
-      const refCode = userDoc.data()?.referralCode || 'ZIVO-' + (firebaseUser?.uid?.slice(-5).toUpperCase() ?? 'XXXXX')
-      setReferralCode(refCode)
+      // getReferralCode auto-indexes into referralCodes/ so signup validation works
+      const code = await getReferralCode(firebaseUser!.uid)
+      setReferralCode(code)
       const refSnap = await getDocs(query(collection(db, 'referrals'), where('referrerId', '==', firebaseUser?.uid)))
       setReferralCount(refSnap.size)
     }

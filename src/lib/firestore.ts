@@ -31,6 +31,7 @@ export async function createUserProfile(
   name: string,
   email: string
 ): Promise<void> {
+  const code = generateReferralCode(name, uid)
   await addDoc(collection(db, 'users'), {
     id: uid,
     name,
@@ -38,11 +39,13 @@ export async function createUserProfile(
     isPremium: false,
     sharingLocation: false,
     createdAt: serverTimestamp(),
-    referralCode: generateReferralCode(name, uid),
+    referralCode: code,
     referralCredits: 0,
     referralCreditsPaid: 0,
     referralEarnings: 0,
   })
+  // Index immediately so unauthenticated signup validation works
+  await indexReferralCode(code, uid)
 }
 
 export async function getUserProfile(uid: string): Promise<User | null> {
