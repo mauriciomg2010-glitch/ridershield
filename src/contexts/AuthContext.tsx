@@ -14,7 +14,6 @@ import { collection, getDocs, query, where } from 'firebase/firestore'
 import { db } from '@/lib/firebase'
 import { useStore } from '@/lib/store'
 import { User } from '@/types'
-import { registerPushToken } from '@/lib/pushNotifications'
 
 interface AuthContextType {
   firebaseUser: FirebaseUser | null
@@ -52,7 +51,6 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         } catch { /* non-blocking */ }
         const profile = await getUserProfile(fbUser.uid)
         setUser(profile)
-        registerPushToken(fbUser.uid).catch(() => {})
       } else {
         setUser(null)
       }
