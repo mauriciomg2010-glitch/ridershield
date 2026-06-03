@@ -196,7 +196,7 @@ export default function SideMenu({ open, onClose, onNavigate }: Props) {
     { tab: 'safety-tips', label: t('safety_tips_nav'), icon: '🎥' },
     { tab: 'account-panel', label: t('account'), icon: '👤' },
     ...(showRequests ? [{ tab: 'service-requests', label: 'Solicitações', icon: '📋', badge: pendingServicesCount > 0 ? pendingServicesCount : undefined }] : []),
-    ...(isAdminUser(firebaseUser?.email) || firebaseUser?.uid === MENU_ADMIN_UID ? [{ tab: 'painel-admin', label: '⚙️ Painel Admin', icon: '⚙️' }] : []),
+    ...(isAdmin ? [{ tab: 'painel-admin', label: '⚙️ Painel Admin', icon: '⚙️' }] : []),
   ]
 
   return (
