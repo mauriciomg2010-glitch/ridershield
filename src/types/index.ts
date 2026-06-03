@@ -22,6 +22,7 @@ export interface User {
   isPremium: boolean
   isAdmin?: boolean
   isSuperAdmin?: boolean
+  adminLevel?: 'super' | 'editor' | null
   currentLocation?: { lat: number; lng: number }
   sharingLocation: boolean
   createdAt: Date

@@ -70,6 +70,7 @@ export async function getUserProfile(uid: string): Promise<User | null> {
     isPremium: !!(data.isPremium || isAdmin),
     isAdmin: isAdmin,
     isSuperAdmin: !!data.isSuperAdmin,
+    adminLevel: data.adminLevel ?? null,
     sharingLocation: data.sharingLocation ?? false,
     createdAt: data.createdAt?.toDate() ?? new Date(),
   }

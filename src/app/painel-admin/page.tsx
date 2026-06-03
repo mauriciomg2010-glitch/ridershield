@@ -14,7 +14,8 @@ import {
   LineChart, Line, BarChart, Bar, XAxis, YAxis, Tooltip,
   ResponsiveContainer, CartesianGrid, Cell,
 } from 'recharts'
-import { isAdminUser, canDeleteData, ADMIN_UID } from '@/lib/admin'
+import { canDeleteData, ADMIN_UID } from '@/lib/admin'
+import { useStore } from '@/lib/store'
 
 const ZoneEditor = dynamic(() => import('@/components/Admin/ZoneEditor'), { ssr: false })
 
@@ -45,6 +46,7 @@ interface EmergencyDoc { id: string; docRef: any; userId: string; userName: stri
 export default function PainelAdmin() {
   const router = useRouter()
   const { firebaseUser, loading: authLoading } = useAuth()
+  const storeUser = useStore((s) => s.user)
   const [authChecked, setAuthChecked] = useState(false)
   const [isSuperAdmin, setIsSuperAdmin] = useState(false)
   const [activeTab, setActiveTab] = useState<Tab>('visao')
@@ -101,34 +103,22 @@ export default function PainelAdmin() {
     return () => { html.style.overflow = ph; body.style.overflow = pb }
   }, [])
 
-  // ── AUTH — só admins da whitelist entram ──────────────────────────────────
+  // ── AUTH — acesso via Firestore isAdmin ou UID hardcoded ──────────────────
   useEffect(() => {
     if (authLoading) return
     if (!firebaseUser) { router.replace('/'); return }
-    if (!isAdminUser(firebaseUser.email) && firebaseUser.uid !== ADMIN_UID) {
-      // Redireciona silenciosamente — sem mensagem de erro
-      router.replace('/')
-      return
-    }
+    // ADMIN_UID é o fallback imutável; para todos os outros verifica o Firestore
+    const hasAccess = firebaseUser.uid === ADMIN_UID || !!storeUser?.isAdmin
+    if (!hasAccess) { router.replace('/'); return }
     setAuthChecked(true)
-  }, [firebaseUser, authLoading, router])
+  }, [firebaseUser, authLoading, storeUser?.isAdmin, router])
 
-  // ── SUPER ADMIN CHECK (non-blocking) ───────────────────────────────────────
+  // ── SUPER ADMIN — store (getUserProfile) + fallback UID hardcoded ─────────
   useEffect(() => {
     if (!firebaseUser?.uid) return
-    const uid = firebaseUser.uid
-    if (uid === ADMIN_UID || isAdminUser(firebaseUser.email)) {
-      setIsSuperAdmin(true)
-    }
-    const q = query(collection(db, 'users'), where('id', '==', uid))
-    const unsub = onSnapshot(q, async snap => {
-      const data = snap.empty
-        ? await getDoc(doc(db, 'users', uid)).then(d => d.exists() ? d.data() : null).catch(() => null)
-        : snap.docs[0].data()
-      if (data?.isSuperAdmin || uid === ADMIN_UID) setIsSuperAdmin(true)
-    }, () => {})
-    return unsub
-  }, [firebaseUser?.uid, firebaseUser?.email])
+    const isSuper = firebaseUser.uid === ADMIN_UID || !!storeUser?.isSuperAdmin
+    setIsSuperAdmin(isSuper)
+  }, [firebaseUser?.uid, storeUser?.isSuperAdmin])
 
   // ── LOAD DATA ──────────────────────────────────────────────────────────────
   useEffect(() => {
@@ -356,15 +346,22 @@ export default function PainelAdmin() {
   const btn = (bg: string, color = '#fff'): React.CSSProperties => ({ padding: '10px 16px', background: bg, border: 'none', color, borderRadius: 10, fontSize: 13, fontWeight: 700, cursor: 'pointer', marginBottom: 8, width: '100%' })
   const inp: React.CSSProperties = { width: '100%', padding: '9px 12px', background: '#0a0e1a', border: '1px solid rgba(245,158,11,0.3)', borderRadius: 8, color: '#fff', fontSize: 13, boxSizing: 'border-box', marginBottom: 10 }
 
-  const TABS: { key: Tab; label: string; badge?: number }[] = [
-    { key: 'visao',       label: '📊 Visão Geral' },
+  // Editors (isAdmin && !isSuperAdmin) only see Zonas
+  const ALL_TABS: { key: Tab; label: string; badge?: number; superOnly?: boolean }[] = [
+    { key: 'visao',       label: '📊 Visão Geral',  superOnly: true },
     { key: 'zonas',       label: '📍 Zonas' },
-    { key: 'usuarios',    label: '👥 Usuários' },
-    { key: 'feedbacks',   label: '💬 Feedbacks',   badge: feedbacks.filter(f => !f.read).length || undefined },
-    { key: 'emergencias', label: '🚨 Emergências', badge: emergencias.filter(e => e.status === 'active').length || undefined },
-    { key: 'indicados',   label: '🔗 Indicados',   badge: indicados.length || undefined },
-    { key: 'limpeza',     label: '🧹 Limpeza' },
+    { key: 'usuarios',    label: '👥 Usuários',      superOnly: true },
+    { key: 'feedbacks',   label: '💬 Feedbacks',     superOnly: true, badge: feedbacks.filter(f => !f.read).length || undefined },
+    { key: 'emergencias', label: '🚨 Emergências',   superOnly: true, badge: emergencias.filter(e => e.status === 'active').length || undefined },
+    { key: 'indicados',   label: '🔗 Indicados',     superOnly: true, badge: indicados.length || undefined },
+    { key: 'limpeza',     label: '🧹 Limpeza',       superOnly: true },
   ]
+  const TABS = ALL_TABS.filter(t => !t.superOnly || isSuperAdmin)
+
+  // Editors land on Zonas (not Visão Geral which is superOnly)
+  useEffect(() => {
+    if (authChecked && !isSuperAdmin) setActiveTab('zonas')
+  }, [authChecked, isSuperAdmin])
 
   return (
     <div style={{ minHeight: '100vh', background: '#0a0e1a', color: '#fff', paddingBottom: 60, overflowY: 'auto' }}>
