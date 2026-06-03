@@ -226,16 +226,16 @@ export default function ZoneEditor({ onToast, isSuperAdmin = false, currentUid =
   }
 
   const deleteZone = async (z: SavedZone) => {
-    if (!isSuperAdmin && !canEditZone(z, currentUid, isSuperAdmin)) {
-      onToast('❌ Sem permissão: apenas o criador nos primeiros 48h.')
-      return
-    }
-    if (!confirm(`APAGAR permanentemente "${z.areaName}"?`)) return
+    if (!confirm(`APAGAR "${z.areaName}"?`)) return
     try {
       await deleteDoc(doc(db, 'risk_zones', z.zoneId))
       onToast('✅ Zona apagada')
+      // Recarregar lista de zonas
+      const updated = savedZones.filter(zone => zone.zoneId !== z.zoneId)
+      setSavedZones(updated)
     } catch (e: any) {
-      onToast('❌ ' + (e as Error).message)
+      onToast('❌ ' + e.message)
+      console.error('Delete error:', e)
     }
   }
 
