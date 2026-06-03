@@ -536,7 +536,12 @@ export async function getUserReferralData(uid: string): Promise<{
 }> {
   const q = query(collection(db, 'users'), where('id', '==', uid))
   const snap = await getDocs(q)
-  if (snap.empty) return { code: '', credits: 0, creditsPaid: 0, confirmedCount: 0, pendingCount: 0 }
+  if (snap.empty) {
+    // Doc not yet propagated — code is always deterministic from uid (name param unused)
+    const fallbackCode = generateReferralCode('', uid)
+    indexReferralCode(fallbackCode, uid).catch(() => {})
+    return { code: fallbackCode, credits: 0, creditsPaid: 0, confirmedCount: 0, pendingCount: 0 }
+  }
   const data = snap.docs[0].data()
   let code = data.referralCode as string | undefined
   if (!code || !code.startsWith('ZIVO-')) {
@@ -544,12 +549,23 @@ export async function getUserReferralData(uid: string): Promise<{
     await updateDoc(snap.docs[0].ref, { referralCode: code })
   }
   await indexReferralCode(code, uid)
+
+  const refSnap = await getDocs(
+    query(collection(db, 'referrals'), where('referrerId', '==', uid))
+  )
+  const confirmedCount = refSnap.docs.filter(d =>
+    ['confirmed', 'credited', 'paid'].includes(d.data().status)
+  ).length
+  const pendingCount = refSnap.docs.filter(d =>
+    ['signed_up', 'pending'].includes(d.data().status)
+  ).length
+
   return {
     code,
     credits: data.referralCredits ?? 0,
     creditsPaid: data.referralCreditsPaid ?? 0,
-    confirmedCount: data.confirmedReferrals ?? 0,
-    pendingCount: data.pendingReferrals ?? 0,
+    confirmedCount,
+    pendingCount,
   }
 }
 
@@ -604,20 +620,11 @@ export async function applyReferral(
     commissionPaidAt: null,
   })
 
-  // Stamp referred user doc
+  // Stamp referred user doc (own doc — permitted)
   await updateDoc(referredResult.ref, {
     referredBy: referrerId,
     referredByCode: code,
   })
-
-  // Update referrer counters only if their doc was found
-  if (referrerResult) {
-    await updateDoc(referrerResult.ref, {
-      referralCount: increment(1),
-      pendingReferrals: increment(1),
-      totalReferrals: increment(1),
-    })
-  }
 
   return null
 }
