@@ -58,9 +58,11 @@ export async function getUserProfile(uid: string): Promise<User | null> {
   } catch { /* non-blocking */ }
   // Fallback: query by 'id' field (old format — doc ID is random)
   if (!data) {
-    const snap = await getDocs(query(collection(db, 'users'), where('id', '==', uid)))
-    if (snap.empty) return null
-    data = snap.docs[0].data()
+    try {
+      const snap = await getDocs(query(collection(db, 'users'), where('id', '==', uid)))
+      if (!snap.empty) data = snap.docs[0].data()
+    } catch { /* old rules may block query — proceed with null */ }
+    if (!data) return null
   }
   const isAdmin = !!(data.isAdmin || data.isSuperAdmin)
   return {
