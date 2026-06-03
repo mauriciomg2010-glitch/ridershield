@@ -207,7 +207,11 @@ export default function PainelAdmin() {
     setUsersLoading(false)
   }
 
-  async function mudarAdmin(docId: string, nivel: 'super' | 'editor' | 'remover') {
+  async function mudarAdmin(docId: string, nivel: 'super' | 'editor' | 'remover', nome: string) {
+    const msg = nivel === 'super'  ? `Promover ${nome} a SUPER ADMIN (acesso total)?`
+              : nivel === 'editor' ? `Tornar ${nome} EDITOR (acesso só a Zonas)?`
+              :                      `Remover privilégios de admin de ${nome}?`
+    if (!confirm(msg)) return
     setUserAction(docId)
     const up = nivel === 'super'  ? { isAdmin: true,  isSuperAdmin: true,  adminLevel: 'super',  adminSince: serverTimestamp() }
              : nivel === 'editor' ? { isAdmin: true,  isSuperAdmin: false, adminLevel: 'editor', adminSince: serverTimestamp() }
@@ -217,23 +221,24 @@ export default function PainelAdmin() {
     await carregarUsuarios(); setUserAction(null)
   }
 
-  async function togglePro(docId: string, atual: boolean) {
+  async function togglePro(docId: string, atual: boolean, nome: string) {
+    if (!confirm(atual ? `Remover PRO de ${nome}?` : `Liberar acesso PRO para ${nome}?`)) return
     setUserAction(docId)
     await updateDoc(doc(db, 'users', docId), { isPremium: !atual })
     showToast(atual ? '✅ PRO removido' : '✅ PRO ativado')
     await carregarUsuarios(); setUserAction(null)
   }
 
-  async function toggleDisable(docId: string, email: string, off: boolean) {
-    if (!confirm(off ? `Reativar ${email}?` : `Desativar ${email}?`)) return
+  async function toggleDisable(docId: string, nome: string, off: boolean) {
+    if (!confirm(off ? `Reativar a conta de ${nome}?` : `Desativar a conta de ${nome}?`)) return
     setUserAction(docId)
     await updateDoc(doc(db, 'users', docId), { isDisabled: !off, disabledAt: off ? null : serverTimestamp() })
     showToast(off ? '✅ Reativado' : '✅ Desativado')
     await carregarUsuarios(); setUserAction(null)
   }
 
-  async function apagarUser(docId: string, email: string) {
-    if (!confirm(`APAGAR permanentemente ${email}?`)) return
+  async function apagarUser(docId: string, nome: string) {
+    if (!confirm(`APAGAR permanentemente a conta de ${nome}?\nEsta ação não pode ser desfeita.`)) return
     setUserAction(docId)
     try { await deleteDoc(doc(db, 'users', docId)); showToast('✅ Apagado') }
     catch (e) { showToast('❌ ' + (e as Error).message) }
@@ -499,12 +504,12 @@ export default function PainelAdmin() {
                       </div>
                       <p style={{ fontSize: 12, color: '#9ca3af', margin: '0 0 8px' }}>{u.email} · score: {u.riderScore ?? '—'}</p>
                       <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
-                        {!u.isSuperAdmin && <button onClick={() => mudarAdmin(u.docId, 'super')} disabled={userAction === u.docId} style={{ fontSize: 11, padding: '4px 10px', background: 'rgba(124,58,237,0.15)', border: '1px solid rgba(124,58,237,0.3)', color: '#c4b5fd', borderRadius: 8, cursor: 'pointer' }}>🔝 Super Admin</button>}
-                        {!u.isAdmin && <button onClick={() => mudarAdmin(u.docId, 'editor')} disabled={userAction === u.docId} style={{ fontSize: 11, padding: '4px 10px', background: 'rgba(26,86,219,0.12)', border: '1px solid rgba(26,86,219,0.3)', color: '#93c5fd', borderRadius: 8, cursor: 'pointer' }}>✏️ Editor Admin</button>}
-                        {u.isAdmin && <button onClick={() => mudarAdmin(u.docId, 'remover')} disabled={userAction === u.docId} style={{ fontSize: 11, padding: '4px 10px', background: 'rgba(107,114,128,0.15)', border: '1px solid rgba(107,114,128,0.2)', color: '#9ca3af', borderRadius: 8, cursor: 'pointer' }}>✕ Remover Admin</button>}
-                        <button onClick={() => togglePro(u.docId, !!u.isPremium)} disabled={userAction === u.docId} style={{ fontSize: 11, padding: '4px 10px', background: 'rgba(245,158,11,0.1)', border: '1px solid rgba(245,158,11,0.2)', color: '#f59e0b', borderRadius: 8, cursor: 'pointer' }}>{u.isPremium ? '↓ Rem. PRO' : '⭐ Dar PRO'}</button>
-                        <button onClick={() => toggleDisable(u.docId, u.email, !!u.isDisabled)} disabled={userAction === u.docId} style={{ fontSize: 11, padding: '4px 10px', background: u.isDisabled ? 'rgba(16,185,129,0.1)' : 'rgba(245,158,11,0.08)', border: `1px solid ${u.isDisabled ? 'rgba(16,185,129,0.3)' : 'rgba(245,158,11,0.15)'}`, color: u.isDisabled ? '#10b981' : '#f59e0b', borderRadius: 8, cursor: 'pointer' }}>{u.isDisabled ? '✅ Reativar' : '⛔ Desativar'}</button>
-                        <button onClick={() => apagarUser(u.docId, u.email)} disabled={userAction === u.docId} style={{ fontSize: 11, padding: '4px 10px', background: 'rgba(220,53,69,0.1)', border: '1px solid rgba(220,53,69,0.2)', color: '#f87171', borderRadius: 8, cursor: 'pointer' }}>🗑️ Apagar</button>
+                        {!u.isSuperAdmin && <button onClick={() => mudarAdmin(u.docId, 'super', u.name ?? u.email)} disabled={userAction === u.docId} style={{ fontSize: 11, padding: '4px 10px', background: 'rgba(124,58,237,0.15)', border: '1px solid rgba(124,58,237,0.3)', color: '#c4b5fd', borderRadius: 8, cursor: 'pointer' }}>🔝 Super Admin</button>}
+                        {!u.isAdmin && <button onClick={() => mudarAdmin(u.docId, 'editor', u.name ?? u.email)} disabled={userAction === u.docId} style={{ fontSize: 11, padding: '4px 10px', background: 'rgba(26,86,219,0.12)', border: '1px solid rgba(26,86,219,0.3)', color: '#93c5fd', borderRadius: 8, cursor: 'pointer' }}>✏️ Editor Admin</button>}
+                        {u.isAdmin && <button onClick={() => mudarAdmin(u.docId, 'remover', u.name ?? u.email)} disabled={userAction === u.docId} style={{ fontSize: 11, padding: '4px 10px', background: 'rgba(107,114,128,0.15)', border: '1px solid rgba(107,114,128,0.2)', color: '#9ca3af', borderRadius: 8, cursor: 'pointer' }}>✕ Remover Admin</button>}
+                        <button onClick={() => togglePro(u.docId, !!u.isPremium, u.name ?? u.email)} disabled={userAction === u.docId} style={{ fontSize: 11, padding: '4px 10px', background: 'rgba(245,158,11,0.1)', border: '1px solid rgba(245,158,11,0.2)', color: '#f59e0b', borderRadius: 8, cursor: 'pointer' }}>{u.isPremium ? '↓ Rem. PRO' : '⭐ Dar PRO'}</button>
+                        <button onClick={() => toggleDisable(u.docId, u.name ?? u.email, !!u.isDisabled)} disabled={userAction === u.docId} style={{ fontSize: 11, padding: '4px 10px', background: u.isDisabled ? 'rgba(16,185,129,0.1)' : 'rgba(245,158,11,0.08)', border: `1px solid ${u.isDisabled ? 'rgba(16,185,129,0.3)' : 'rgba(245,158,11,0.15)'}`, color: u.isDisabled ? '#10b981' : '#f59e0b', borderRadius: 8, cursor: 'pointer' }}>{u.isDisabled ? '✅ Reativar' : '⛔ Desativar'}</button>
+                        <button onClick={() => apagarUser(u.docId, u.name ?? u.email)} disabled={userAction === u.docId} style={{ fontSize: 11, padding: '4px 10px', background: 'rgba(220,53,69,0.1)', border: '1px solid rgba(220,53,69,0.2)', color: '#f87171', borderRadius: 8, cursor: 'pointer' }}>🗑️ Apagar</button>
                       </div>
                     </div>
                   ))}
