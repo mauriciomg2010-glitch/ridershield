@@ -54,6 +54,7 @@ export default function PainelAdmin() {
   // ── stats ──────────────────────────────────────────────────────────────────
   const [stats, setStats] = useState({ users: -1, zones: -1, emergencias: -1, feedbacks: -1 })
   const [userChart, setUserChart] = useState<{ day: string; users: number }[]>([])
+  const [liveIncidents, setLiveIncidents] = useState<any[]>([])
 
   // ── users ──────────────────────────────────────────────────────────────────
   const [users, setUsers] = useState<any[]>([])
@@ -148,6 +149,13 @@ export default function PainelAdmin() {
       setUserChart(days.map(d => ({ day: d, users: counts[d] })))
     }).catch(() => {})
 
+    // live incidents (admin only)
+    const unsubInc = onSnapshot(
+      query(collection(db, 'incidents'), orderBy('timestamp', 'desc'), limit(50)),
+      snap => setLiveIncidents(snap.docs.map(d => ({ id: d.id, ...d.data(), ts: d.data().timestamp?.toDate() }))),
+      () => {}
+    )
+
     // feedbacks
     feedbackUnsubRef.current = onSnapshot(query(collection(db, 'feedback'), orderBy('timestamp', 'desc'), limit(50)), snap => {
       setFeedbacks(snap.docs.map(d => ({ id: d.id, docRef: d.ref, userId: d.data().userId ?? '', tipo: d.data().tipo ?? 'other', mensagem: d.data().mensagem ?? '', timestamp: d.data().timestamp?.toDate() ?? new Date(), read: d.data().read ?? false })))
@@ -177,7 +185,7 @@ export default function PainelAdmin() {
       )
     }
 
-    return () => { feedbackUnsubRef.current?.(); emergencyUnsubRef.current?.(); indicadosUnsubRef.current?.() }
+    return () => { unsubInc(); feedbackUnsubRef.current?.(); emergencyUnsubRef.current?.(); indicadosUnsubRef.current?.() }
   }, [authChecked, firebaseUser?.uid])
 
   // ── USERS ──────────────────────────────────────────────────────────────────
@@ -221,6 +229,16 @@ export default function PainelAdmin() {
     try { await deleteDoc(doc(db, 'users', docId)); showToast('✅ Apagado') }
     catch (e) { showToast('❌ ' + (e as Error).message) }
     await carregarUsuarios(); setUserAction(null)
+  }
+
+  async function apagarReport(docId: string) {
+    if (!confirm('APAGAR este relatório?')) return
+    try {
+      await deleteDoc(doc(db, 'incidents', docId))
+      showToast('✅ Relatório apagado')
+    } catch (e: any) {
+      showToast('❌ ' + e.message)
+    }
   }
 
   // ── FEEDBACK ──────────────────────────────────────────────────────────────
@@ -400,6 +418,41 @@ export default function PainelAdmin() {
               </ResponsiveContainer>
             </div>
           )}
+
+          {/* Live incidents */}
+          <div style={card}>
+            <p style={sTitle}>⚡ Relatórios recentes</p>
+            <div style={{ overflowX: 'auto' }}>
+              <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12 }}>
+                <thead>
+                  <tr style={{ color: '#6b7280' }}>
+                    {['Tipo', 'Rider', 'Hora', 'Snapped', 'Score', ''].map(h => (
+                      <th key={h} style={{ padding: '6px 8px', borderBottom: '1px solid rgba(245,158,11,0.1)', textAlign: 'left', fontWeight: 600 }}>{h}</th>
+                    ))}
+                  </tr>
+                </thead>
+                <tbody>
+                  {liveIncidents.map(inc => (
+                    <tr key={inc.id} style={{ borderBottom: '1px solid rgba(255,255,255,0.04)' }}>
+                      <td style={{ padding: '7px 8px', color: '#d1d5db' }}>{INCIDENT_PT[inc.type] ?? inc.type}</td>
+                      <td style={{ padding: '7px 8px', color: '#9ca3af' }}>{inc.userName ?? '—'}</td>
+                      <td style={{ padding: '7px 8px', color: '#6b7280' }}>{inc.ts instanceof Date ? inc.ts.toLocaleTimeString('pt', { hour: '2-digit', minute: '2-digit' }) : '—'}</td>
+                      <td style={{ padding: '7px 8px', color: inc.wasSnapped ? '#10b981' : '#6b7280' }}>{inc.wasSnapped ? '✓' : '✗'}</td>
+                      <td style={{ padding: '7px 8px', color: '#f59e0b', fontWeight: 700 }}>{inc.confidenceScore ?? '—'}</td>
+                      <td style={{ padding: '7px 8px' }}>
+                        <button
+                          onClick={() => apagarReport(inc.id)}
+                          style={{ background: 'rgba(239,68,68,0.1)', border: '1px solid #ef4444', color: '#f87171', padding: '4px 8px', borderRadius: 4, cursor: 'pointer', fontSize: 12 }}>
+                          🗑️
+                        </button>
+                      </td>
+                    </tr>
+                  ))}
+                  {liveIncidents.length === 0 && <tr><td colSpan={6} style={{ padding: 20, textAlign: 'center', color: '#6b7280' }}>Nenhum relatório</td></tr>}
+                </tbody>
+              </table>
+            </div>
+          </div>
 
         </>}
 
