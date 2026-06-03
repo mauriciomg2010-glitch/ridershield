@@ -1,0 +1,122 @@
+<!DOCTYPE html>
+<html lang="pt">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>ZIVO — Reset SW</title>
+  <style>
+    body { background: #0a0e1a; color: #fff; font-family: system-ui, sans-serif;
+      display: flex; align-items: center; justify-content: center;
+      min-height: 100vh; margin: 0; padding: 24px; box-sizing: border-box; }
+    .card { background: #111827; border: 1px solid rgba(245,158,11,0.3);
+      border-radius: 16px; padding: 32px; max-width: 420px; width: 100%; text-align: center; }
+    h1 { font-size: 22px; margin: 0 0 8px; color: #f59e0b; }
+    p  { font-size: 14px; color: #9ca3af; margin: 0 0 24px; }
+    #log { text-align: left; background: #0d1117; border-radius: 10px;
+      padding: 14px; font-size: 12px; font-family: monospace; max-height: 220px;
+      overflow-y: auto; line-height: 1.7; }
+    .ok  { color: #34d399; }
+    .err { color: #f87171; }
+    .info{ color: #9ca3af; }
+    #bar-wrap { background: #1f2937; border-radius: 99px; height: 6px; margin: 20px 0 8px; overflow: hidden; }
+    #bar { background: #f59e0b; height: 100%; width: 0; transition: width 0.3s; border-radius: 99px; }
+    #status { font-size: 13px; color: #6b7280; min-height: 20px; }
+  </style>
+</head>
+<body>
+<div class="card">
+  <div style="font-size:40px;margin-bottom:16px">🛡️</div>
+  <h1>ZIVO — Reset Cache</h1>
+  <p>A limpar Service Workers e caches antigos.<br>Aguarda uns segundos…</p>
+  <div id="bar-wrap"><div id="bar"></div></div>
+  <div id="status">A iniciar…</div>
+  <div id="log" style="margin-top:16px"></div>
+</div>
+
+<script>
+const log = document.getElementById('log')
+const bar = document.getElementById('bar')
+const status = document.getElementById('status')
+
+function addLog(msg, type = 'info') {
+  const line = document.createElement('div')
+  line.className = type
+  line.textContent = msg
+  log.appendChild(line)
+  log.scrollTop = log.scrollHeight
+}
+
+function setProgress(pct, msg) {
+  bar.style.width = pct + '%'
+  status.textContent = msg
+}
+
+;(async () => {
+  try {
+    setProgress(10, 'A desregistrar Service Workers...')
+
+    // 1. Unregister ALL service workers
+    let swCount = 0
+    if ('serviceWorker' in navigator) {
+      const regs = await navigator.serviceWorker.getRegistrations()
+      addLog(`Service Workers encontrados: ${regs.length}`, 'info')
+      for (const reg of regs) {
+        await reg.unregister()
+        swCount++
+        addLog(`✓ SW desregistrado: ${reg.scope}`, 'ok')
+      }
+    } else {
+      addLog('Service Workers não suportados', 'info')
+    }
+    setProgress(40, 'A limpar caches...')
+
+    // 2. Delete ALL caches
+    let cacheCount = 0
+    if ('caches' in window) {
+      const names = await caches.keys()
+      addLog(`Caches encontrados: ${JSON.stringify(names)}`, 'info')
+      for (const name of names) {
+        await caches.delete(name)
+        cacheCount++
+        addLog(`✓ Cache deletado: ${name}`, 'ok')
+      }
+    }
+    setProgress(70, 'A limpar armazenamento local...')
+
+    // 3. Clear localStorage keys related to SW/cache (not auth tokens)
+    const swKeys = Object.keys(localStorage).filter(k =>
+      k.includes('sw') || k.includes('cache') || k.includes('mapaClearedV')
+    )
+    swKeys.forEach(k => { localStorage.removeItem(k); addLog(`✓ localStorage removido: ${k}`, 'ok') })
+
+    setProgress(90, 'A registar SW v3...')
+
+    // 4. Register fresh SW v3 with no HTTP cache
+    if ('serviceWorker' in navigator) {
+      const reg = await navigator.serviceWorker.register('/sw.js', {
+        scope: '/', updateViaCache: 'none'
+      })
+      if (reg.waiting) reg.waiting.postMessage({ type: 'SKIP_WAITING' })
+      addLog(`✓ SW v3 registado (scope: ${reg.scope})`, 'ok')
+    }
+
+    setProgress(100, '✅ Concluído!')
+    addLog('', 'info')
+    addLog(`✓ ${swCount} SW(s) removidos`, 'ok')
+    addLog(`✓ ${cacheCount} caches limpos`, 'ok')
+    addLog('A redirecionar para /admin em 2s…', 'info')
+
+    setTimeout(() => {
+      window.location.replace('/admin')
+    }, 2000)
+
+  } catch (err) {
+    addLog('ERRO: ' + err, 'err')
+    status.textContent = 'Erro — ver console (F12)'
+    addLog('Tenta aceder a /admin manualmente', 'info')
+    addLog('<a href="/admin" style="color:#f59e0b">→ /admin</a>', 'info')
+  }
+})()
+</script>
+</body>
+</html>

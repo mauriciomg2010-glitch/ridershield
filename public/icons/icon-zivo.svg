@@ -1,0 +1,39 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512">
+  <defs>
+    <linearGradient id="shieldGold" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#f59e0b"/>
+      <stop offset="100%" stop-color="#d97706"/>
+    </linearGradient>
+    <filter id="neonBlue">
+      <feGaussianBlur stdDeviation="3" result="blur"/>
+      <feMerge><feMergeNode in="blur"/><feMergeNode in="SourceGraphic"/></feMerge>
+    </filter>
+    <filter id="neonRed">
+      <feGaussianBlur stdDeviation="2" result="blur"/>
+      <feMerge><feMergeNode in="blur"/><feMergeNode in="SourceGraphic"/></feMerge>
+    </filter>
+  </defs>
+  <!-- Background square (for maskable) -->
+  <rect width="512" height="512" fill="#0a0e1a"/>
+  <!-- Shield body -->
+  <path d="M256 40 L80 110 L80 240 C80 360 165 455 256 480 C347 455 432 360 432 240 L432 110 Z"
+    fill="url(#shieldGold)" stroke="#f59e0b" stroke-width="3"/>
+  <!-- Shield inner dark -->
+  <path d="M256 72 L108 133 L108 242 C108 346 182 429 256 450 C330 429 404 346 404 242 L404 133 Z"
+    fill="#0a0e1a"/>
+  <!-- Map grid lines (neon blue) -->
+  <g filter="url(#neonBlue)" stroke="#0ea5e9" stroke-width="5" stroke-opacity="0.9" fill="none">
+    <line x1="140" y1="200" x2="372" y2="200"/>
+    <line x1="140" y1="270" x2="372" y2="270"/>
+    <line x1="140" y1="340" x2="372" y2="340"/>
+    <line x1="180" y1="155" x2="180" y2="410"/>
+    <line x1="256" y1="130" x2="256" y2="435"/>
+    <line x1="332" y1="155" x2="332" y2="410"/>
+  </g>
+  <!-- Risk zone polygon (neon red) -->
+  <polygon points="210,230 300,215 320,300 240,320 190,280"
+    fill="rgba(239,68,68,0.25)" stroke="#ef4444" stroke-width="5" filter="url(#neonRed)"/>
+  <!-- Z letter -->
+  <text x="256" y="320" text-anchor="middle" fill="#f59e0b" font-size="120" font-weight="900"
+    font-family="system-ui,-apple-system,sans-serif" letter-spacing="-4">Z</text>
+</svg>

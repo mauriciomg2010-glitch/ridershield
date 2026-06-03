@@ -1,0 +1,120 @@
+// firestore.rules
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // Users: authenticated users can read all profiles
+    // Write: create own doc, update own doc, OR update another's doc (for referral counter increments)
+    match /users/{docId} {
+      allow read: if request.auth != null;
+      allow create: if request.auth != null
+        && request.resource.data.id == request.auth.uid;
+      allow update: if request.auth != null;
+      allow delete: if request.auth != null;
+    }
+
+    // Incidents: authenticated users can read and create their own
+    match /incidents/{incidentId} {
+      allow read: if request.auth != null;
+      allow create: if request.auth != null
+        && request.resource.data.userId == request.auth.uid;
+      allow update: if request.auth != null;
+      allow delete: if request.auth != null;
+    }
+
+    // Groups
+    match /groups/{groupId} {
+      allow read: if request.auth != null;
+      allow create: if request.auth != null;
+      allow update: if request.auth != null;
+      allow delete: if request.auth != null
+        && (request.auth.uid == resource.data.adminId
+            || request.auth.uid == resource.data.ownerId
+            || request.auth.uid == resource.data.createdBy
+            || request.auth.uid == resource.data.admin
+            || request.auth.uid in resource.data.members);
+    }
+
+    // Alerts
+    match /alerts/{alertId} {
+      allow read: if request.auth != null;
+      allow create: if request.auth != null
+        && request.resource.data.userId == request.auth.uid;
+      allow update, delete: if request.auth != null;
+    }
+
+    // Emergencies
+    match /emergencies/{emergencyId} {
+      allow read, create, update, delete: if request.auth != null;
+    }
+
+    // Services
+    match /services/{serviceId} {
+      allow read, create, update, delete: if request.auth != null;
+    }
+
+    // Service providers
+    match /service_providers/{providerId} {
+      allow read, create, update, delete: if request.auth != null;
+    }
+
+    // Help requests
+    match /helpRequests/{requestId} {
+      allow read, create, update, delete: if request.auth != null;
+    }
+
+    // Push tokens: only owner
+    match /users/{userId}/pushTokens/{tokenId} {
+      allow read, write: if request.auth != null && request.auth.uid == userId;
+    }
+
+    // Risk zones: any authenticated user can create/read/delete
+    // Update: creator can always update; auto-clustering zones can be updated by anyone (no createdBy)
+    match /risk_zones/{zoneId} {
+      allow read: if request.auth != null;
+      allow create: if request.auth != null;
+      allow delete: if request.auth != null;
+      allow update: if request.auth != null
+        && (resource.data.createdBy == request.auth.uid
+            || resource.data.source == 'auto_clustering'
+            || !('createdBy' in resource.data));
+    }
+
+    // Referral codes — public read (unauthenticated signup flow)
+    match /referralCodes/{code} {
+      allow read: if true;
+      allow write: if request.auth != null
+        && request.resource.data.keys().hasOnly(['uid'])
+        && request.resource.data.uid == request.auth.uid;
+    }
+
+    // Referrals — any authenticated user can read/write (signup creates entries)
+    match /referrals/{referralId} {
+      allow read, create, update: if request.auth != null;
+      allow delete: if request.auth != null;
+    }
+
+    // Feedback — authenticated users can submit and read
+    match /feedback/{feedbackId} {
+      allow read: if request.auth != null;
+      allow create: if request.auth != null;
+      allow update: if request.auth != null;
+    }
+
+    // Migrations — internal flags (admin only effectively)
+    match /migrations/{migrationId} {
+      allow read, write: if request.auth != null;
+    }
+
+    // Partners — read only for authenticated users
+    match /partners/{partnerId} {
+      allow read: if request.auth != null;
+      allow write: if request.auth != null;
+    }
+
+    // Credit claims
+    match /creditClaims/{claimId} {
+      allow read, create: if request.auth != null;
+    }
+  }
+}

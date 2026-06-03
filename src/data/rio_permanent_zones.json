@@ -1,0 +1,82 @@
+[
+  {
+    "id": "rocinha",
+    "name": "Rocinha",
+    "zone": "Zona Sul",
+    "lat": -22.9872,
+    "lng": -43.2486,
+    "radius": 800,
+    "riskLevel": "high",
+    "peakHours": [18, 19, 20, 21, 22, 23, 0, 1]
+  },
+  {
+    "id": "alemao",
+    "name": "Complexo do Alemão",
+    "zone": "Zona Norte",
+    "lat": -22.8583,
+    "lng": -43.2692,
+    "radius": 1200,
+    "riskLevel": "critical",
+    "peakHours": [17, 18, 19, 20, 21, 22, 23, 0]
+  },
+  {
+    "id": "vila-cruzeiro",
+    "name": "Vila Cruzeiro",
+    "zone": "Zona Norte",
+    "lat": -22.8617,
+    "lng": -43.2831,
+    "radius": 700,
+    "riskLevel": "high",
+    "peakHours": [18, 19, 20, 21, 22, 0, 1]
+  },
+  {
+    "id": "manguinhos",
+    "name": "Manguinhos",
+    "zone": "Zona Norte",
+    "lat": -22.8736,
+    "lng": -43.2403,
+    "radius": 900,
+    "riskLevel": "high",
+    "peakHours": [17, 18, 19, 20, 21, 22]
+  },
+  {
+    "id": "mare",
+    "name": "Complexo da Maré",
+    "zone": "Zona Norte",
+    "lat": -22.8503,
+    "lng": -43.2344,
+    "radius": 1400,
+    "riskLevel": "critical",
+    "peakHours": [16, 17, 18, 19, 20, 21, 22, 23]
+  },
+  {
+    "id": "jacarezinho",
+    "name": "Jacarezinho",
+    "zone": "Zona Norte",
+    "lat": -22.8792,
+    "lng": -43.2681,
+    "radius": 750,
+    "riskLevel": "high",
+    "peakHours": [17, 18, 19, 20, 21, 22, 23]
+  },
+  {
+    "id": "cidade-de-deus",
+    "name": "Cidade de Deus",
+    "zone": "Zona Oeste",
+    "lat": -22.9586,
+    "lng": -43.3642,
+    "radius": 800,
+    "riskLevel": "medium",
+    "peakHours": [18, 19, 20, 21, 22]
+  },
+  {
+    "id": "pavao-pavaozinho",
+    "name": "Pavão-Pavãozinho",
+    "zone": "Zona Sul",
+    "lat": -22.9703,
+    "lng": -43.1986,
+    "radius": 400,
+    "riskLevel": "medium",
+    "peakHours": [19, 20, 21, 22, 23]
+  }
+]
