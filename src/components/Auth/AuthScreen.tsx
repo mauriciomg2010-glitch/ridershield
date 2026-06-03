@@ -4,7 +4,7 @@ import { useState, useRef } from 'react'
 import { sendPasswordResetEmail } from 'firebase/auth'
 import { useAuth } from '@/contexts/AuthContext'
 import { useLang } from '@/contexts/LangContext'
-import { validateReferralCode, applyReferral } from '@/lib/firestore'
+import { validateReferralCode } from '@/lib/firestore'
 import { auth } from '@/lib/firebase'
 import toast from 'react-hot-toast'
 
@@ -96,20 +96,12 @@ export default function AuthScreen() {
           }
         }
 
-        await signUp(email, password, name)
+        await signUp(
+          email, password, name,
+          referrerIdRef.current ?? undefined,
+          codeTyped ? codeTyped.toUpperCase() : undefined
+        )
         toast.success('Conta criada!')
-
-        // Apply referral link — pass the code for audit trail
-        if (codeTyped && referrerIdRef.current) {
-          const newUid = auth.currentUser?.uid
-          if (newUid) {
-            const err = await applyReferral(referrerIdRef.current, newUid, name.trim(), codeTyped.toUpperCase())
-            if (err === 'auto-referral') {
-              toast.error('Não podes usar o teu próprio código de indicação.')
-            }
-            // 'already-referred' and other errors are non-blocking (signup already succeeded)
-          }
-        }
       }
     } catch (err: any) {
       toast.error(err.message || 'Authentication failed')

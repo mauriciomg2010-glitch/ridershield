@@ -9,7 +9,7 @@ import {
   User as FirebaseUser,
 } from 'firebase/auth'
 import { auth } from '@/lib/firebase'
-import { createUserProfile, getUserProfile } from '@/lib/firestore'
+import { createUserProfile, getUserProfile, applyReferral } from '@/lib/firestore'
 import { collection, getDocs, query, where } from 'firebase/firestore'
 import { db } from '@/lib/firebase'
 import { useStore } from '@/lib/store'
@@ -18,7 +18,7 @@ import { User } from '@/types'
 interface AuthContextType {
   firebaseUser: FirebaseUser | null
   loading: boolean
-  signUp: (email: string, password: string, name: string) => Promise<void>
+  signUp: (email: string, password: string, name: string, referrerId?: string, referralCode?: string) => Promise<void>
   signIn: (email: string, password: string) => Promise<void>
   signOut: () => Promise<void>
 }
@@ -59,10 +59,18 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     return unsub
   }, [setUser])
 
-  async function signUp(email: string, password: string, name: string) {
+  async function signUp(email: string, password: string, name: string, referrerId?: string, referralCode?: string) {
     const cred = await createUserWithEmailAndPassword(auth, email, password)
-    await createUserProfile(cred.user.uid, name, email)
-    const profile = await getUserProfile(cred.user.uid)
+    const uid = cred.user.uid
+    await createUserProfile(uid, name, email)
+    if (referrerId && referralCode) {
+      try {
+        await applyReferral(referrerId, uid, name.trim(), referralCode)
+      } catch (err) {
+        console.error('[Referral] falhou:', err)
+      }
+    }
+    const profile = await getUserProfile(uid)
     setUser(profile)
   }
 
