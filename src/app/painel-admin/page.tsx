@@ -52,10 +52,8 @@ export default function PainelAdmin() {
   const [now, setNow] = useState(new Date())
 
   // ── stats ──────────────────────────────────────────────────────────────────
-  const [stats, setStats] = useState({ users: -1, incidents24h: -1, zones: -1, emergencias: -1, feedbacks: -1 })
+  const [stats, setStats] = useState({ users: -1, zones: -1, emergencias: -1, feedbacks: -1 })
   const [userChart, setUserChart] = useState<{ day: string; users: number }[]>([])
-  const [incidentChart, setIncidentChart] = useState<{ type: string; count: number; color: string }[]>([])
-  const [liveIncidents, setLiveIncidents] = useState<any[]>([])
 
   // ── users ──────────────────────────────────────────────────────────────────
   const [users, setUsers] = useState<any[]>([])
@@ -136,7 +134,6 @@ export default function PainelAdmin() {
 
     // stats
     getDocs(collection(db, 'users')).then(s => setStats(p => ({ ...p, users: s.size }))).catch(() => {})
-    getDocs(query(collection(db, 'incidents'), where('timestamp', '>=', Timestamp.fromDate(cut24h)))).then(s => setStats(p => ({ ...p, incidents24h: s.size }))).catch(() => {})
     getDocs(collection(db, 'risk_zones')).then(s => setStats(p => ({ ...p, zones: s.size }))).catch(() => {})
 
     // user chart
@@ -150,17 +147,6 @@ export default function PainelAdmin() {
       })
       setUserChart(days.map(d => ({ day: d, users: counts[d] })))
     }).catch(() => {})
-
-    // incident chart
-    getDocs(collection(db, 'incidents')).then(snap => {
-      const counts: Record<string, number> = {}
-      snap.docs.forEach(d => { const t = d.data().type as string; counts[t] = (counts[t] ?? 0) + 1 })
-      setIncidentChart(Object.entries(INCIDENT_PT).map(([key, label]) => ({ type: label, count: counts[key] ?? 0, color: INCIDENT_COLOR[key] ?? '#6b7280' })).filter(d => d.count > 0))
-    }).catch(() => {})
-
-    // live incidents
-    const unsubInc = onSnapshot(query(collection(db, 'incidents'), orderBy('timestamp', 'desc'), limit(20)),
-      snap => setLiveIncidents(snap.docs.map(d => ({ id: d.id, ...d.data(), ts: d.data().timestamp?.toDate() }))), () => {})
 
     // feedbacks
     feedbackUnsubRef.current = onSnapshot(query(collection(db, 'feedback'), orderBy('timestamp', 'desc'), limit(50)), snap => {
@@ -191,7 +177,7 @@ export default function PainelAdmin() {
       )
     }
 
-    return () => { unsubInc(); feedbackUnsubRef.current?.(); emergencyUnsubRef.current?.(); indicadosUnsubRef.current?.() }
+    return () => { feedbackUnsubRef.current?.(); emergencyUnsubRef.current?.(); indicadosUnsubRef.current?.() }
   }, [authChecked, firebaseUser?.uid])
 
   // ── USERS ──────────────────────────────────────────────────────────────────
@@ -388,7 +374,6 @@ export default function PainelAdmin() {
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10, marginBottom: 16 }}>
             {[
               { label: 'Total Riders',     value: stats.users,        color: '#1a56db' },
-              { label: 'Incidents 24h',    value: stats.incidents24h, color: '#f59e0b' },
               { label: 'Zonas ativas',     value: stats.zones,        color: '#10b981' },
               { label: 'Emergências ativas', value: stats.emergencias, color: '#ef4444' },
               { label: 'Feedbacks',        value: stats.feedbacks,    color: '#8b5cf6' },
@@ -416,51 +401,6 @@ export default function PainelAdmin() {
             </div>
           )}
 
-          {/* Incident chart */}
-          {incidentChart.length > 0 && (
-            <div style={card}>
-              <p style={sTitle}>📊 Incidentes por Tipo</p>
-              <ResponsiveContainer width="100%" height={180}>
-                <BarChart data={incidentChart} layout="vertical">
-                  <CartesianGrid strokeDasharray="3 3" stroke="rgba(245,158,11,0.08)" />
-                  <XAxis type="number" tick={{ fill: '#6b7280', fontSize: 10 }} />
-                  <YAxis type="category" dataKey="type" tick={{ fill: '#9ca3af', fontSize: 10 }} width={95} />
-                  <Tooltip contentStyle={{ background: '#111827', border: '1px solid #f59e0b', borderRadius: 8, fontSize: 12 }} />
-                  <Bar dataKey="count" radius={[0, 4, 4, 0]}>
-                    {incidentChart.map((e, i) => <Cell key={i} fill={e.color} />)}
-                  </Bar>
-                </BarChart>
-              </ResponsiveContainer>
-            </div>
-          )}
-
-          {/* Live incidents */}
-          <div style={card}>
-            <p style={sTitle}>⚡ Relatórios recentes</p>
-            <div style={{ overflowX: 'auto' }}>
-              <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12 }}>
-                <thead>
-                  <tr style={{ color: '#6b7280' }}>
-                    {['Tipo', 'Rider', 'Hora', 'Snapped', 'Score'].map(h => (
-                      <th key={h} style={{ padding: '6px 8px', borderBottom: '1px solid rgba(245,158,11,0.1)', textAlign: 'left', fontWeight: 600 }}>{h}</th>
-                    ))}
-                  </tr>
-                </thead>
-                <tbody>
-                  {liveIncidents.map(inc => (
-                    <tr key={inc.id} style={{ borderBottom: '1px solid rgba(255,255,255,0.04)' }}>
-                      <td style={{ padding: '7px 8px', color: '#d1d5db' }}>{INCIDENT_PT[inc.type] ?? inc.type}</td>
-                      <td style={{ padding: '7px 8px', color: '#9ca3af' }}>{inc.userName ?? '—'}</td>
-                      <td style={{ padding: '7px 8px', color: '#6b7280' }}>{inc.ts instanceof Date ? timeAgo(inc.ts) : '—'}</td>
-                      <td style={{ padding: '7px 8px', color: inc.wasSnapped ? '#10b981' : '#6b7280' }}>{inc.wasSnapped ? '✓' : '✗'}</td>
-                      <td style={{ padding: '7px 8px', color: '#f59e0b', fontWeight: 700 }}>{inc.confidenceScore ?? '—'}</td>
-                    </tr>
-                  ))}
-                  {liveIncidents.length === 0 && <tr><td colSpan={5} style={{ padding: 20, textAlign: 'center', color: '#6b7280' }}>Nenhum relatório</td></tr>}
-                </tbody>
-              </table>
-            </div>
-          </div>
         </>}
 
         {/* ══ ZONAS ═════════════════════════════════════════════════════════════ */}
