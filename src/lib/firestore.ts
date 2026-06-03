@@ -32,7 +32,8 @@ export async function createUserProfile(
   email: string
 ): Promise<void> {
   const code = generateReferralCode(name, uid)
-  await addDoc(collection(db, 'users'), {
+  // setDoc with doc ID = uid satisfies Firestore rules that check request.auth.uid == docId
+  await setDoc(doc(db, 'users', uid), {
     id: uid,
     name,
     email,
@@ -49,16 +50,24 @@ export async function createUserProfile(
 }
 
 export async function getUserProfile(uid: string): Promise<User | null> {
-  const q = query(collection(db, 'users'), where('id', '==', uid))
-  const snap = await getDocs(q)
-  if (snap.empty) return null
-  const data = snap.docs[0].data()
+  // Primary: direct lookup by doc ID (new format — doc ID == uid)
+  let data: any = null
+  try {
+    const d = await getDoc(doc(db, 'users', uid))
+    if (d.exists()) data = d.data()
+  } catch { /* non-blocking */ }
+  // Fallback: query by 'id' field (old format — doc ID is random)
+  if (!data) {
+    const snap = await getDocs(query(collection(db, 'users'), where('id', '==', uid)))
+    if (snap.empty) return null
+    data = snap.docs[0].data()
+  }
   const isAdmin = !!(data.isAdmin || data.isSuperAdmin)
   return {
     id: data.id,
     name: data.name,
     email: data.email,
-    isPremium: !!(data.isPremium || isAdmin),  // admins always get pro access
+    isPremium: !!(data.isPremium || isAdmin),
     isAdmin: isAdmin,
     isSuperAdmin: !!data.isSuperAdmin,
     sharingLocation: data.sharingLocation ?? false,
@@ -573,14 +582,14 @@ export async function getUserReferralData(uid: string): Promise<{
 // Any user (Free or Pro) can refer others — no Pro gate.
 // Credit is only paid when the referred user pays their 2nd Pro month (manual admin step).
 async function getUserDocByUid(uid: string): Promise<{ ref: any; data: any } | null> {
-  // Primary: query by 'id' field
-  const snap = await getDocs(query(collection(db, 'users'), where('id', '==', uid)))
-  if (!snap.empty) return { ref: snap.docs[0].ref, data: snap.docs[0].data() }
-  // Fallback: direct lookup by document ID (accounts created without 'id' field)
+  // Primary: direct lookup by doc ID (new format — doc ID == uid)
   try {
     const d = await getDoc(doc(db, 'users', uid))
     if (d.exists()) return { ref: d.ref, data: d.data() }
   } catch { /* non-blocking */ }
+  // Fallback: query by 'id' field (old format — doc ID is random, 'id' field == uid)
+  const snap = await getDocs(query(collection(db, 'users'), where('id', '==', uid)))
+  if (!snap.empty) return { ref: snap.docs[0].ref, data: snap.docs[0].data() }
   return null
 }
 
