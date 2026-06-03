@@ -72,6 +72,8 @@ export default function PainelAdmin() {
   // ── indicados ─────────────────────────────────────────────────────────────
   const [indicados, setIndicados] = useState<any[]>([])
   const indicadosUnsubRef = useRef<(() => void) | null>(null)
+  const [referralCode, setReferralCode] = useState('')
+  const [referralCount, setReferralCount] = useState(0)
 
   // ── cleanup ────────────────────────────────────────────────────────────────
   const [testLat, setTestLat] = useState('53.3498')
@@ -187,6 +189,17 @@ export default function PainelAdmin() {
 
     return () => { unsubInc(); feedbackUnsubRef.current?.(); emergencyUnsubRef.current?.(); indicadosUnsubRef.current?.() }
   }, [authChecked, firebaseUser?.uid])
+
+  useEffect(() => {
+    const fetchReferral = async () => {
+      const userDoc = await getDoc(doc(db, 'users', firebaseUser?.uid || ''))
+      const refCode = userDoc.data()?.referralCode || 'ZIVO-' + (firebaseUser?.uid?.slice(-5).toUpperCase() ?? 'XXXXX')
+      setReferralCode(refCode)
+      const refSnap = await getDocs(query(collection(db, 'referrals'), where('referrerId', '==', firebaseUser?.uid)))
+      setReferralCount(refSnap.size)
+    }
+    if (firebaseUser?.uid) fetchReferral()
+  }, [firebaseUser?.uid])
 
   // ── USERS ──────────────────────────────────────────────────────────────────
   async function carregarUsuarios() {
@@ -559,6 +572,12 @@ export default function PainelAdmin() {
         {/* ══ INDICADOS ═════════════════════════════════════════════════════════ */}
         {activeTab === 'indicados' && (
           <div style={card}>
+            <div style={{ padding: 20, background: 'rgba(245,158,11,0.1)', border: '1px solid rgba(245,158,11,0.3)', borderRadius: 12, marginBottom: 20 }}>
+              <h3 style={{ color: '#f59e0b', margin: '0 0 12px', fontSize: 16 }}>💰 Sistema de Referência</h3>
+              <p style={{ color: '#e5e7eb', margin: '0 0 6px', fontSize: 14 }}>Teu código: <strong style={{ fontFamily: 'monospace', fontSize: 16, color: '#fbbf24' }}>{referralCode || '…'}</strong></p>
+              <p style={{ color: '#9ca3af', margin: '0 0 6px', fontSize: 12 }}>URL: ridershield.vercel.app?ref={referralCode}</p>
+              <p style={{ color: '#e5e7eb', margin: 0, fontSize: 14 }}>Indicações: <strong style={{ color: '#f59e0b' }}>{referralCount}</strong></p>
+            </div>
             <div style={{ display: 'flex', alignItems: 'center', gap: 16, marginBottom: 20 }}>
               <div style={{ background: 'rgba(245,158,11,0.08)', border: '1px solid rgba(245,158,11,0.25)', borderRadius: 12, padding: '16px 24px', textAlign: 'center' }}>
                 <p style={{ fontSize: 36, fontWeight: 800, color: '#f59e0b', margin: 0 }}>{indicados.length}</p>
