@@ -228,14 +228,13 @@ export default function ZoneEditor({ onToast, isSuperAdmin = false, currentUid =
   const deleteZone = async (z: SavedZone) => {
     if (!confirm(`APAGAR "${z.areaName}"?`)) return
     try {
+      console.log('Deletando zona:', z.zoneId)
       await deleteDoc(doc(db, 'risk_zones', z.zoneId))
       onToast('✅ Zona apagada')
-      // Recarregar lista de zonas
-      const updated = savedZones.filter(zone => zone.zoneId !== z.zoneId)
-      setSavedZones(updated)
+      setSavedZones(savedZones.filter(zone => zone.zoneId !== z.zoneId))
     } catch (e: any) {
+      console.error('ERRO COMPLETO:', e)
       onToast('❌ ' + e.message)
-      console.error('Delete error:', e)
     }
   }
 
