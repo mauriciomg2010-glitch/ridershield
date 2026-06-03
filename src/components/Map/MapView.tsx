@@ -2189,7 +2189,7 @@ export default function MapView({ groupMembers = [], currentUserId, groupId, onP
             🚦
           </button>
           <button
-            onClick={() => setShowZones(z => !z)}
+            onClick={() => setShowZones((z: boolean) => !z)}
             className="px-3 py-2 text-xs font-semibold rounded-xl shadow-lg transition-colors"
             style={{
               background: showZones ? 'rgba(239,68,68,0.2)' : 'var(--surface)',
