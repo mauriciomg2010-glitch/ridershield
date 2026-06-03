@@ -120,6 +120,11 @@ export default function PainelAdmin() {
     setIsSuperAdmin(isSuper)
   }, [firebaseUser?.uid, storeUser?.isSuperAdmin])
 
+  // ── EDITOR TAB REDIRECT — must be before early return (Rules of Hooks) ────
+  useEffect(() => {
+    if (authChecked && !isSuperAdmin) setActiveTab('zonas')
+  }, [authChecked, isSuperAdmin])
+
   // ── LOAD DATA ──────────────────────────────────────────────────────────────
   useEffect(() => {
     if (!authChecked) return
@@ -357,11 +362,6 @@ export default function PainelAdmin() {
     { key: 'limpeza',     label: '🧹 Limpeza',       superOnly: true },
   ]
   const TABS = ALL_TABS.filter(t => !t.superOnly || isSuperAdmin)
-
-  // Editors land on Zonas (not Visão Geral which is superOnly)
-  useEffect(() => {
-    if (authChecked && !isSuperAdmin) setActiveTab('zonas')
-  }, [authChecked, isSuperAdmin])
 
   return (
     <div style={{ minHeight: '100vh', background: '#0a0e1a', color: '#fff', paddingBottom: 60, overflowY: 'auto' }}>
