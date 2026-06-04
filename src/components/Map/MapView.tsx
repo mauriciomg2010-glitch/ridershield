@@ -1004,21 +1004,12 @@ export default function MapView({ groupMembers = [], currentUserId, groupId, onP
     setNavTotalDist(route.distance)
     setNavRouteIdx(idx)
     setShowNavAlts(false)
-    setNavMapFree(false)
-    setShowReCenter(false)
     lastRafTsRef.current = 0
-    // Snap camera to rider and resume RAF after animation — keeps RAF paused during the 150ms snap
+    // Keep camera free — user stays in the zoomed-out/exploring view they were in.
+    // RAF stays paused; re-center is the only way back to follow mode.
     navMapFreeRef.current = true
-    const rcHeading = headingAtualRef.current
-    const rcZoom = calcularZoomPorVelocidade(rafNavStateRef.current.navSpeed)
-    const pos = posAtualRef.current.lat !== 0 ? posAtualRef.current : null
-    if (pos && mapRef.current) {
-      const { lat: rcLat, lng: rcLng } = calcularCentroDeslocado(pos.lat, pos.lng, rcHeading, rcZoom)
-      mapRef.current.stop()
-      mapRef.current.easeTo({ center: [rcLng, rcLat], bearing: rcHeading, pitch: NAV_PITCH, zoom: rcZoom, duration: 150 })
-    }
-    if (snapTimerRef.current !== null) clearTimeout(snapTimerRef.current)
-    snapTimerRef.current = setTimeout(() => { snapTimerRef.current = null; navMapFreeRef.current = false }, 160)
+    setNavMapFree(true)
+    setShowReCenter(true)
   }, [navAltRoutes, applyRoute])
 
   const goToCoords = useCallback((lat: number, lng: number) => {
