@@ -1571,7 +1571,7 @@ export default function MapView({ groupMembers = [], currentUserId, groupId, onP
           setTappedLocation(null)
         }}
         onZoomStart={(e: any) => {
-          if (snapTimerRef.current !== null) { clearTimeout(snapTimerRef.current); snapTimerRef.current = null }
+          if (e.originalEvent && snapTimerRef.current !== null) { clearTimeout(snapTimerRef.current); snapTimerRef.current = null }
           if (isNavigating && e.originalEvent) { navMapFreeRef.current = true; setNavMapFree(true); setShowReCenter(true) }
         }}
         onZoomEnd={() => {
