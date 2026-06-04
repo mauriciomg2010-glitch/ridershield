@@ -233,6 +233,7 @@ export default function Home() {
             onReport={() => { setReportLocation(currentLocation ? { ...currentLocation, timestamp: Date.now() } : null); setShowReport(true) }}
             controlsTopOffset={108}
             externalReportOpen={showReport}
+            isActive={activeTab === 'map'}
           />
         </div>
 

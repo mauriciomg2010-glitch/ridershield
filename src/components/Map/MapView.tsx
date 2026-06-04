@@ -82,7 +82,7 @@ const zonesGeoJSON = {
 // ─── Camera constants — tune here if rider position needs adjustment ──────────
 const NAV_ZOOM    = 16.8  // zoom level during nav — lower = further back, more road ahead visible
 const NAV_PITCH   = 62    // 3D tilt — Google Maps-style; try 65 for even more horizon
-const NAV_RIDER_Y = 0.68  // screen Y of rider (0=top, 1=bottom); maps directly to % of screen height
+const NAV_RIDER_Y = 0.71  // screen Y of rider (0=top, 1=bottom); maps directly to % of screen height
 
 // ---- Navigation helpers ----
 
@@ -299,6 +299,7 @@ interface Props {
   onCategorySearching?: (loading: boolean) => void
   controlsTopOffset?: number
   externalReportOpen?: boolean
+  isActive?: boolean
 }
 
 function RiderPin({ name, isEmergency = false }: { name: string; isEmergency?: boolean }) {
@@ -343,7 +344,7 @@ function RiderPin({ name, isEmergency = false }: { name: string; isEmergency?: b
   )
 }
 
-export default function MapView({ groupMembers = [], currentUserId, groupId, onPanelChange, followUserId, onFollowChange, requestNavTo, onNavRequested, onNavigationChange, searchCategory = null, onSOS, onModeSelectorChange, workMode = false, onReport, onCategorySearching, controlsTopOffset = 12, externalReportOpen = false }: Props) {
+export default function MapView({ groupMembers = [], currentUserId, groupId, onPanelChange, followUserId, onFollowChange, requestNavTo, onNavRequested, onNavigationChange, searchCategory = null, onSOS, onModeSelectorChange, workMode = false, onReport, onCategorySearching, controlsTopOffset = 12, externalReportOpen = false, isActive = true }: Props) {
   const { t } = useLang()
   const { theme } = useTheme()
   const mapUser = useStore((s) => s.user)
@@ -488,11 +489,12 @@ export default function MapView({ groupMembers = [], currentUserId, groupId, onP
   // 24h cutoff — stable reference so the effect doesn't restart on every render
   const incidentCutoff = useMemo(() => new Date(Date.now() - 24 * 3600 * 1000), [])
 
-  // Subscribe to all incidents from the last 24h — visible to all users, survives refresh
+  // Subscribe to incidents only while the map tab is visible — saves Firestore reads on other tabs
   useEffect(() => {
+    if (!isActive) return
     setIncidents([])
     return subscribeToIncidents(setIncidents, incidentCutoff)
-  }, [setIncidents, incidentCutoff])
+  }, [isActive, setIncidents, incidentCutoff])
 
   // Subscribe to Firestore risk_zones — when shield is on OR zones modal is open, and not navigating
   useEffect(() => {

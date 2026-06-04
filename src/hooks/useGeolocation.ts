@@ -9,6 +9,18 @@ interface UseGeolocationOptions {
   enabled?: boolean
 }
 
+// Haversine distance in metres — used by publish throttle
+function metersBetween(a: { lat: number; lng: number }, b: { lat: number; lng: number }): number {
+  const R = 6371000
+  const dLat = (b.lat - a.lat) * Math.PI / 180
+  const dLng = (b.lng - a.lng) * Math.PI / 180
+  const aa = Math.sin(dLat / 2) ** 2 + Math.cos(a.lat * Math.PI / 180) * Math.cos(b.lat * Math.PI / 180) * Math.sin(dLng / 2) ** 2
+  return R * 2 * Math.atan2(Math.sqrt(aa), Math.sqrt(1 - aa))
+}
+
+const PUBLISH_MIN_METRES = 15   // skip write if rider moved less than this
+const PUBLISH_MIN_MS     = 5000 // always write at least once every 5 s regardless of distance
+
 const GEO_OPTIONS: PositionOptions = {
   enableHighAccuracy: true,
   timeout: 2000,
@@ -28,6 +40,8 @@ export function useGeolocation({
   const [speed, setSpeed] = useState<number | null>(null)
   const watchIdRef = useRef<number | null>(null)
   const prevEnabledRef = useRef(false)
+  const lastGroupPublishRef    = useRef<{ lat: number; lng: number; time: number } | null>(null)
+  const lastPresencePublishRef = useRef<{ lat: number; lng: number; time: number } | null>(null)
 
   // Continuous GPS tracking via watchPosition (always runs to keep currentLocation fresh)
   useEffect(() => {
@@ -81,51 +95,46 @@ export function useGeolocation({
     return () => document.removeEventListener('visibilitychange', handleVisibilityChange)
   }, [setCurrentLocation])
 
-  // Publish to GROUP when enabled and inside a group
+  // Publish to GROUP — throttled: write only when rider moved >= 15 m OR >= 5 s elapsed
   useEffect(() => {
     if (!enabled || !groupId || !userId || !currentLocation) return
+    const now = Date.now()
+    const last = lastGroupPublishRef.current
+    if (last && metersBetween(last, currentLocation) < PUBLISH_MIN_METRES && now - last.time < PUBLISH_MIN_MS) return
+    lastGroupPublishRef.current = { lat: currentLocation.lat, lng: currentLocation.lng, time: now }
     publishLocation(userId, groupId, currentLocation.lat, currentLocation.lng)
   }, [enabled, groupId, userId, currentLocation])
 
-  // Publish GLOBAL PRESENCE when enabled — no group required
+  // Publish GLOBAL PRESENCE — throttled: same 15 m / 5 s rule
   useEffect(() => {
     if (!enabled || !userId || !currentLocation || !user?.name) return
+    const now = Date.now()
+    const last = lastPresencePublishRef.current
+    if (last && metersBetween(last, currentLocation) < PUBLISH_MIN_METRES && now - last.time < PUBLISH_MIN_MS) return
+    lastPresencePublishRef.current = { lat: currentLocation.lat, lng: currentLocation.lng, time: now }
     publishGlobalPresence(userId, user.name, currentLocation.lat, currentLocation.lng)
   }, [enabled, userId, currentLocation, user?.name])
 
-  // Force immediate publish when enabled transitions false→true
+  // Force immediate publish when enabled transitions false→true (updates refs to avoid double-write)
   useEffect(() => {
     if (enabled && !prevEnabledRef.current) {
       const state = useStore.getState()
       const loc = state.currentLocation
       const u = state.user
       if (loc && userId) {
-        if (groupId) publishLocation(userId, groupId, loc.lat, loc.lng)
-        if (u?.name) publishGlobalPresence(userId, u.name, loc.lat, loc.lng)
+        const now = Date.now()
+        if (groupId) {
+          publishLocation(userId, groupId, loc.lat, loc.lng)
+          lastGroupPublishRef.current = { lat: loc.lat, lng: loc.lng, time: now }
+        }
+        if (u?.name) {
+          publishGlobalPresence(userId, u.name, loc.lat, loc.lng)
+          lastPresencePublishRef.current = { lat: loc.lat, lng: loc.lng, time: now }
+        }
       }
     }
     prevEnabledRef.current = enabled
   }, [enabled, groupId, userId])
-
-  // Backup interval — fresh GPS fix every 15s when visible and enabled
-  useEffect(() => {
-    if (!enabled || !userId) return
-    const interval = setInterval(() => {
-      if (document.visibilityState !== 'visible') return
-      navigator.geolocation.getCurrentPosition(
-        (pos) => {
-          const loc = { lat: pos.coords.latitude, lng: pos.coords.longitude }
-          setCurrentLocation(loc)
-          if (groupId) publishLocation(userId, groupId, loc.lat, loc.lng)
-          const u = useStore.getState().user
-          if (u?.name) publishGlobalPresence(userId, u.name, loc.lat, loc.lng)
-        },
-        null,
-        { enableHighAccuracy: true, maximumAge: 10000 }
-      )
-    }, 15000)
-    return () => clearInterval(interval)
-  }, [enabled, groupId, userId, setCurrentLocation])
 
   // Clear group location when sharing stops or group changes
   useEffect(() => {
