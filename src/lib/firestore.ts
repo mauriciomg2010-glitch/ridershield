@@ -235,6 +235,36 @@ export async function reportIncident(
   return ref.id
 }
 
+// Subscribes to incidents created on or after fromDate — pass sessionStartRef.current
+// to avoid showing old reports from previous sessions (prevents startup flicker).
+export function subscribeToIncidents(
+  callback: (incidents: Incident[]) => void,
+  fromDate: Date = new Date()
+): () => void {
+  const q = query(
+    collection(db, 'incidents'),
+    where('timestamp', '>=', Timestamp.fromDate(fromDate)),
+    orderBy('timestamp', 'desc'),
+    limit(200)
+  )
+  return onSnapshot(q, (snap) => {
+    const incidents: Incident[] = snap.docs.map((d) => {
+      const data = d.data()
+      return {
+        id: d.id,
+        type: data.type,
+        location: data.location,
+        description: data.description,
+        timestamp: data.timestamp?.toDate() ?? new Date(),
+        userId: data.userId,
+        userName: data.userName,
+        upvotes: data.upvotes ?? 0,
+      }
+    })
+    callback(incidents)
+  })
+}
+
 // ─── GROUPS ───────────────────────────────────────────────────────────────────
 
 export async function createGroup(

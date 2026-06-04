@@ -11,7 +11,7 @@ import Map, { Source, Layer, Marker } from 'react-map-gl/mapbox'
 import type { MapRef } from 'react-map-gl/mapbox'
 import 'mapbox-gl/dist/mapbox-gl.css'
 import { useStore } from '@/lib/store'
-import { subscribeToGlobalPresence, reportIncident } from '@/lib/firestore'
+import { subscribeToIncidents, subscribeToGlobalPresence, reportIncident } from '@/lib/firestore'
 import { INCIDENT_TYPES as QUICK_REPORT_TYPES } from '@/data/incidentTypes'
 import { useLang } from '@/contexts/LangContext'
 import { useTheme } from '@/contexts/ThemeContext'
@@ -471,6 +471,8 @@ export default function MapView({ groupMembers = [], currentUserId, groupId, onP
   navegandoRef.current = isNavigating
   selectedAltIdxRef.current = selectedAltIdx
 
+  const incidents = useStore((s) => s.incidents)
+  const setIncidents = useStore((s) => s.setIncidents)
   const currentLocation = useStore((s) => s.currentLocation)
 
   const mapStyle = 'mapbox://styles/mapbox/streets-v12'
@@ -479,6 +481,15 @@ export default function MapView({ groupMembers = [], currentUserId, groupId, onP
   useEffect(() => {
     localStorage.setItem('showZones', JSON.stringify(showZones))
   }, [showZones])
+
+  // Session start — only show incidents created after the app opened (prevents startup flicker)
+  const sessionStartRef = useRef(new Date())
+
+  // Subscribe to incidents from this session onwards — does NOT show old reports on app open
+  useEffect(() => {
+    setIncidents([])
+    return subscribeToIncidents(setIncidents, sessionStartRef.current)
+  }, [setIncidents])
 
   // Subscribe to Firestore risk_zones — when shield is on OR zones modal is open, and not navigating
   useEffect(() => {
@@ -489,6 +500,20 @@ export default function MapView({ groupMembers = [], currentUserId, groupId, onP
     )
     return unsub
   }, [showZones, showZonesModal, isNavigating])
+
+  const filteredIncidents = useMemo(
+    () => incidents.filter(i => i.timestamp.getTime() > Date.now() - timeFilter * 3600000),
+    [incidents, timeFilter]
+  )
+
+  const incidentsGeoJSON = useMemo(() => ({
+    type: 'FeatureCollection' as const,
+    features: filteredIncidents.map(inc => ({
+      type: 'Feature' as const,
+      properties: { id: inc.id, type: inc.type, description: inc.description ?? '', userName: inc.userName ?? 'Anonymous' },
+      geometry: { type: 'Point' as const, coordinates: [inc.location.lng, inc.location.lat] },
+    })),
+  }), [filteredIncidents])
 
   // Normalise polygon coords — handles both legacy [lng,lat] arrays and new {lng,lat} objects
   function normCoords(raw: any[]): number[][] {
@@ -1135,7 +1160,10 @@ export default function MapView({ groupMembers = [], currentUserId, groupId, onP
       return
     }
     const feat = features[0]
-    if (feat.layer?.id === 'poi-label') {
+    if (feat.layer?.id === 'incidents-circle') {
+      const inc = filteredIncidents.find(i => i.id === feat.properties?.id)
+      if (inc) { setSelectedIncident(inc); setSelectedZone(null); setTappedLocation(null); onPanelChange?.(true) }
+    } else if (feat.layer?.id === 'poi-label') {
       const coords = feat.geometry?.coordinates
       const lng = coords ? coords[0] : e.lngLat.lng
       const lat = coords ? coords[1] : e.lngLat.lat
@@ -1146,12 +1174,13 @@ export default function MapView({ groupMembers = [], currentUserId, groupId, onP
       setTappedLocation({ lat, lng, name, category, loading: false })
     }
     // Zone fill layers are not interactive — their center pins handle clicks via React Markers
-  }, [onPanelChange, isNavigating, showModeSelector, currentHour])
+  }, [filteredIncidents, onPanelChange, isNavigating, showModeSelector, currentHour])
 
   const interactiveLayerIds = useMemo(() => {
     const ids: string[] = ['poi-label']
+    if (!showHeatmap) ids.push('incidents-circle')
     return ids
-  }, [])
+  }, [showHeatmap])
 
   const zoneCount = useMemo(() => {
     const c = { high: 0, medium: 0, low: 0 }
@@ -1849,6 +1878,27 @@ export default function MapView({ groupMembers = [], currentUserId, groupId, onP
           </Source>
         )}
 
+        {/* Incidents */}
+        <Source id="incidents" type="geojson" data={incidentsGeoJSON}>
+          {showHeatmap ? (
+            <Layer id="incidents-heat" type="heatmap" paint={{
+              'heatmap-weight': 0.8, 'heatmap-radius': 35,
+              'heatmap-color': ['interpolate', ['linear'], ['heatmap-density'],
+                0, 'rgba(0,0,0,0)', 0.4, '#3b82f6', 0.65, '#f97316', 1, '#ef4444'],
+              'heatmap-opacity': 0.8,
+            }} />
+          ) : (
+            <Layer id="incidents-circle" type="circle" paint={{
+              'circle-color': ['match', ['get', 'type'],
+                'robbery', '#ef4444', 'attempted_robbery', '#f97316',
+                'aggression', '#eab308', 'suspicious_activity', '#93c5fd',
+                'accident', '#60a5fa', 'road_hazard', '#34d399', '#6b7280'],
+              'circle-radius': 8, 'circle-stroke-width': 2,
+              'circle-stroke-color': 'white', 'circle-opacity': 0.9,
+            }} />
+          )}
+        </Source>
+
         {/* Destination marker — bounces on appear */}
         {navDest && (
           <Marker longitude={navDest.lng} latitude={navDest.lat} anchor="bottom">
@@ -2198,6 +2248,19 @@ export default function MapView({ groupMembers = [], currentUserId, groupId, onP
               border: `1px solid ${showZones ? 'rgba(239,68,68,0.4)' : 'var(--border)'}`,
             }}>
             🛡️
+          </button>
+          <button
+            onClick={() => {
+              if (filteredIncidents.length === 0) return
+              const lngs = filteredIncidents.slice(0, 20).map(i => i.location.lng)
+              const lats = filteredIncidents.slice(0, 20).map(i => i.location.lat)
+              mapRef.current?.fitBounds([[Math.min(...lngs), Math.min(...lats)], [Math.max(...lngs), Math.max(...lats)]], { padding: 40, maxZoom: 15 })
+            }}
+            className="rounded-xl px-3 py-2 shadow-lg transition-colors"
+            style={{ background: 'var(--surface)', border: `1px solid ${filteredIncidents.length > 0 ? '#2d6fe8' : 'var(--border)'}`, cursor: filteredIncidents.length > 0 ? 'pointer' : 'default' }}>
+            <span className="text-xs font-semibold" style={{ color: filteredIncidents.length > 0 ? '#4f8ef7' : 'var(--muted)' }}>
+              {filteredIncidents.length} reports {filteredIncidents.length > 0 ? '→' : ''}
+            </span>
           </button>
           {/* Compass — inline at end of controls row, aligned right */}
           <button

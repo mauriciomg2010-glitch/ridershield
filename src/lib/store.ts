@@ -1,9 +1,10 @@
 // src/lib/store.ts
 import { create } from 'zustand'
-import { User, Group, Alert, EmergencyContacts } from '@/types'
+import { User, Incident, Group, Alert, EmergencyContacts } from '@/types'
 
 interface AppState {
   user: User | null
+  incidents: Incident[]
   groups: Group[]
   activeGroup: Group | null
   alerts: Alert[]
@@ -13,6 +14,7 @@ interface AppState {
   activeGroupId: string | null
 
   setUser: (user: User | null) => void
+  setIncidents: (incidents: Incident[]) => void
   setGroups: (groups: Group[]) => void
   addGroup: (group: Group) => void
   setActiveGroup: (group: Group | null) => void
@@ -27,6 +29,7 @@ interface AppState {
 
 export const useStore = create<AppState>((set) => ({
   user: null,
+  incidents: [],
   groups: [],
   activeGroup: null,
   alerts: [],
@@ -36,6 +39,7 @@ export const useStore = create<AppState>((set) => ({
   activeGroupId: null,
 
   setUser: (user) => set({ user, ...(user === null ? { emergencyContacts: null } : {}) }),
+  setIncidents: (incidents) => set({ incidents }),
   setGroups: (groups) => set({ groups }),
   addGroup: (group) =>
     set((state) => ({ groups: [group, ...state.groups] })),
