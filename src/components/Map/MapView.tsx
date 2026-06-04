@@ -454,6 +454,9 @@ export default function MapView({ groupMembers = [], currentUserId, groupId, onP
   const headingHistoryRef = useRef<number[]>([])
   const altRoutesRef = useRef<any[]>([])
   const selectedAltIdxRef = useRef(0)
+  // Timer ref for snap animations (re-center / route switch / nav start).
+  // Stored so any new gesture can cancel it before it fires navMapFreeRef = false.
+  const snapTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
 
   // Search
   const [showSearch, setShowSearch] = useState(false)
@@ -910,7 +913,7 @@ export default function MapView({ groupMembers = [], currentUserId, groupId, onP
       applyRoute(route)
       setNavTotalDist(route.distance)
       setIsNavigating(true)
-      navMapFreeRef.current = false
+      navMapFreeRef.current = true  // pause RAF so the flyTo intro plays uninterrupted
       setNavMapFree(false)
       setShowReCenter(false)
       // Turn off traffic layer — it's extremely heavy and unnecessary during navigation
@@ -932,8 +935,10 @@ export default function MapView({ groupMembers = [], currentUserId, groupId, onP
       const { lat: cLat, lng: cLng } = calcularCentroDeslocado(currentLocation.lat, currentLocation.lng, navBearing, NAV_ZOOM)
       mapRef.current?.flyTo({
         center: [cLng, cLat],
-        pitch: NAV_PITCH, zoom: NAV_ZOOM, bearing: navBearing, duration: 1200,
+        pitch: NAV_PITCH, zoom: NAV_ZOOM, bearing: navBearing, duration: 800,
       })
+      if (snapTimerRef.current !== null) clearTimeout(snapTimerRef.current)
+      snapTimerRef.current = setTimeout(() => { snapTimerRef.current = null; navMapFreeRef.current = false }, 800)
     } catch {
       setNavError('Erro ao calcular rota')
     }
@@ -999,10 +1004,21 @@ export default function MapView({ groupMembers = [], currentUserId, groupId, onP
     setNavTotalDist(route.distance)
     setNavRouteIdx(idx)
     setShowNavAlts(false)
-    navMapFreeRef.current = false
     setNavMapFree(false)
     setShowReCenter(false)
-    lastRafTsRef.current = 0  // reset so next RAF frame restarts smoothly
+    lastRafTsRef.current = 0
+    // Snap camera to rider and resume RAF after animation — keeps RAF paused during the 150ms snap
+    navMapFreeRef.current = true
+    const rcHeading = headingAtualRef.current
+    const rcZoom = calcularZoomPorVelocidade(rafNavStateRef.current.navSpeed)
+    const pos = posAtualRef.current.lat !== 0 ? posAtualRef.current : null
+    if (pos && mapRef.current) {
+      const { lat: rcLat, lng: rcLng } = calcularCentroDeslocado(pos.lat, pos.lng, rcHeading, rcZoom)
+      mapRef.current.stop()
+      mapRef.current.easeTo({ center: [rcLng, rcLat], bearing: rcHeading, pitch: NAV_PITCH, zoom: rcZoom, duration: 150 })
+    }
+    if (snapTimerRef.current !== null) clearTimeout(snapTimerRef.current)
+    snapTimerRef.current = setTimeout(() => { snapTimerRef.current = null; navMapFreeRef.current = false }, 160)
   }, [navAltRoutes, applyRoute])
 
   const goToCoords = useCallback((lat: number, lng: number) => {
@@ -1534,6 +1550,14 @@ export default function MapView({ groupMembers = [], currentUserId, groupId, onP
         mapboxAccessToken={process.env.NEXT_PUBLIC_MAPBOX_TOKEN}
         onClick={handleMapClick}
         onTouchStart={() => {
+          // Cancel any pending snap-timer so it doesn't resume RAF mid-gesture
+          if (snapTimerRef.current !== null) {
+            clearTimeout(snapTimerRef.current)
+            snapTimerRef.current = null
+            // Snap was in progress — keep map free and show re-center
+            if (navegandoRef.current) { setShowReCenter(true) }
+            return
+          }
           // Set ref synchronously on first touch so the RAF stops easeTo before React re-renders
           if (navegandoRef.current && !navMapFreeRef.current) {
             navMapFreeRef.current = true
@@ -1542,12 +1566,14 @@ export default function MapView({ groupMembers = [], currentUserId, groupId, onP
           }
         }}
         onDragStart={() => {
+          if (snapTimerRef.current !== null) { clearTimeout(snapTimerRef.current); snapTimerRef.current = null }
           if (!isNavigating) { autoFollowRef.current = false; setAutoFollow(false) }
           if (isNavigating) { navMapFreeRef.current = true; setNavMapFree(true); setShowReCenter(true) }
           if (tapTimerRef.current) { clearTimeout(tapTimerRef.current); tapTimerRef.current = null }
           setTappedLocation(null)
         }}
         onZoomStart={(e: any) => {
+          if (snapTimerRef.current !== null) { clearTimeout(snapTimerRef.current); snapTimerRef.current = null }
           if (isNavigating && e.originalEvent) { navMapFreeRef.current = true; setNavMapFree(true); setShowReCenter(true) }
         }}
         onZoomEnd={() => {
@@ -2782,13 +2808,18 @@ export default function MapView({ groupMembers = [], currentUserId, groupId, onP
         <button
           className="absolute z-[600]"
           onClick={() => {
-            navMapFreeRef.current = false
+            // Cancel any previous snap timer before starting a new one
+            if (snapTimerRef.current !== null) { clearTimeout(snapTimerRef.current); snapTimerRef.current = null }
+            // Keep navMapFreeRef = true during snap so RAF doesn't cancel the animation.
+            // navMapFreeRef is set to false by snapTimerRef after 160ms (once animation completes).
+            navMapFreeRef.current = true
             setNavMapFree(false)
             setShowReCenter(false)
             const rcHeading = headingAtualRef.current
             const rcZoom = calcularZoomPorVelocidade(navSpeed)
             const pos = posAtualRef.current.lat !== 0 ? posAtualRef.current : currentLocation
             const { lat: rcLat, lng: rcLng } = calcularCentroDeslocado(pos.lat, pos.lng, rcHeading, rcZoom)
+            mapRef.current?.stop()
             mapRef.current?.easeTo({
               center: [rcLng, rcLat],
               bearing: rcHeading,
@@ -2796,6 +2827,7 @@ export default function MapView({ groupMembers = [], currentUserId, groupId, onP
               zoom: rcZoom,
               duration: 150,
             })
+            snapTimerRef.current = setTimeout(() => { snapTimerRef.current = null; navMapFreeRef.current = false }, 160)
           }}
           style={{
             bottom: 128, left: 16,
