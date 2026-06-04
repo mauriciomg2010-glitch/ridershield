@@ -81,19 +81,19 @@ const zonesGeoJSON = {
 
 // ─── Camera constants — tune here if rider position needs adjustment ──────────
 const NAV_ZOOM    = 16.8  // zoom level during nav — lower = further back, more road ahead visible
-const NAV_PITCH   = 55    // 3D tilt — Waze-style perspective; raise toward 60 for more horizon
+const NAV_PITCH   = 62    // 3D tilt — Google Maps-style; try 65 for even more horizon
 const NAV_RIDER_Y = 0.68  // screen Y of rider (0=top, 1=bottom); maps directly to % of screen height
 
 // ---- Navigation helpers ----
 
-// Zoom adapts to speed
+// Zoom adapts to speed — low speed: close view; high speed: wide view ahead
 function calcularZoomPorVelocidade(speedKmh: number): number {
-  if (!speedKmh || speedKmh < 1) return 19
-  if (speedKmh < 5)              return 18.5
-  if (speedKmh < 12)             return 18
-  if (speedKmh < 25)             return 17.5
-  if (speedKmh < 50)             return 17
-  return 16
+  if (!speedKmh || speedKmh < 1) return 17.5   // stationary / very slow
+  if (speedKmh < 5)              return 17.2   // walking
+  if (speedKmh < 12)             return 17.0   // cycling
+  if (speedKmh < 25)             return 16.5   // e-bike / slow scooter
+  if (speedKmh < 50)             return 16.0   // scooter / motorcycle
+  return 15.5                                  // fast — maximum road-ahead view
 }
 
 // Moves camera center AHEAD of rider (+ sign) so rider appears in lower third.
