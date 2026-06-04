@@ -80,9 +80,9 @@ const zonesGeoJSON = {
 }
 
 // ─── Camera constants — tune here if rider position needs adjustment ──────────
-const NAV_ZOOM   = 18.5
-const NAV_PITCH  = 35     // 3D perspective tilt — field test: 35 gives better horizon visibility
-const NAV_RIDER_Y = 0.65  // 0 = top, 1 = base — 0.65 calibrated for pitch=35 (more road ahead visible)
+const NAV_ZOOM    = 18.5
+const NAV_PITCH   = 55    // 3D perspective tilt — Waze-style; try 60 if you want more horizon
+const NAV_RIDER_Y = 0.78  // 0 = top, 1 = base — rider in lower third of screen
 
 // ---- Navigation helpers ----
 
@@ -104,7 +104,8 @@ function calcularCentroDeslocado(
 ): { lat: number; lng: number } {
   const H = typeof window !== 'undefined' ? window.innerHeight : 844
   const mpp = (156543.03392 * Math.cos((lat * Math.PI) / 180)) / Math.pow(2, zoom)
-  const offsetM = (H * NAV_RIDER_Y - H / 2) * mpp  // pixels below screen-centre → metres ahead
+  const pitchCorrection = 1 / Math.cos(NAV_PITCH * Math.PI / 180)  // compensates perspective foreshortening; auto-updates with NAV_PITCH
+  const offsetM = (H * NAV_RIDER_Y - H / 2) * mpp * pitchCorrection  // pixels below screen-centre → metres ahead
   const rad = (bearingDeg * Math.PI) / 180
   return {
     lat: lat + (offsetM / 111320) * Math.cos(rad),                               // + = ahead
@@ -2725,11 +2726,12 @@ export default function MapView({ groupMembers = [], currentUserId, groupId, onP
             const rcZoom = calcularZoomPorVelocidade(navSpeed)
             const pos = posAtualRef.current.lat !== 0 ? posAtualRef.current : currentLocation
             const { lat: rcLat, lng: rcLng } = calcularCentroDeslocado(pos.lat, pos.lng, rcHeading, rcZoom)
-            mapRef.current?.jumpTo({
+            mapRef.current?.easeTo({
               center: [rcLng, rcLat],
               bearing: rcHeading,
               pitch: NAV_PITCH,
               zoom: rcZoom,
+              duration: 400,
             })
           }}
           style={{
