@@ -938,7 +938,12 @@ export default function MapView({ groupMembers = [], currentUserId, groupId, onP
         pitch: NAV_PITCH, zoom: NAV_ZOOM, bearing: navBearing, duration: 800,
       })
       if (snapTimerRef.current !== null) clearTimeout(snapTimerRef.current)
-      snapTimerRef.current = setTimeout(() => { snapTimerRef.current = null; navMapFreeRef.current = false }, 800)
+      snapTimerRef.current = setTimeout(() => {
+        snapTimerRef.current = null
+        const s = rafNavStateRef.current
+        headingAtualRef.current = s.northLocked ? 0 : (s.compassActive ? s.heading : s.navBearing)
+        navMapFreeRef.current = false
+      }, 800)
     } catch {
       setNavError('Erro ao calcular rota')
     }
@@ -2806,7 +2811,11 @@ export default function MapView({ groupMembers = [], currentUserId, groupId, onP
             navMapFreeRef.current = true
             setNavMapFree(false)
             setShowReCenter(false)
-            const rcHeading = headingAtualRef.current
+            // Force headingAtualRef to the live heading NOW so snap and RAF resume use the same value
+            const { northLocked: nl, compassActive: ca, heading: ch, navBearing: nb } = rafNavStateRef.current
+            const liveHeading = nl ? 0 : (ca ? ch : nb)
+            headingAtualRef.current = liveHeading
+            const rcHeading = liveHeading
             const rcZoom = calcularZoomPorVelocidade(navSpeed)
             const pos = posAtualRef.current.lat !== 0 ? posAtualRef.current : currentLocation
             const { lat: rcLat, lng: rcLng } = calcularCentroDeslocado(pos.lat, pos.lng, rcHeading, rcZoom)
@@ -2818,7 +2827,13 @@ export default function MapView({ groupMembers = [], currentUserId, groupId, onP
               zoom: rcZoom,
               duration: 150,
             })
-            snapTimerRef.current = setTimeout(() => { snapTimerRef.current = null; navMapFreeRef.current = false }, 160)
+            snapTimerRef.current = setTimeout(() => {
+              snapTimerRef.current = null
+              // Re-sync headingAtualRef to current heading so RAF resumes from the right bearing
+              const s = rafNavStateRef.current
+              headingAtualRef.current = s.northLocked ? 0 : (s.compassActive ? s.heading : s.navBearing)
+              navMapFreeRef.current = false
+            }, 160)
           }}
           style={{
             bottom: 128, left: 16,
