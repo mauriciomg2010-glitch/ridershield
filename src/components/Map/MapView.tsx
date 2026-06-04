@@ -80,9 +80,9 @@ const zonesGeoJSON = {
 }
 
 // ─── Camera constants — tune here if rider position needs adjustment ──────────
-const NAV_ZOOM    = 18.5
-const NAV_PITCH   = 55    // 3D perspective tilt — Waze-style; try 60 if you want more horizon
-const NAV_RIDER_Y = 0.78  // 0 = top, 1 = base — rider in lower third of screen
+const NAV_ZOOM    = 17.5  // zoom level during nav — lower = further back
+const NAV_PITCH   = 65    // 3D tilt — Waze-style; try 60 for less tilt, 70 for more horizon
+const NAV_RIDER_Y = 0.72  // screen Y of rider (0=top, 1=bottom); maps directly to % of screen height
 
 // ---- Navigation helpers ----
 
