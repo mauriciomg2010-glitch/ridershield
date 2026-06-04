@@ -80,9 +80,9 @@ const zonesGeoJSON = {
 }
 
 // ─── Camera constants — tune here if rider position needs adjustment ──────────
-const NAV_ZOOM    = 17.8  // zoom level during nav — lower = further back
-const NAV_PITCH   = 48    // 3D tilt — moderate Waze-style; raise toward 55-60 in small steps
-const NAV_RIDER_Y = 0.65  // screen Y of rider (0=top, 1=bottom); maps directly to % of screen height
+const NAV_ZOOM    = 16.8  // zoom level during nav — lower = further back, more road ahead visible
+const NAV_PITCH   = 55    // 3D tilt — Waze-style perspective; raise toward 60 for more horizon
+const NAV_RIDER_Y = 0.68  // screen Y of rider (0=top, 1=bottom); maps directly to % of screen height
 
 // ---- Navigation helpers ----
 
@@ -2731,7 +2731,7 @@ export default function MapView({ groupMembers = [], currentUserId, groupId, onP
               bearing: rcHeading,
               pitch: NAV_PITCH,
               zoom: rcZoom,
-              duration: 400,
+              duration: 150,
             })
           }}
           style={{
