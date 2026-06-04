@@ -482,14 +482,14 @@ export default function MapView({ groupMembers = [], currentUserId, groupId, onP
     localStorage.setItem('showZones', JSON.stringify(showZones))
   }, [showZones])
 
-  // Session start — only show incidents created after the app opened (prevents startup flicker)
-  const sessionStartRef = useRef(new Date())
+  // 24h cutoff — stable reference so the effect doesn't restart on every render
+  const incidentCutoff = useMemo(() => new Date(Date.now() - 24 * 3600 * 1000), [])
 
-  // Subscribe to incidents from this session onwards — does NOT show old reports on app open
+  // Subscribe to all incidents from the last 24h — visible to all users, survives refresh
   useEffect(() => {
     setIncidents([])
-    return subscribeToIncidents(setIncidents, sessionStartRef.current)
-  }, [setIncidents])
+    return subscribeToIncidents(setIncidents, incidentCutoff)
+  }, [setIncidents, incidentCutoff])
 
   // Subscribe to Firestore risk_zones — when shield is on OR zones modal is open, and not navigating
   useEffect(() => {
