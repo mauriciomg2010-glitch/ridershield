@@ -82,7 +82,7 @@ const zonesGeoJSON = {
 // ─── Camera constants — tune here if rider position needs adjustment ──────────
 const NAV_ZOOM    = 16.8  // zoom level during nav — lower = further back, more road ahead visible
 const NAV_PITCH   = 62    // 3D tilt — Google Maps-style; try 65 for even more horizon
-const NAV_RIDER_Y = 0.71  // screen Y of rider (0=top, 1=bottom); maps directly to % of screen height
+const NAV_RIDER_Y = 0.78  // screen Y of rider (0=top, 1=bottom); tune here — with pitchCorrection=1.0 this gives ~76% of screen height at pitch=62°
 
 // ---- Navigation helpers ----
 
@@ -2143,22 +2143,6 @@ export default function MapView({ groupMembers = [], currentUserId, groupId, onP
           )
         })}
       </Map>
-
-      {/* ── DEBUG: fixed-position arrow — confirms SVG renders independent of Mapbox projection ──
-          If this gold arrow appears at bottom-center during navigation, pitchCorrection fix worked.
-          Remove this block once arrow visibility is confirmed on-device. */}
-      {isNavigating && (
-        <div style={{
-          position: 'fixed', bottom: 180, left: '50%',
-          transform: 'translateX(-50%) translateX(60px)',
-          zIndex: 99999, pointerEvents: 'none',
-          background: 'rgba(0,0,0,0.6)', borderRadius: 8, padding: 4,
-        }}>
-          <svg width="36" height="36" viewBox="0 0 48 48">
-            <polygon points="24,4 38,40 24,33 10,40" fill="#f59e0b" stroke="white" strokeWidth="2"/>
-          </svg>
-        </div>
-      )}
 
       {/* Transport mode selector (full-screen overlay) */}
       {showModeSelector && pendingNavDest && currentLocation && (
