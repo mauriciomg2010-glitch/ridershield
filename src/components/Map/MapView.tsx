@@ -104,7 +104,7 @@ function calcularCentroDeslocado(
 ): { lat: number; lng: number } {
   const H = typeof window !== 'undefined' ? window.innerHeight : 844
   const mpp = (156543.03392 * Math.cos((lat * Math.PI) / 180)) / Math.pow(2, zoom)
-  const pitchCorrection = 1 / Math.cos(NAV_PITCH * Math.PI / 180)  // compensates perspective foreshortening; auto-updates with NAV_PITCH
+  const pitchCorrection = 1  // 1/cos overshoots the near-frustum at pitch≥62° (arrow off-screen); cos undershoots to center; 1.0 is empirically correct
   const offsetM = (H * NAV_RIDER_Y - H / 2) * mpp * pitchCorrection  // pixels below screen-centre → metres ahead
   const rad = (bearingDeg * Math.PI) / 180
   return {
@@ -2143,6 +2143,22 @@ export default function MapView({ groupMembers = [], currentUserId, groupId, onP
           )
         })}
       </Map>
+
+      {/* ── DEBUG: fixed-position arrow — confirms SVG renders independent of Mapbox projection ──
+          If this gold arrow appears at bottom-center during navigation, pitchCorrection fix worked.
+          Remove this block once arrow visibility is confirmed on-device. */}
+      {isNavigating && (
+        <div style={{
+          position: 'fixed', bottom: 180, left: '50%',
+          transform: 'translateX(-50%) translateX(60px)',
+          zIndex: 99999, pointerEvents: 'none',
+          background: 'rgba(0,0,0,0.6)', borderRadius: 8, padding: 4,
+        }}>
+          <svg width="36" height="36" viewBox="0 0 48 48">
+            <polygon points="24,4 38,40 24,33 10,40" fill="#f59e0b" stroke="white" strokeWidth="2"/>
+          </svg>
+        </div>
+      )}
 
       {/* Transport mode selector (full-screen overlay) */}
       {showModeSelector && pendingNavDest && currentLocation && (
