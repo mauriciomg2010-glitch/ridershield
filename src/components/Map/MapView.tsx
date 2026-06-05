@@ -1012,6 +1012,9 @@ export default function MapView({ groupMembers = [], currentUserId, groupId, onP
     setNavRouteIdx(idx)
     setShowNavAlts(false)
     lastRafTsRef.current = 0
+    // Prime headingAtualRef to the live heading so re-center snaps to the correct bearing
+    const s = rafNavStateRef.current
+    headingAtualRef.current = s.northLocked ? 0 : (s.compassActive ? s.heading : s.navBearing)
     // Keep camera free — user stays in the zoomed-out/exploring view they were in.
     // RAF stays paused; re-center is the only way back to follow mode.
     navMapFreeRef.current = true
@@ -1574,10 +1577,10 @@ export default function MapView({ groupMembers = [], currentUserId, groupId, onP
           if (e.originalEvent && snapTimerRef.current !== null) { clearTimeout(snapTimerRef.current); snapTimerRef.current = null }
           if (isNavigating && e.originalEvent) { navMapFreeRef.current = true; setNavMapFree(true); setShowReCenter(true) }
         }}
-        onZoomEnd={() => {
+        onZoomEnd={(e: any) => {
           const z = mapRef.current?.getZoom() ?? 14
           setCurrentZoom(z)
-          if (isNavigating) setShowNavAlts(z < 14.5)
+          if (isNavigating && e.originalEvent) setShowNavAlts(z < 14.5)
         }}
         onMoveEnd={(e: any) => {
           if (searchCategory && !isNavigating && e.originalEvent) setShowSearchArea(true)
