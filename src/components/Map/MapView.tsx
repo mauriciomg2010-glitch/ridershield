@@ -458,6 +458,9 @@ export default function MapView({ groupMembers = [], currentUserId, groupId, onP
   // Timer ref for snap animations (re-center / route switch / nav start).
   // Stored so any new gesture can cancel it before it fires navMapFreeRef = false.
   const snapTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  // True while a resumeFollow() snap is in progress — prevents the button-tap touch event
+  // from bubbling to the map and accidentally cancelling the snap timer it just started.
+  const snapFromResumeRef = useRef(false)
 
   // Search
   const [showSearch, setShowSearch] = useState(false)
@@ -1280,6 +1283,33 @@ export default function MapView({ groupMembers = [], currentUserId, groupId, onP
     })
   }, [])
 
+  // Single source of truth for resuming follow-mode after any free-camera interaction.
+  // All paths that need to re-engage the RAF camera (re-center button, post-route-switch,
+  // etc.) must call this — never inline the logic again.
+  const resumeFollow = useCallback(() => {
+    if (snapTimerRef.current !== null) { clearTimeout(snapTimerRef.current); snapTimerRef.current = null }
+    const s = rafNavStateRef.current
+    const liveHeading = s.northLocked ? 0 : (s.compassActive ? s.heading : s.navBearing)
+    headingAtualRef.current = liveHeading
+    const zoom = calcularZoomPorVelocidade(s.navSpeed)
+    const pos = posAtualRef.current.lat !== 0 ? posAtualRef.current : currentLocation
+    if (!pos || pos.lat === 0) return
+    const { lat: rcLat, lng: rcLng } = calcularCentroDeslocado(pos.lat, pos.lng, liveHeading, zoom)
+    navMapFreeRef.current = true          // keep true during animation so RAF doesn't fight easeTo
+    setNavMapFree(false)
+    setShowReCenter(false)
+    mapRef.current?.stop()
+    mapRef.current?.easeTo({ center: [rcLng, rcLat], bearing: liveHeading, pitch: NAV_PITCH, zoom, duration: 150 })
+    snapFromResumeRef.current = true      // block accidental touch/drag/zoom from killing this timer
+    snapTimerRef.current = setTimeout(() => {
+      snapTimerRef.current = null
+      snapFromResumeRef.current = false
+      const s2 = rafNavStateRef.current
+      headingAtualRef.current = s2.northLocked ? 0 : (s2.compassActive ? s2.heading : s2.navBearing)
+      navMapFreeRef.current = false
+    }, 160)
+  }, [currentLocation])
+
   const CATEGORY_SUGGEST_TERMS: Record<string, string> = {
     charging: 'ev charging station electric vehicle',
     cafe: 'cafe coffee',
@@ -1551,15 +1581,14 @@ export default function MapView({ groupMembers = [], currentUserId, groupId, onP
         mapboxAccessToken={process.env.NEXT_PUBLIC_MAPBOX_TOKEN}
         onClick={handleMapClick}
         onTouchStart={() => {
-          // Cancel any pending snap-timer so it doesn't resume RAF mid-gesture
           if (snapTimerRef.current !== null) {
+            // Re-center button tap bubbles here — don't cancel the snap we just started
+            if (snapFromResumeRef.current) return
             clearTimeout(snapTimerRef.current)
             snapTimerRef.current = null
-            // Snap was in progress — keep map free and show re-center
             if (navegandoRef.current) { setShowReCenter(true) }
             return
           }
-          // Set ref synchronously on first touch so the RAF stops easeTo before React re-renders
           if (navegandoRef.current && !navMapFreeRef.current) {
             navMapFreeRef.current = true
             setNavMapFree(true)
@@ -1567,14 +1596,20 @@ export default function MapView({ groupMembers = [], currentUserId, groupId, onP
           }
         }}
         onDragStart={() => {
-          if (snapTimerRef.current !== null) { clearTimeout(snapTimerRef.current); snapTimerRef.current = null }
+          // Don't cancel a resumeFollow snap in progress (only 160ms window, accidental during tap)
+          if (snapTimerRef.current !== null && !snapFromResumeRef.current) {
+            clearTimeout(snapTimerRef.current); snapTimerRef.current = null
+          }
           if (!isNavigating) { autoFollowRef.current = false; setAutoFollow(false) }
           if (isNavigating) { navMapFreeRef.current = true; setNavMapFree(true); setShowReCenter(true) }
           if (tapTimerRef.current) { clearTimeout(tapTimerRef.current); tapTimerRef.current = null }
           setTappedLocation(null)
         }}
         onZoomStart={(e: any) => {
-          if (e.originalEvent && snapTimerRef.current !== null) { clearTimeout(snapTimerRef.current); snapTimerRef.current = null }
+          // Cancel only user-initiated zooms; never cancel a resumeFollow snap
+          if (e.originalEvent && snapTimerRef.current !== null && !snapFromResumeRef.current) {
+            clearTimeout(snapTimerRef.current); snapTimerRef.current = null
+          }
           if (isNavigating && e.originalEvent) { navMapFreeRef.current = true; setNavMapFree(true); setShowReCenter(true) }
         }}
         onZoomEnd={(e: any) => {
@@ -2808,38 +2843,7 @@ export default function MapView({ groupMembers = [], currentUserId, groupId, onP
       {showReCenter && isNavigating && currentLocation && !showQuickReport && !externalReportOpen && (
         <button
           className="absolute z-[600]"
-          onClick={() => {
-            // Cancel any previous snap timer before starting a new one
-            if (snapTimerRef.current !== null) { clearTimeout(snapTimerRef.current); snapTimerRef.current = null }
-            // Keep navMapFreeRef = true during snap so RAF doesn't cancel the animation.
-            // navMapFreeRef is set to false by snapTimerRef after 160ms (once animation completes).
-            navMapFreeRef.current = true
-            setNavMapFree(false)
-            setShowReCenter(false)
-            // Force headingAtualRef to the live heading NOW so snap and RAF resume use the same value
-            const { northLocked: nl, compassActive: ca, heading: ch, navBearing: nb } = rafNavStateRef.current
-            const liveHeading = nl ? 0 : (ca ? ch : nb)
-            headingAtualRef.current = liveHeading
-            const rcHeading = liveHeading
-            const rcZoom = calcularZoomPorVelocidade(navSpeed)
-            const pos = posAtualRef.current.lat !== 0 ? posAtualRef.current : currentLocation
-            const { lat: rcLat, lng: rcLng } = calcularCentroDeslocado(pos.lat, pos.lng, rcHeading, rcZoom)
-            mapRef.current?.stop()
-            mapRef.current?.easeTo({
-              center: [rcLng, rcLat],
-              bearing: rcHeading,
-              pitch: NAV_PITCH,
-              zoom: rcZoom,
-              duration: 150,
-            })
-            snapTimerRef.current = setTimeout(() => {
-              snapTimerRef.current = null
-              // Re-sync headingAtualRef to current heading so RAF resumes from the right bearing
-              const s = rafNavStateRef.current
-              headingAtualRef.current = s.northLocked ? 0 : (s.compassActive ? s.heading : s.navBearing)
-              navMapFreeRef.current = false
-            }, 160)
-          }}
+          onClick={resumeFollow}
           style={{
             bottom: 128, left: 16,
             background: 'var(--surface)', border: '1px solid var(--border)',
