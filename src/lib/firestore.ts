@@ -259,9 +259,28 @@ export function subscribeToIncidents(
         userId: data.userId,
         userName: data.userName,
         upvotes: data.upvotes ?? 0,
+        confirmations: data.confirmations ?? 0,
+        denials: data.denials ?? 0,
+        voters: data.voters ?? [],
       }
     })
     callback(incidents)
+  })
+}
+
+// Vote on an incident report (community confirmation/denial).
+// Guards on client: only called if !voters.includes(uid).
+// Guards on server: Firestore rule blocks update if uid already in voters array.
+// arrayUnion is idempotent — even if called twice, uid appears once in voters.
+export async function voteIncident(
+  incidentId: string,
+  userId: string,
+  vote: 'confirm' | 'deny'
+): Promise<void> {
+  const incRef = doc(db, 'incidents', incidentId)
+  await updateDoc(incRef, {
+    [vote === 'confirm' ? 'confirmations' : 'denials']: increment(1),
+    voters: arrayUnion(userId),
   })
 }
 

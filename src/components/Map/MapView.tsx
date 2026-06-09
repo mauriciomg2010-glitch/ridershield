@@ -11,7 +11,7 @@ import Map, { Source, Layer, Marker } from 'react-map-gl/mapbox'
 import type { MapRef } from 'react-map-gl/mapbox'
 import 'mapbox-gl/dist/mapbox-gl.css'
 import { useStore } from '@/lib/store'
-import { subscribeToIncidents, subscribeToGlobalPresence, reportIncident } from '@/lib/firestore'
+import { subscribeToIncidents, subscribeToGlobalPresence, reportIncident, voteIncident } from '@/lib/firestore'
 import { INCIDENT_TYPES as QUICK_REPORT_TYPES } from '@/data/incidentTypes'
 import { useLang } from '@/contexts/LangContext'
 import { useTheme } from '@/contexts/ThemeContext'
@@ -58,6 +58,23 @@ const WEATHER_ICONS: Record<string, string> = {
 // Hardcoded zones cleared — map is clean by default.
 // All zones come from Firestore (created via Admin ZoneEditor).
 export const RISK_ZONES: RiskZone[] = []
+
+function metersBetweenLocal(a: { lat: number; lng: number }, b: { lat: number; lng: number }): number {
+  const R = 6371000
+  const dLat = (b.lat - a.lat) * Math.PI / 180
+  const dLng = (b.lng - a.lng) * Math.PI / 180
+  const aa = Math.sin(dLat / 2) ** 2 + Math.cos(a.lat * Math.PI / 180) * Math.cos(b.lat * Math.PI / 180) * Math.sin(dLng / 2) ** 2
+  return R * 2 * Math.atan2(Math.sqrt(aa), Math.sqrt(1 - aa))
+}
+
+function bearingBetween(a: { lat: number; lng: number }, b: { lat: number; lng: number }): number {
+  const dLng = (b.lng - a.lng) * Math.PI / 180
+  const lat1 = a.lat * Math.PI / 180
+  const lat2 = b.lat * Math.PI / 180
+  const y = Math.sin(dLng) * Math.cos(lat2)
+  const x = Math.cos(lat1) * Math.sin(lat2) - Math.sin(lat1) * Math.cos(lat2) * Math.cos(dLng)
+  return ((Math.atan2(y, x) * 180 / Math.PI) + 360) % 360
+}
 
 const ZONE_COLORS = {
   high: { fill: '#ef4444', stroke: '#dc2626' },
@@ -433,6 +450,8 @@ export default function MapView({ groupMembers = [], currentUserId, groupId, onP
   const [zoneAlert, setZoneAlert] = useState<{ zone: any; dist: number } | null>(null)
   const alertedZonesRef = useRef<Set<string>>(new Set())
   const zoneAlertTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const [nearbyIncident, setNearbyIncident] = useState<Incident | null>(null)
+  const alertedIncidentIdsRef = useRef<Set<string>>(new Set())
 
   // Nav alternative routes (preserved across mode-selector close)
   const [navAltRoutes, setNavAltRoutes] = useState<any[]>([])
@@ -510,7 +529,10 @@ export default function MapView({ groupMembers = [], currentUserId, groupId, onP
   }, [showZones, showZonesModal, isNavigating])
 
   const filteredIncidents = useMemo(
-    () => incidents.filter(i => i.timestamp.getTime() > Date.now() - timeFilter * 3600000),
+    () => incidents.filter(i =>
+      i.timestamp.getTime() > Date.now() - timeFilter * 3600000
+      && (i.denials ?? 0) < 3
+    ),
     [incidents, timeFilter]
   )
 
@@ -983,6 +1005,8 @@ export default function MapView({ groupMembers = [], currentUserId, groupId, onP
     headingHistoryRef.current = []
     setTappedLocation(null)
     setSelectedPermZone(null)
+    setNearbyIncident(null)
+    alertedIncidentIdsRef.current = new Set()
 
     if (restoreDest && restoreRoutes.length > 0) {
       // Restore pre-navigation view: reopen mode selector with saved routes + fitBounds
@@ -1244,8 +1268,46 @@ export default function MapView({ groupMembers = [], currentUserId, groupId, onP
 
   // Clear alert refs when navigation ends
   useEffect(() => {
-    if (!isNavigating) { alertedZonesRef.current = new Set(); setZoneAlert(null) }
+    if (!isNavigating) {
+      alertedZonesRef.current = new Set()
+      setZoneAlert(null)
+      alertedIncidentIdsRef.current = new Set()
+      setNearbyIncident(null)
+    }
   }, [isNavigating])
+
+  // Incident proximity alerts during navigation — only reports from other riders, only ahead
+  useEffect(() => {
+    if (!isNavigating || !currentLocation || !currentUserId) return
+    const pos = posAtualRef.current.lat !== 0 ? posAtualRef.current : currentLocation
+    const bearing = northLocked ? 0 : (compassActive ? heading : navBearing)
+
+    // Dismiss current alert if rider has passed it
+    if (nearbyIncident) {
+      const dist = metersBetweenLocal(pos, nearbyIncident.location)
+      const brg = bearingBetween(pos, nearbyIncident.location)
+      const diff = Math.abs(((brg - bearing + 540) % 360) - 180)
+      if (dist > 250 || diff > 90) setNearbyIncident(null)
+      return
+    }
+
+    for (const inc of filteredIncidents) {
+      if (inc.userId === currentUserId) continue
+      if (alertedIncidentIdsRef.current.has(inc.id)) continue
+      if ((inc.voters ?? []).includes(currentUserId)) continue
+
+      const dist = metersBetweenLocal(pos, inc.location)
+      if (dist > 150) continue
+
+      const brg = bearingBetween(pos, inc.location)
+      const diff = Math.abs(((brg - bearing + 540) % 360) - 180)
+      if (diff > 90) continue
+
+      setNearbyIncident(inc)
+      alertedIncidentIdsRef.current.add(inc.id)
+      break
+    }
+  }, [currentLocation, isNavigating, filteredIncidents, navBearing, heading, northLocked, compassActive, currentUserId, nearbyIncident])
 
   // Refresh congestion data every 60s during navigation
   navRefreshRef.current = { dest: navDest, profile: routeProfile, loc: currentLocation }
@@ -2240,6 +2302,13 @@ export default function MapView({ groupMembers = [], currentUserId, groupId, onP
         speed={navSpeed}
         heading={heading}
         hideControls={showQuickReport || externalReportOpen}
+        nearbyIncident={nearbyIncident}
+        currentUserId={currentUserId}
+        onVoteIncident={async (id, vote) => {
+          if (!currentUserId) return
+          setNearbyIncident(null)
+          await voteIncident(id, currentUserId, vote)
+        }}
       />
 
       {/* Floating report button — outside navigation, right side */}

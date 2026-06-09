@@ -2,6 +2,17 @@
 'use client'
 import { useEffect, useRef, useCallback, useState } from 'react'
 import { getModeIcon } from '@/components/Map/TransportModeSelector'
+import { INCIDENT_TYPES } from '@/data/incidentTypes'
+import { Incident } from '@/types'
+
+function timeAgo(d: Date): string {
+  const mins = Math.floor((Date.now() - d.getTime()) / 60000)
+  if (mins < 1) return 'agora mesmo'
+  if (mins === 1) return 'há 1 min'
+  if (mins < 60) return `há ${mins} min`
+  const h = Math.floor(mins / 60)
+  return h === 1 ? 'há 1h' : `há ${h}h`
+}
 
 function traduzirInstrucao(type: string, modifier: string | undefined, street: string | undefined, distMetros: number): string {
   const dist = distMetros >= 1000
@@ -66,6 +77,9 @@ interface Props {
   speed?: number
   heading?: number
   hideControls?: boolean
+  nearbyIncident?: Incident | null
+  currentUserId?: string
+  onVoteIncident?: (id: string, vote: 'confirm' | 'deny') => void
 }
 
 export default function NavigationScreen({
@@ -88,11 +102,15 @@ export default function NavigationScreen({
   speed = 0,
   heading = 0,
   hideControls = false,
+  nearbyIncident = null,
+  currentUserId,
+  onVoteIncident,
 }: Props) {
   const prevInstructionRef = useRef<string | null>(null)
   const distToNextRef = useRef(0)
   distToNextRef.current = distToNext
   const [muted, setMuted] = useState(false)
+  const [voting, setVoting] = useState(false)
   // Cache voices — on mobile they load asynchronously after mount
   const voicesRef = useRef<SpeechSynthesisVoice[]>([])
 
@@ -167,6 +185,11 @@ export default function NavigationScreen({
     }
     return () => { window.speechSynthesis?.cancel() }
   }, [isNavigating])
+
+  // Reset voting state when incident panel closes
+  useEffect(() => {
+    if (!nearbyIncident) setVoting(false)
+  }, [nearbyIncident])
 
   if (!isNavigating) return null
 
@@ -328,35 +351,110 @@ export default function NavigationScreen({
         {/* Report button moved to bottom-right standalone position below */}
       </div>}
 
-      {/* Bottom bar */}
+      {/* Bottom bar — expands upward when a nearby incident is detected */}
       <div className="absolute z-[600]" style={{ bottom: '12px', left: '12px', right: '12px' }}>
         <div style={{
           background: 'var(--surface)',
-          border: '1px solid var(--border)',
+          border: `1px solid ${nearbyIncident ? '#f59e0b' : 'var(--border)'}`,
           borderRadius: 16,
-          padding: '12px 16px',
-          display: 'flex', alignItems: 'center', gap: 12,
-          boxShadow: '0 4px 20px rgba(0,0,0,0.3)',
+          overflow: 'hidden',
+          boxShadow: nearbyIncident
+            ? '0 4px 24px rgba(245,158,11,0.35)'
+            : '0 4px 20px rgba(0,0,0,0.3)',
+          transition: 'border-color 0.3s ease, box-shadow 0.3s ease',
         }}>
-          <div>
-            <div style={{ fontSize: 20, fontWeight: 700, color: 'var(--text)', lineHeight: 1 }}>
-              {remainingDist > 1000
-                ? `${(remainingDist / 1000).toFixed(1)}km`
-                : `${Math.round(remainingDist)}m`}
+          {/* Incident confirmation panel — animates in/out */}
+          {(() => {
+            const incType = nearbyIncident
+              ? INCIDENT_TYPES.find(t => t.id === nearbyIncident.type)
+              : null
+            return (
+              <div style={{
+                maxHeight: nearbyIncident ? '120px' : '0px',
+                overflow: 'hidden',
+                transition: 'max-height 0.3s ease',
+              }}>
+                <div style={{ padding: '12px 16px 0' }}>
+                  {/* Header row */}
+                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 10 }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                      <span style={{ fontSize: 18 }}>{incType?.emoji ?? '⚠️'}</span>
+                      <span style={{ fontSize: 14, fontWeight: 700, color: 'var(--text)' }}>
+                        {incType?.label ?? 'Incidente'}
+                      </span>
+                    </div>
+                    <span style={{ fontSize: 11, color: 'var(--muted)' }}>
+                      {nearbyIncident ? timeAgo(nearbyIncident.timestamp) : ''}
+                    </span>
+                  </div>
+                  {/* Vote buttons */}
+                  <div style={{ display: 'flex', gap: 8, marginBottom: 12 }}>
+                    <button
+                      disabled={voting}
+                      onClick={async () => {
+                        if (!nearbyIncident || !onVoteIncident || voting) return
+                        setVoting(true)
+                        await onVoteIncident(nearbyIncident.id, 'confirm')
+                        setVoting(false)
+                      }}
+                      style={{
+                        flex: 1, padding: '8px 0', borderRadius: 10, border: 'none',
+                        background: voting ? 'rgba(34,197,94,0.1)' : '#16a34a',
+                        color: voting ? '#16a34a' : 'white',
+                        fontWeight: 700, fontSize: 13, cursor: voting ? 'default' : 'pointer',
+                        transition: 'background 0.2s',
+                      }}
+                    >
+                      ✓ Ainda está
+                    </button>
+                    <button
+                      disabled={voting}
+                      onClick={async () => {
+                        if (!nearbyIncident || !onVoteIncident || voting) return
+                        setVoting(true)
+                        await onVoteIncident(nearbyIncident.id, 'deny')
+                        setVoting(false)
+                      }}
+                      style={{
+                        flex: 1, padding: '8px 0', borderRadius: 10, border: 'none',
+                        background: voting ? 'rgba(239,68,68,0.1)' : '#dc2626',
+                        color: voting ? '#dc2626' : 'white',
+                        fontWeight: 700, fontSize: 13, cursor: voting ? 'default' : 'pointer',
+                        transition: 'background 0.2s',
+                      }}
+                    >
+                      ✗ Já saiu
+                    </button>
+                  </div>
+                  {/* Divider */}
+                  <div style={{ height: 1, background: 'var(--border)', marginLeft: -16, marginRight: -16 }} />
+                </div>
+              </div>
+            )
+          })()}
+
+          {/* Distance / ETA / Cancel row — always visible */}
+          <div style={{ padding: '12px 16px', display: 'flex', alignItems: 'center', gap: 12 }}>
+            <div>
+              <div style={{ fontSize: 20, fontWeight: 700, color: 'var(--text)', lineHeight: 1 }}>
+                {remainingDist > 1000
+                  ? `${(remainingDist / 1000).toFixed(1)}km`
+                  : `${Math.round(remainingDist)}m`}
+              </div>
+              <div style={{ fontSize: 12, color: 'var(--muted)', marginTop: 2 }}>{navEta} min · Chega às {arrivalStr}</div>
             </div>
-            <div style={{ fontSize: 12, color: 'var(--muted)', marginTop: 2 }}>{navEta} min · Chega às {arrivalStr}</div>
+            <div style={{ flex: 1 }} />
+            <button
+              onClick={onCancel}
+              style={{
+                background: '#ef4444', border: 'none', borderRadius: 12,
+                padding: '9px 20px', color: 'white', fontWeight: 700,
+                fontSize: 13, cursor: 'pointer',
+              }}
+            >
+              Cancelar
+            </button>
           </div>
-          <div style={{ flex: 1 }} />
-          <button
-            onClick={onCancel}
-            style={{
-              background: '#ef4444', border: 'none', borderRadius: 12,
-              padding: '9px 20px', color: 'white', fontWeight: 700,
-              fontSize: 13, cursor: 'pointer',
-            }}
-          >
-            Cancelar
-          </button>
         </div>
       </div>
 

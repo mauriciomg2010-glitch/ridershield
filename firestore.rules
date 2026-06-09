@@ -14,11 +14,17 @@ service cloud.firestore {
     }
 
     // Incidents: authenticated users can read and create their own
+    // Update: owner can update freely; non-owners can vote only if they haven't voted yet
     match /incidents/{incidentId} {
       allow read: if request.auth != null;
       allow create: if request.auth != null
         && request.resource.data.userId == request.auth.uid;
-      allow update: if request.auth != null;
+      allow update: if request.auth != null
+        && (
+          resource.data.userId == request.auth.uid
+          || !('voters' in resource.data)
+          || !(request.auth.uid in resource.data.voters)
+        );
       allow delete: if request.auth != null;
     }
 

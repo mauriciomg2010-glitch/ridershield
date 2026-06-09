@@ -37,6 +37,9 @@ export interface Incident {
   userId: string
   userName?: string
   upvotes: number
+  confirmations?: number
+  denials?: number
+  voters?: string[]
 }
 
 export interface Group {
