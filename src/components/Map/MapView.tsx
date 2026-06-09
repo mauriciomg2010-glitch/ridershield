@@ -452,6 +452,8 @@ export default function MapView({ groupMembers = [], currentUserId, groupId, onP
   const zoneAlertTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const [nearbyIncident, setNearbyIncident] = useState<Incident | null>(null)
   const alertedIncidentIdsRef = useRef<Set<string>>(new Set())
+  const prevExternalReportRef = useRef(false)
+  const prevSelectedPermZoneRef = useRef<typeof selectedPermZone>(null)
 
   // Nav alternative routes (preserved across mode-selector close)
   const [navAltRoutes, setNavAltRoutes] = useState<any[]>([])
@@ -1031,6 +1033,33 @@ export default function MapView({ groupMembers = [], currentUserId, groupId, onP
     }
   }, [navDest, navAltRoutes, navRouteIdx, stopCompass])
 
+  // Single source of truth for resuming follow-mode after any free-camera interaction.
+  // All paths that need to re-engage the RAF camera (re-center button, post-route-switch,
+  // etc.) must call this — never inline the logic again.
+  const resumeFollow = useCallback(() => {
+    if (snapTimerRef.current !== null) { clearTimeout(snapTimerRef.current); snapTimerRef.current = null }
+    const s = rafNavStateRef.current
+    const liveHeading = s.northLocked ? 0 : (s.compassActive ? s.heading : s.navBearing)
+    headingAtualRef.current = liveHeading
+    const zoom = calcularZoomPorVelocidade(s.navSpeed)
+    const pos = posAtualRef.current.lat !== 0 ? posAtualRef.current : currentLocation
+    if (!pos || pos.lat === 0) return
+    const { lat: rcLat, lng: rcLng } = calcularCentroDeslocado(pos.lat, pos.lng, liveHeading, zoom)
+    navMapFreeRef.current = true          // keep true during animation so RAF doesn't fight easeTo
+    setNavMapFree(false)
+    setShowReCenter(false)
+    mapRef.current?.stop()
+    mapRef.current?.easeTo({ center: [rcLng, rcLat], bearing: liveHeading, pitch: NAV_PITCH, zoom, duration: 150 })
+    snapFromResumeRef.current = true      // block accidental touch/drag/zoom from killing this timer
+    snapTimerRef.current = setTimeout(() => {
+      snapTimerRef.current = null
+      snapFromResumeRef.current = false
+      const s2 = rafNavStateRef.current
+      headingAtualRef.current = s2.northLocked ? 0 : (s2.compassActive ? s2.heading : s2.navBearing)
+      navMapFreeRef.current = false
+    }, 160)
+  }, [currentLocation])
+
   const switchNavRoute = useCallback((idx: number) => {
     const route = navAltRoutes[idx]
     if (!route) return
@@ -1039,15 +1068,10 @@ export default function MapView({ groupMembers = [], currentUserId, groupId, onP
     setNavRouteIdx(idx)
     setShowNavAlts(false)
     lastRafTsRef.current = 0
-    // Prime headingAtualRef to the live heading so re-center snaps to the correct bearing
-    const s = rafNavStateRef.current
-    headingAtualRef.current = s.northLocked ? 0 : (s.compassActive ? s.heading : s.navBearing)
-    // Keep camera free — user stays in the zoomed-out/exploring view they were in.
-    // RAF stays paused; re-center is the only way back to follow mode.
-    navMapFreeRef.current = true
-    setNavMapFree(true)
-    setShowReCenter(true)
-  }, [navAltRoutes, applyRoute])
+    // Re-engage follow mode immediately on route switch (Waze-like behaviour:
+    // camera follows rider on new route without requiring manual re-center).
+    resumeFollow()
+  }, [navAltRoutes, applyRoute, resumeFollow])
 
   const goToCoords = useCallback((lat: number, lng: number) => {
     setShowSearch(false)
@@ -1276,6 +1300,20 @@ export default function MapView({ groupMembers = [], currentUserId, groupId, onP
     }
   }, [isNavigating])
 
+  // Re-engage follow mode when external report modal closes during navigation
+  useEffect(() => {
+    const wasOpen = prevExternalReportRef.current
+    prevExternalReportRef.current = externalReportOpen
+    if (wasOpen && !externalReportOpen && navegandoRef.current) resumeFollow()
+  }, [externalReportOpen, resumeFollow])
+
+  // Re-engage follow mode when zone popup is dismissed during navigation
+  useEffect(() => {
+    const was = prevSelectedPermZoneRef.current
+    prevSelectedPermZoneRef.current = selectedPermZone
+    if (was && !selectedPermZone && navegandoRef.current) resumeFollow()
+  }, [selectedPermZone, resumeFollow])
+
   // Incident proximity alerts during navigation — only reports from other riders, only ahead
   useEffect(() => {
     if (!isNavigating || !currentLocation || !currentUserId) return
@@ -1343,34 +1381,11 @@ export default function MapView({ groupMembers = [], currentUserId, groupId, onP
       }
       return next
     })
-  }, [])
-
-  // Single source of truth for resuming follow-mode after any free-camera interaction.
-  // All paths that need to re-engage the RAF camera (re-center button, post-route-switch,
-  // etc.) must call this — never inline the logic again.
-  const resumeFollow = useCallback(() => {
-    if (snapTimerRef.current !== null) { clearTimeout(snapTimerRef.current); snapTimerRef.current = null }
-    const s = rafNavStateRef.current
-    const liveHeading = s.northLocked ? 0 : (s.compassActive ? s.heading : s.navBearing)
-    headingAtualRef.current = liveHeading
-    const zoom = calcularZoomPorVelocidade(s.navSpeed)
-    const pos = posAtualRef.current.lat !== 0 ? posAtualRef.current : currentLocation
-    if (!pos || pos.lat === 0) return
-    const { lat: rcLat, lng: rcLng } = calcularCentroDeslocado(pos.lat, pos.lng, liveHeading, zoom)
-    navMapFreeRef.current = true          // keep true during animation so RAF doesn't fight easeTo
-    setNavMapFree(false)
-    setShowReCenter(false)
-    mapRef.current?.stop()
-    mapRef.current?.easeTo({ center: [rcLng, rcLat], bearing: liveHeading, pitch: NAV_PITCH, zoom, duration: 150 })
-    snapFromResumeRef.current = true      // block accidental touch/drag/zoom from killing this timer
-    snapTimerRef.current = setTimeout(() => {
-      snapTimerRef.current = null
-      snapFromResumeRef.current = false
-      const s2 = rafNavStateRef.current
-      headingAtualRef.current = s2.northLocked ? 0 : (s2.compassActive ? s2.heading : s2.navBearing)
-      navMapFreeRef.current = false
-    }, 160)
-  }, [currentLocation])
+    // Always re-engage follow mode when toggling compass during navigation.
+    // Without this, if the camera was in free mode (e.g. from a prior zoom),
+    // it stays free even after the heading changes.
+    if (navegandoRef.current) resumeFollow()
+  }, [resumeFollow])
 
   const CATEGORY_SUGGEST_TERMS: Record<string, string> = {
     charging: 'ev charging station electric vehicle',
@@ -2577,14 +2592,17 @@ export default function MapView({ groupMembers = [], currentUserId, groupId, onP
         </div>
       )}
 
-      {/* Selected permanent zone popup */}
-      {selectedPermZone && !isNavigating && (() => {
+      {/* Selected permanent zone popup — shown both in nav and normal mode */}
+      {selectedPermZone && (() => {
         const level = getRiskLevelActual(selectedPermZone, currentHour)
         const colors = PERM_ZONE_COLORS[level]
         const levelLabel = { low: 'Baixo risco', medium: 'Risco médio', high: 'Alto risco', critical: 'Risco crítico' }[level]
         return (
           <div style={{
-            position: 'absolute', bottom: 90, left: 12, right: 12, zIndex: 500,
+            position: 'absolute',
+            // During navigation: sit above the bottom bar + speed badge (bottom: ~96px)
+            bottom: isNavigating ? 150 : 90,
+            left: 12, right: 12, zIndex: 500,
             background: 'var(--surface)', borderRadius: 14,
             border: `1px solid ${colors.fill}55`,
             boxShadow: '0 4px 24px rgba(0,0,0,0.5)',
