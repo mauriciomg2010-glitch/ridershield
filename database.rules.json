@@ -2,10 +2,63 @@
   "rules": {
     "groupLocations": {
       "$groupId": {
+        ".read": "auth != null",
+        ".write": "auth != null && !newData.exists()",
         "$userId": {
-          ".read": "auth != null",
           ".write": "auth != null && auth.uid === $userId"
         }
+      }
+    },
+
+    "riderPresence": {
+      ".read": "auth != null",
+      "$userId": {
+        ".write": "auth != null && auth.uid === $userId"
+      }
+    },
+
+    "emergencies": {
+      "$groupId": {
+        ".read": "auth != null",
+        ".write": "auth != null && !newData.exists()",
+        "$userId": {
+          ".write": "auth != null && (auth.uid === $userId || !newData.exists())"
+        }
+      }
+    },
+
+    "groupAlerts": {
+      "$groupId": {
+        ".read": "auth != null",
+        "sos": {
+          ".write": "auth != null && (!newData.exists() || newData.child('userId').val() === auth.uid)"
+        }
+      }
+    },
+
+    "groupChats": {
+      "$groupId": {
+        ".read": "auth != null",
+        ".write": "auth != null && !newData.exists()",
+        "messages": {
+          "$messageId": {
+            ".write": "auth != null && !data.exists() && (newData.child('userId').val() === auth.uid || newData.child('userId').val() === 'system')"
+          }
+        }
+      }
+    },
+
+    "servicePresence": {
+      ".read": "auth != null",
+      "$serviceId": {
+        ".write": "auth != null"
+      }
+    },
+
+    "serviceAlerts": {
+      "$serviceId": {
+        ".read": "auth != null",
+        ".write": "auth != null"
       }
     }
   }

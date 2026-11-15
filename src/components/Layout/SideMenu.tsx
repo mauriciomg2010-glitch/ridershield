@@ -15,13 +15,25 @@ import { EmergencyContacts } from '@/types'
 import ReferralPanel from '@/components/Referral/ReferralPanel'
 import toast from 'react-hot-toast'
 
+export interface MenuCategory { key: string; label: string; icon: string; query: string }
+
 interface Props {
   open: boolean
   onClose: () => void
   onNavigate: (tab: string) => void
+  /** buscas rápidas no mapa (antes eram botões em cima do mapa, ocupando a tela) */
+  categories?: readonly MenuCategory[]
+  activeCategoryKey?: string | null
+  onCategory?: (cat: MenuCategory) => void
 }
 
-export default function SideMenu({ open, onClose, onNavigate }: Props) {
+// Como as buscas ficam agrupadas no menu
+const CATEGORY_GROUPS: { title: string; keys: string[] }[] = [
+  { title: '🛠️ Para a moto / bike', keys: ['mechanic', 'charging', 'partners'] },
+  { title: '☕ Pausa e emergência', keys: ['cafe', 'hospital'] },
+]
+
+export default function SideMenu({ open, onClose, onNavigate, categories = [], activeCategoryKey = null, onCategory }: Props) {
   const router = useRouter()
   const { signOut, firebaseUser } = useAuth()
   const { theme, toggleTheme } = useTheme()
@@ -616,6 +628,39 @@ export default function SideMenu({ open, onClose, onNavigate }: Props) {
               )}
             </div>
           </div>
+
+          {/* Encontrar perto de mim — buscas no mapa agrupadas */}
+          {onCategory && categories.length > 0 && (
+            <div>
+              <p className="text-xs font-semibold uppercase tracking-widest mb-2" style={{ color: 'var(--muted)' }}>
+                Encontrar perto de mim
+              </p>
+              {CATEGORY_GROUPS.map(g => {
+                const items = g.keys.map(k => categories.find(c => c.key === k)).filter(Boolean) as MenuCategory[]
+                if (!items.length) return null
+                return (
+                  <div key={g.title} className="mb-3">
+                    <p className="text-xs mb-1.5" style={{ color: 'var(--muted)' }}>{g.title}</p>
+                    <div className="rounded-xl overflow-hidden" style={{ background: 'var(--card)', border: '1px solid var(--border)' }}>
+                      {items.map((cat, i) => {
+                        const on = cat.key === activeCategoryKey
+                        return (
+                          <button key={cat.key}
+                            onClick={() => { onCategory(cat); onClose() }}
+                            className="w-full flex items-center gap-3 px-4 py-3 text-left active:bg-blue-900/20"
+                            style={{ borderBottom: i < items.length - 1 ? '1px solid var(--border)' : 'none', background: on ? 'rgba(245,158,11,0.12)' : undefined }}>
+                            <span className="text-base">{cat.icon}</span>
+                            <span className="text-sm font-medium flex-1" style={{ color: 'var(--text)' }}>{cat.label}</span>
+                            {on && <span className="text-xs font-bold" style={{ color: '#f59e0b' }}>no mapa ✓</span>}
+                          </button>
+                        )
+                      })}
+                    </div>
+                  </div>
+                )
+              })}
+            </div>
+          )}
 
           {/* Navigation shortcuts */}
           <div>

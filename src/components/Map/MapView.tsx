@@ -30,6 +30,7 @@ import { loadAvoidZones, primeZoneCache } from '@/lib/navigation/zoneSource'
 import { lerpAngle } from '@/lib/navigation/geo'
 import { useNavigationCore, guard } from '@/components/Navigation/useNavigationCore'
 import SafeBoundary from '@/components/SafeBoundary'
+import UserPuck from './UserPuck'
 import { formatDistance } from '@/lib/navigation/instructions'
 
 const DUBLIN_LNG = -6.2603
@@ -290,6 +291,20 @@ interface Props {
   isActive?: boolean
 }
 
+// GeoJSON estável por geometria: o <Source> reenvia os dados ao mapa sempre que recebe um
+// objeto novo, então criar `{ type: 'Feature', ... }` dentro do JSX custava um envio por render.
+const featureCache = new WeakMap<object, any>()
+function asFeature(geometry: any) {
+  if (!geometry || typeof geometry !== 'object') return { type: 'Feature', geometry, properties: {} }
+  let f = featureCache.get(geometry)
+  if (!f) { f = { type: 'Feature', geometry, properties: {} }; featureCache.set(geometry, f) }
+  return f
+}
+
+// Nível de zoom a partir do qual as zonas aparecem como ÁREA (polígono). Mais afastado que isso,
+// aparecem só como pontos. Antes era 13 (bem perto); 10 mostra as áreas de quase toda a cidade.
+const ZONE_AREA_MIN_ZOOM = 10
+
 // Lista vazia ESTÁVEL: um `= []` no parâmetro cria um array novo a cada render, o que fazia o
 // efeito dos "riders próximos" rodar em loop infinito (aviso "Maximum update depth exceeded").
 const EMPTY_MEMBERS: GroupMemberLocation[] = []
@@ -396,8 +411,6 @@ export default function MapView({ groupMembers = EMPTY_MEMBERS, currentUserId, g
   const [mapBearing, setMapBearing] = useState(0)
   const [showQuickReport, setShowQuickReport] = useState(false)
   const [quickReporting, setQuickReporting] = useState(false)
-  const [smoothedPos, setSmoothedPos] = useState<{ lat: number; lng: number } | null>(null)
-  const [smoothedHeading, setSmoothedHeading] = useState(0)
   // Frozen position captured at the moment the report button is pressed
   const [frozenReportPos, setFrozenReportPos] = useState<{ lat: number; lng: number; timestamp: number; heading: number; speed: number } | null>(null)
   const [toastNav, setToastNav] = useState<string | null>(null)
@@ -522,6 +535,25 @@ export default function MapView({ groupMembers = EMPTY_MEMBERS, currentUserId, g
     [incidents, timeFilter]
   )
 
+  const nearbyNavRidersGeoJSON = useMemo(() => ({
+    type: 'FeatureCollection' as const,
+    features: nearbyNavRiders.map(r => ({
+      type: 'Feature' as const,
+      properties: { uid: r.userId },
+      geometry: { type: 'Point' as const, coordinates: [r.lng, r.lat] },
+    })),
+  }), [nearbyNavRiders])
+
+  const globalRidersGeoJSON = useMemo(() => {
+    const groupIds = new Set([...groupMembers.map(m => m.userId), currentUserId].filter(Boolean) as string[])
+    return {
+      type: 'FeatureCollection' as const,
+      features: globalRiders
+        .filter(r => !groupIds.has(r.userId) && Number.isFinite(r.lat) && Number.isFinite(r.lng))
+        .map(r => ({ type: 'Feature' as const, properties: { uid: r.userId }, geometry: { type: 'Point' as const, coordinates: [r.lng, r.lat] } })),
+    }
+  }, [globalRiders, groupMembers, currentUserId])
+
   const incidentsGeoJSON = useMemo(() => ({
     type: 'FeatureCollection' as const,
     features: filteredIncidents.map(inc => ({
@@ -568,6 +600,22 @@ export default function MapView({ groupMembers = EMPTY_MEMBERS, currentUserId, g
   }), [firestoreZones])
 
   // Durante a navegação desenha só o trecho que falta (como o Google Maps)
+  // Um ponto por zona (centro), usado quando o mapa está afastado
+  const firestoreZonePinsGeoJSON = useMemo(() => ({
+    type: 'FeatureCollection' as const,
+    features: firestoreZones.flatMap(z => {
+      let lng = Number(z.lng), lat = Number(z.lat)
+      if (!Number.isFinite(lat) || !Number.isFinite(lng) || (lat === 0 && lng === 0)) {
+        const pts = Array.isArray(z.polygon) ? normCoords(z.polygon) : []
+        if (!pts.length) return []
+        lng = pts.reduce((a, p) => a + p[0], 0) / pts.length
+        lat = pts.reduce((a, p) => a + p[1], 0) / pts.length
+      }
+      return [{ type: 'Feature' as const, properties: { id: z.id, level: z.riskLevel ?? 'medium' }, geometry: { type: 'Point' as const, coordinates: [lng, lat] } }]
+    }),
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }), [firestoreZones])
+
   const routeCongestionGeoJSON = useMemo(() => {
     if (!routeGeoJSON?.coordinates) return null
     const coords: [number, number][] = routeGeoJSON.coordinates
@@ -625,11 +673,8 @@ export default function MapView({ groupMembers = EMPTY_MEMBERS, currentUserId, g
     if (posAtualRef.current.lat === 0) {
       posAtualRef.current = { lat: currentLocation.lat, lng: currentLocation.lng }
     }
-    // When not navigating, RAF is stopped — update smoothedPos directly from GPS
-    if (!isNavigating) {
-      posAtualRef.current = { lat: currentLocation.lat, lng: currentLocation.lng }
-      setSmoothedPos(currentLocation)
-    }
+    // Fora da navegação a animação fica parada — a posição vem direto do GPS
+    if (!isNavigating) posAtualRef.current = { lat: currentLocation.lat, lng: currentLocation.lng }
   }, [currentLocation, isNavigating])
 
   // RAF loop — 60fps durante a navegação, parado fora dela.
@@ -677,20 +722,7 @@ export default function MapView({ groupMembers = EMPTY_MEMBERS, currentUserId, g
         : (nav.compassActive ? nav.heading : (routeBrg ?? nav.navBearing))
       headingAtualRef.current = lerpAngle(headingAtualRef.current, targetH, 1 - Math.exp(-dt / 350))
 
-      const moved =
-        Math.abs(newLat - lastSetPosRef.current.lat) > 1e-6 ||
-        Math.abs(newLng - lastSetPosRef.current.lng) > 1e-6
-      if (moved && posAtualRef.current.lat !== 0) {
-        lastSetPosRef.current = { lat: newLat, lng: newLng }
-        setSmoothedPos({ lat: newLat, lng: newLng })
-      }
-      if (nav.isNavigating) {
-        setSmoothedHeading(prev => {
-          let diff = Math.abs(headingAtualRef.current - prev)
-          if (diff > 180) diff = 360 - diff
-          return diff > 1 ? headingAtualRef.current : prev
-        })
-      }
+      // (a seta é desenhada pelo UserPuck com animação própria — sem redesenhar o mapa inteiro)
 
       if (nav.isNavigating && !navMapFreeRef.current && posAtualRef.current.lat !== 0) {
         const zAlvo = calcularZoomPorVelocidade(nav.navSpeed)
@@ -746,7 +778,18 @@ export default function MapView({ groupMembers = EMPTY_MEMBERS, currentUserId, g
   // Pause global presence during navigation — other riders' GPS updates cause unnecessary re-renders
   useEffect(() => {
     if (isNavigating) return
-    return subscribeToGlobalPresence(setGlobalRiders)
+    // no máximo 1 atualização a cada 3 s (cada rider publica a posição a cada poucos segundos;
+    // atualizar o mapa a cada mensagem deixava o app pesado com muitos riders online)
+    let pending: any[] | null = null
+    let timer: ReturnType<typeof setTimeout> | null = null
+    let last = 0
+    const flush = () => { timer = null; last = Date.now(); if (pending) { setGlobalRiders(pending); pending = null } }
+    const unsub = subscribeToGlobalPresence(riders => {
+      pending = riders
+      if (timer) return
+      timer = setTimeout(flush, Math.max(0, 3000 - (Date.now() - last)))
+    })
+    return () => { unsub(); if (timer) clearTimeout(timer) }
   }, [isNavigating])
 
   // During navigation: subscribe to nearby riders and render them as small dots (Waze style).
@@ -1140,8 +1183,21 @@ export default function MapView({ groupMembers = EMPTY_MEMBERS, currentUserId, g
   }, [altRoutes])
 
   const handleMapClick = useCallback((e: any) => {
-    if (isNavigating || showModeSelector) return
     const features: any[] = e.features ?? []
+    // toque numa zona (área ou ponto) — funciona também durante a navegação
+    const zf = features.find(f => f.layer?.id === 'fs-zones-fill' || f.layer?.id === 'fs-zone-pins')
+    if (zf && !showModeSelector) {
+      const z = firestoreZones.find(x => x.id === zf.properties?.id)
+      if (z) {
+        const level = z.riskLevel ?? 'medium'
+        const lat = Number.isFinite(Number(z.lat)) && Number(z.lat) !== 0 ? Number(z.lat) : e.lngLat.lat
+        const lng = Number.isFinite(Number(z.lng)) && Number(z.lng) !== 0 ? Number(z.lng) : e.lngLat.lng
+        setSelectedPermZone({ id: z.id, name: z.areaName ?? z.id, lat, lng, radius: z.radius ?? 200, zone: 'manual', country: 'ie', riskLevel: level, peakHours: z.peakHours ?? [], notes: z.notes ?? '' } as any)
+        setSelectedZone(null); setSelectedIncident(null); setTappedLocation(null); onPanelChange?.(true)
+        return
+      }
+    }
+    if (isNavigating || showModeSelector) return
     if (features.length === 0) {
       setSelectedIncident(null)
       setSelectedZone(null)
@@ -1174,13 +1230,14 @@ export default function MapView({ groupMembers = EMPTY_MEMBERS, currentUserId, g
       setTappedLocation({ lat, lng, name, category, loading: false })
     }
     // Zone fill layers are not interactive — their center pins handle clicks via React Markers
-  }, [filteredIncidents, onPanelChange, isNavigating, showModeSelector, currentHour])
+  }, [filteredIncidents, firestoreZones, onPanelChange, isNavigating, showModeSelector, currentHour])
 
   const interactiveLayerIds = useMemo(() => {
     const ids: string[] = ['poi-label']
     if (!showHeatmap) ids.push('incidents-circle')
+    if (showZones) ids.push('fs-zones-fill', 'fs-zone-pins')
     return ids
-  }, [showHeatmap])
+  }, [showHeatmap, showZones])
 
   const zoneCount = useMemo(() => {
     const c = { high: 0, medium: 0, low: 0 }
@@ -1588,16 +1645,25 @@ export default function MapView({ groupMembers = EMPTY_MEMBERS, currentUserId, g
           }
           if (isNavigating && e.originalEvent) { navMapFreeRef.current = true; setNavMapFree(true); setShowReCenter(true) }
         }}
+        // Na navegação a câmera se move a cada quadro (jumpTo) e o mapa dispara "fim de movimento"
+        // a cada quadro. Atualizar estado aqui redesenhava o mapa inteiro ~50x/s — por isso só
+        // atualiza quando o valor muda de verdade e ignora movimentos da própria câmera.
         onZoomEnd={(e: any) => {
           const z = mapRef.current?.getZoom() ?? 14
-          setCurrentZoom(z)
+          setCurrentZoom(prev => (Math.abs(prev - z) < 0.25 ? prev : z))
           if (isNavigating && e.originalEvent) setShowNavAlts(z < 14.5)
         }}
         onMoveEnd={(e: any) => {
           if (searchCategory && !isNavigating && e.originalEvent) setShowSearchArea(true)
-          setMapBearing(mapRef.current?.getBearing() ?? 0)
+          if (isNavigating && !e.originalEvent) return
+          const b = mapRef.current?.getBearing() ?? 0
+          setMapBearing(prev => (Math.abs(((b - prev + 540) % 360) - 180) < 2 ? prev : b))
         }}
-        onRotateEnd={() => { setMapBearing(mapRef.current?.getBearing() ?? 0) }}
+        onRotateEnd={(e: any) => {
+          if (isNavigating && !e?.originalEvent) return
+          const b = mapRef.current?.getBearing() ?? 0
+          setMapBearing(prev => (Math.abs(((b - prev + 540) % 360) - 180) < 2 ? prev : b))
+        }}
         interactiveLayerIds={interactiveLayerIds}
       >
 
@@ -1643,7 +1709,7 @@ export default function MapView({ groupMembers = EMPTY_MEMBERS, currentUserId, g
         )}
 
         {/* Risk Zones — dimmed 13-14, full at 15+ */}
-        {showZones && currentZoom >= 13 && (
+        {showZones && currentZoom >= ZONE_AREA_MIN_ZOOM && (
           <Source id="zones" type="geojson" data={zonesGeoJSON}>
             <Layer id="zones-fill" type="fill" paint={{
               'fill-color': ['match', ['get', 'level'], 'high', '#ef4444', 'medium', '#f97316', '#eab308'],
@@ -1666,7 +1732,7 @@ export default function MapView({ groupMembers = EMPTY_MEMBERS, currentUserId, g
         )}
 
         {/* Permanent zones — zoom-gated */}
-        {showZones && currentZoom >= 13 && <Source id="perm-zones" type="geojson" data={permanentZonesGeoJSON}>
+        {showZones && currentZoom >= ZONE_AREA_MIN_ZOOM && <Source id="perm-zones" type="geojson" data={permanentZonesGeoJSON}>
           <Layer id="perm-zones-fill" type="fill" paint={{
             'fill-color': ['match', ['get', 'level'],
               'critical', '#ef4444',
@@ -1703,44 +1769,34 @@ export default function MapView({ groupMembers = EMPTY_MEMBERS, currentUserId, g
         </Source>}
 
         <SafeBoundary name="zonas-no-mapa">
-        {/* Firestore risk_zones — manual zones, zoom-gated */}
-        {showZones && currentZoom >= 13 && firestoreZonesGeoJSON.features.length > 0 && (
+        {/* Zonas do Firestore — ÁREA a partir do zoom ZONE_AREA_MIN_ZOOM, PONTO quando mais afastado.
+            Tudo em camadas do mapa (GPU): antes cada zona era um elemento HTML com sombra por cima do
+            mapa, o que deixava arrastar e dar zoom pesado com muitas zonas. */}
+        {showZones && (
           <Source id="fs-zones" type="geojson" data={firestoreZonesGeoJSON}>
-            <Layer id="fs-zones-fill" type="fill" paint={{
+            <Layer id="fs-zones-fill" type="fill" minzoom={ZONE_AREA_MIN_ZOOM} paint={{
               'fill-color': ['match', ['get', 'level'],
                 'critical', '#ef4444', 'high', '#ef4444', 'medium', '#f97316', '#eab308'],
-              'fill-opacity': 0.2,
-            }} />
-            <Layer id="fs-zones-line" type="line" paint={{
+              'fill-opacity': ['interpolate', ['linear'], ['zoom'], ZONE_AREA_MIN_ZOOM, 0.14, 14, 0.22],
+            } as any} />
+            <Layer id="fs-zones-line" type="line" minzoom={ZONE_AREA_MIN_ZOOM} paint={{
               'line-color': ['match', ['get', 'level'],
                 'critical', '#dc2626', 'high', '#dc2626', 'medium', '#ea580c', '#ca8a04'],
-              'line-width': 2,
-              'line-opacity': 0.55,
-            }} />
+              'line-width': ['interpolate', ['linear'], ['zoom'], ZONE_AREA_MIN_ZOOM, 1, 15, 2],
+              'line-opacity': 0.6,
+            } as any} />
           </Source>
         )}
-        {showZones && firestoreZones.filter(z => z.lat && z.lng).map(z => {
-          const level = z.riskLevel ?? 'medium'
-          const emoji = level === 'critical' ? '🔴' : level === 'high' ? '🔴' : level === 'medium' ? '🟠' : '🟡'
-          const borderColor = level === 'critical' || level === 'high' ? '#ef4444' : level === 'medium' ? '#f97316' : '#eab308'
-          return (
-            <Marker key={`pin-fs-${z.id}`} longitude={z.lng} latitude={z.lat} anchor="bottom">
-              <div
-                onClick={(e) => {
-                  e.stopPropagation()
-                  setSelectedPermZone({ id: z.id, name: z.areaName ?? z.id, lat: z.lat, lng: z.lng, radius: z.radius ?? 200, zone: 'manual', country: 'ie', riskLevel: level, peakHours: z.peakHours ?? [], notes: z.notes ?? '' } as any)
-                  setSelectedZone(null); setSelectedIncident(null); setTappedLocation(null); onPanelChange?.(true)
-                }}
-                style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', cursor: 'pointer', filter: 'drop-shadow(0 2px 4px rgba(0,0,0,0.4))' }}
-              >
-                <div style={{ width: 28, height: 28, borderRadius: '50%', background: 'var(--surface)', border: `2px solid ${borderColor}`, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 13 }}>
-                  {emoji}
-                </div>
-                <div style={{ width: 0, height: 0, borderLeft: '4px solid transparent', borderRight: '4px solid transparent', borderTop: `6px solid ${borderColor}` }} />
-              </div>
-            </Marker>
-          )
-        })}
+        {showZones && (
+          <Source id="fs-zone-pins" type="geojson" data={firestoreZonePinsGeoJSON}>
+            <Layer id="fs-zone-pins" type="circle" maxzoom={ZONE_AREA_MIN_ZOOM} paint={{
+              'circle-radius': 7,
+              'circle-color': ['match', ['get', 'level'],
+                'critical', '#ef4444', 'high', '#ef4444', 'medium', '#f97316', '#eab308'],
+              'circle-stroke-width': 2, 'circle-stroke-color': '#ffffff',
+            } as any} />
+          </Source>
+        )}
 
         {/* Zone center pins — ONLY clickable element of each zone (fills are visual-only) */}
         {showZones && !isNavigating && visiblePermZones.map(pz => {
@@ -1817,7 +1873,7 @@ export default function MapView({ groupMembers = EMPTY_MEMBERS, currentUserId, g
           const isSel = i === selectedAltIdx
           return (
             <Source key={`alt-${i}`} id={`alt-route-${i}`} type="geojson"
-              data={{ type: 'Feature', geometry: route.geometry, properties: {} }}>
+              data={asFeature(route.geometry)}>
               <Layer id={`alt-casing-${i}`} type="line"
                 layout={{ 'line-cap': 'round', 'line-join': 'round' }}
                 paint={{
@@ -1839,7 +1895,7 @@ export default function MapView({ groupMembers = EMPTY_MEMBERS, currentUserId, g
         {/* Safe route — green, shown when mode selector is open and zones found */}
         {showModeSelector && safeRouteData && (
           <Source id="safe-route" type="geojson"
-            data={{ type: 'Feature', geometry: safeRouteData.geometry, properties: {} }}>
+            data={asFeature(safeRouteData.geometry)}>
             <Layer id="safe-route-casing" type="line"
               layout={{ 'line-cap': 'round', 'line-join': 'round' }}
               paint={{ 'line-color': '#0a4a2a', 'line-width': 11, 'line-opacity': 0.9 }} />
@@ -1966,25 +2022,15 @@ export default function MapView({ groupMembers = EMPTY_MEMBERS, currentUserId, g
           </Marker>
         )}
 
-        {/* User location — uses smoothedPos for butter-smooth 60fps movement */}
-        {(smoothedPos ?? currentLocation) && (
-          <Marker longitude={(smoothedPos ?? currentLocation)!.lng} latitude={(smoothedPos ?? currentLocation)!.lat} anchor={isNavigating ? 'center' : 'bottom'}>
-            {isNavigating ? (
-              <div style={{
-                width: 48, height: 48,
-                filter: 'drop-shadow(0 3px 6px rgba(0,0,0,0.4))',
-                transform: northLocked ? `rotate(${smoothedHeading}deg)` : 'rotate(0deg)',
-                pointerEvents: 'none',
-              }}>
-                <svg width="48" height="48" viewBox="0 0 48 48">
-                  <polygon points="24,4 38,40 24,33 10,40" fill="#f59e0b" stroke="rgba(0,0,0,0.3)" strokeWidth="1.5" strokeLinejoin="round"/>
-                </svg>
-              </div>
-            ) : (
-              <RiderPin name="Eu" />
-            )}
-          </Marker>
-        )}
+        {/* Usuário — seta com animação própria durante a navegação */}
+        <UserPuck
+          navigating={isNavigating}
+          posRef={posAtualRef}
+          headingRef={headingAtualRef}
+          northLocked={northLocked}
+          fallback={currentLocation}
+          idlePin={<RiderPin name="Eu" />}
+        />
 
         <SafeBoundary name="riders-e-categorias">
         {/* Group member markers */}
@@ -2016,14 +2062,7 @@ export default function MapView({ groupMembers = EMPTY_MEMBERS, currentUserId, g
           <Source
             id="nav-riders"
             type="geojson"
-            data={{
-              type: 'FeatureCollection',
-              features: nearbyNavRiders.map(r => ({
-                type: 'Feature' as const,
-                properties: { uid: r.userId },
-                geometry: { type: 'Point' as const, coordinates: [r.lng, r.lat] },
-              })),
-            }}
+            data={nearbyNavRidersGeoJSON}
           >
             <Layer
               id="nav-riders-dots"
@@ -2040,21 +2079,13 @@ export default function MapView({ groupMembers = EMPTY_MEMBERS, currentUserId, g
           </Source>
         )}
 
-        {/* Global rider presence — hidden below zoom 15 (Waze-style clean map) */}
-        {currentZoom >= 15 && (() => {
-          const groupIds = new Set([...groupMembers.map(m => m.userId), currentUserId].filter(Boolean) as string[])
-          return globalRiders.filter(r => !groupIds.has(r.userId)).map(rider => (
-            <Marker key={`gp_${rider.userId}`} longitude={rider.lng} latitude={rider.lat} anchor="center">
-              <div style={{
-                width: 20, height: 20, borderRadius: '50%',
-                background: '#f59e0b',
-                border: '2px solid white',
-                boxShadow: '0 1px 4px rgba(0,0,0,0.45)',
-                pointerEvents: 'none',
-              }} />
-            </Marker>
-          ))
-        })()}
+        {/* Riders online (fora do grupo) — camada do mapa (GPU), aparece só de perto */}
+        <Source id="global-riders" type="geojson" data={globalRidersGeoJSON}>
+          <Layer id="global-riders-dots" type="circle" minzoom={15} paint={{
+            'circle-radius': 8, 'circle-color': '#f59e0b',
+            'circle-stroke-width': 2, 'circle-stroke-color': '#ffffff',
+          }} />
+        </Source>
 
         {/* Category search pins — tap opens info sheet, not auto-navigation */}
         {categoryPins.map((pin, i) => {
@@ -2094,7 +2125,7 @@ export default function MapView({ groupMembers = EMPTY_MEMBERS, currentUserId, g
           if (i === navRouteIdx) return null
           return (
             <Source key={`nav-alt-${i}`} id={`nav-alt-${i}`} type="geojson"
-              data={{ type: 'Feature', geometry: route.geometry, properties: {} }}>
+              data={asFeature(route.geometry)}>
               <Layer id={`nav-alt-casing-${i}`} type="line"
                 layout={{ 'line-cap': 'round', 'line-join': 'round' }}
                 paint={{ 'line-color': '#555', 'line-width': 7, 'line-opacity': 0.4 }} />

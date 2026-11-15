@@ -14,7 +14,8 @@ import {
   ChatMessage,
 } from '@/lib/firestore'
 import { triggerEmergencyAlert } from '@/lib/emergencyAlert'
-import { playEmergencySound, stopEmergencySound, playEmergencyConfirmSound, vibrateEmergency, ensureAudioUnlocked } from '@/lib/emergencySound'
+import { stopEmergencySound, playEmergencyConfirmSound } from '@/lib/emergencySound'
+import { dismissedSosIds } from './GroupSosListener'
 import { collection, query, where, getDocs, updateDoc, serverTimestamp } from 'firebase/firestore'
 import { db, rtdb } from '@/lib/firebase'
 import { ref as rtdbRef, onValue, set as rtdbSet, remove as rtdbRemove } from 'firebase/database'
@@ -141,13 +142,10 @@ export default function GroupDetail({ group: initialGroup, onBack }: Props) {
       if (dismissedSosIdsRef.current.has(alertId)) return
       if (activeSosRef.current?.id === alertId) return
 
+      if (Date.now() - (data.timestamp ?? 0) > 30 * 60 * 1000) return  // SOS antigo esquecido ativo
       activeSosRef.current = sosEntry
       setActiveSos(sosEntry)
-      await ensureAudioUnlocked()
-      stopEmergencySound()  // stop any previous before starting fresh
-      soundPlayingRef.current = true
-      playEmergencySound()
-      vibrateEmergency()
+      // o som/vibração são tocados pelo GroupSosListener (funciona em qualquer tela do app)
     })
     return () => unsub()
   }, [group.id, user?.id])
@@ -198,20 +196,21 @@ export default function GroupDetail({ group: initialGroup, onBack }: Props) {
     if (emergencyLoading) return
     setEmergencyLoading(true)
     try {
-      await triggerEmergencyAlert({
+      // 1º o alarme dos membros (mais importante); depois pin, chat, histórico e push.
+      // Antes era o contrário: se qualquer etapa falhasse, o alarme nunca era enviado.
+      await rtdbSet(rtdbRef(rtdb, `groupAlerts/${group.id}/sos`), {
+        userId: user.id,
+        userName: user.name,
+        timestamp: Date.now(),
+        active: true,
+      })
+      triggerEmergencyAlert({
         userId: user.id,
         userName: user.name,
         groupId: group.id,
         groupName: group.name,
         location: currentLocation ?? null,
-      })
-      // Write to groupAlerts so other members' devices receive sound + toast (BUG 3)
-      rtdbSet(rtdbRef(rtdb, `groupAlerts/${group.id}/sos`), {
-        userId: user.id,
-        userName: user.name,
-        timestamp: Date.now(),
-        active: true,
-      }).catch(() => {})
+      }).catch(e => console.warn('[Emergency] etapa secundária falhou', e))
       playEmergencyConfirmSound()
       toast.error('🚨 Emergency alert sent to all members!', { duration: 5000 })
     } catch {
@@ -287,6 +286,7 @@ export default function GroupDetail({ group: initialGroup, onBack }: Props) {
       }
     }
     // Both sender and non-sender: stop locally
+    if (sos && !isSender) dismissedSosIds.add(`${group.id}_${sos.userId}_${sos.id.split('_').pop()}`)
     soundPlayingRef.current = false
     stopEmergencySound()
     setActiveSos(null)
