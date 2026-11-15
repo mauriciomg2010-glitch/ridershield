@@ -311,8 +311,8 @@ export default function NavigationScreen({
           title={northLocked ? 'Norte fixo' : 'Norte livre'}
           style={{
             width: 44, height: 44, borderRadius: '50%',
-            background: northLocked ? '#1a56db' : 'var(--surface)',
-            border: `2px solid ${northLocked ? '#1a56db' : 'var(--border)'}`,
+            background: northLocked ? '#d97706' : 'var(--surface)',
+            border: `2px solid ${northLocked ? '#d97706' : 'var(--border)'}`,
             display: 'flex', alignItems: 'center', justifyContent: 'center',
             cursor: 'pointer', boxShadow: '0 2px 12px rgba(0,0,0,0.4)',
             padding: 0,

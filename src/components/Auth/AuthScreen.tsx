@@ -127,16 +127,7 @@ export default function AuthScreen() {
       {/* Logo */}
       <div className="mb-10 text-center">
         <div className="inline-flex items-center justify-center w-16 h-16 mb-4">
-          <svg width="64" height="64" viewBox="0 0 64 64" fill="none">
-            <defs>
-              <linearGradient id="shieldGrad" x1="0" y1="0" x2="1" y2="1">
-                <stop offset="0%" stopColor="#4f8ef7"/>
-                <stop offset="100%" stopColor="#1a5fd4"/>
-              </linearGradient>
-            </defs>
-            <path d="M32 4L8 14v16c0 13.2 10.2 25.5 24 28.6C45.8 55.5 56 43.2 56 30V14L32 4z" fill="url(#shieldGrad)"/>
-            <text x="32" y="40" textAnchor="middle" fill="white" fontSize="26" fontWeight="800" fontFamily="system-ui, sans-serif">R</text>
-          </svg>
+          <img src="/icons/icon-zivo.svg" alt="ZIVO" width={64} height={64} style={{ borderRadius: 16, boxShadow: '0 6px 24px rgba(245,158,11,0.25)' }} />
         </div>
         <h1 className="text-3xl font-bold text-white tracking-tight">ZIVO</h1>
         <p className="text-shield-muted text-sm mt-1">{t('safety_tagline')}</p>
@@ -149,7 +140,7 @@ export default function AuthScreen() {
           <button
             onClick={() => setMode('login')}
             className={`flex-1 py-2 rounded-lg text-sm font-semibold transition-all ${
-              mode === 'login' ? 'bg-[#2d6fe8] text-white' : 'text-shield-muted hover:text-white'
+              mode === 'login' ? 'bg-[#d97706] text-white' : 'text-shield-muted hover:text-white'
             }`}
           >
             {t('sign_in')}
@@ -157,7 +148,7 @@ export default function AuthScreen() {
           <button
             onClick={() => setMode('signup')}
             className={`flex-1 py-2 rounded-lg text-sm font-semibold transition-all ${
-              mode === 'signup' ? 'bg-[#2d6fe8] text-white' : 'text-shield-muted hover:text-white'
+              mode === 'signup' ? 'bg-[#d97706] text-white' : 'text-shield-muted hover:text-white'
             }`}
           >
             {t('sign_up')}
@@ -175,7 +166,7 @@ export default function AuthScreen() {
                 value={name}
                 onChange={(e) => setName(e.target.value)}
                 placeholder={t('your_name')}
-                className="w-full bg-shield-surface border border-shield-border rounded-xl px-4 py-3 text-white placeholder-shield-muted focus:outline-none focus:border-[#2d6fe8] transition-colors"
+                className="w-full bg-shield-surface border border-shield-border rounded-xl px-4 py-3 text-white placeholder-shield-muted focus:outline-none focus:border-[#d97706] transition-colors"
               />
             </div>
           )}
@@ -190,7 +181,7 @@ export default function AuthScreen() {
               onChange={(e) => setEmail(e.target.value)}
               placeholder="rider@example.com"
               required
-              className="w-full bg-shield-surface border border-shield-border rounded-xl px-4 py-3 text-white placeholder-shield-muted focus:outline-none focus:border-[#2d6fe8] transition-colors"
+              className="w-full bg-shield-surface border border-shield-border rounded-xl px-4 py-3 text-white placeholder-shield-muted focus:outline-none focus:border-[#d97706] transition-colors"
             />
           </div>
 
@@ -205,7 +196,7 @@ export default function AuthScreen() {
               placeholder="••••••••"
               required
               minLength={6}
-              className="w-full bg-shield-surface border border-shield-border rounded-xl px-4 py-3 text-white placeholder-shield-muted focus:outline-none focus:border-[#2d6fe8] transition-colors"
+              className="w-full bg-shield-surface border border-shield-border rounded-xl px-4 py-3 text-white placeholder-shield-muted focus:outline-none focus:border-[#d97706] transition-colors"
             />
           </div>
 
@@ -235,7 +226,7 @@ export default function AuthScreen() {
                   }}
                 />
                 {referralStatus === 'checking' && (
-                  <div className="absolute right-3 top-1/2 -translate-y-1/2 w-4 h-4 border-2 border-t-transparent rounded-full animate-spin" style={{ borderColor: '#2d6fe8', borderTopColor: 'transparent' }} />
+                  <div className="absolute right-3 top-1/2 -translate-y-1/2 w-4 h-4 border-2 border-t-transparent rounded-full animate-spin" style={{ borderColor: '#d97706', borderTopColor: 'transparent' }} />
                 )}
                 {referralStatus === 'valid' && (
                   <span className="absolute right-3 top-1/2 -translate-y-1/2 text-base">✅</span>
@@ -265,7 +256,7 @@ export default function AuthScreen() {
                 (referralStatus === 'invalid' || referralStatus === 'checking'))
             }
             className="w-full text-white font-bold py-3.5 rounded-xl disabled:opacity-60 disabled:cursor-not-allowed mt-2"
-            style={{ background: 'linear-gradient(135deg, #4f8ef7 0%, #1a5fd4 100%)' }}
+            style={{ background: 'linear-gradient(135deg, #f59e0b 0%, #b45309 100%)' }}
           >
             {loading ? t('loading') : mode === 'login' ? t('sign_in') : t('create_account')}
           </button>
@@ -277,7 +268,7 @@ export default function AuthScreen() {
                 type="button"
                 onClick={() => email.trim() ? handleForgotPassword(email) : setShowResetInput(v => !v)}
                 className="w-full text-center text-xs"
-                style={{ color: '#4f8ef7', background: 'none', border: 'none', cursor: 'pointer' }}
+                style={{ color: '#f59e0b', background: 'none', border: 'none', cursor: 'pointer' }}
               >
                 {t('forgot_password')}
               </button>
@@ -289,14 +280,14 @@ export default function AuthScreen() {
                     value={resetEmail}
                     onChange={e => setResetEmail(e.target.value)}
                     placeholder="rider@example.com"
-                    className="flex-1 min-w-0 bg-shield-surface border border-shield-border rounded-xl px-4 py-3 text-white placeholder-shield-muted focus:outline-none focus:border-[#2d6fe8] transition-colors text-sm"
+                    className="flex-1 min-w-0 bg-shield-surface border border-shield-border rounded-xl px-4 py-3 text-white placeholder-shield-muted focus:outline-none focus:border-[#d97706] transition-colors text-sm"
                   />
                   <button
                     type="button"
                     onClick={() => handleForgotPassword(resetEmail)}
                     disabled={resetLoading || !resetEmail.trim()}
                     className="flex-shrink-0 py-3 px-4 rounded-xl text-sm font-semibold disabled:opacity-50"
-                    style={{ background: 'rgba(45,111,232,0.15)', color: '#4f8ef7', border: '1px solid rgba(45,111,232,0.3)' }}
+                    style={{ background: 'rgba(245,158,11,0.15)', color: '#f59e0b', border: '1px solid rgba(245,158,11,0.3)' }}
                   >
                     {resetLoading ? '…' : t('send_reset_link')}
                   </button>
@@ -306,12 +297,6 @@ export default function AuthScreen() {
           )}
         </form>
 
-        {mode === 'login' && (
-          <div className="mt-6 p-4 bg-shield-surface border border-shield-border rounded-xl">
-            <p className="text-xs text-shield-muted text-center font-medium mb-2">{t('demo_credentials')}</p>
-            <p className="text-xs text-shield-text-dim text-center">demo@ridershield.ie / demo123</p>
-          </div>
-        )}
       </div>
     </div>
   )

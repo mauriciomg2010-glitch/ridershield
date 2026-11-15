@@ -112,7 +112,7 @@ export default function LocationBottomSheet({ location, riderLocation, onNavigat
               </div>
             )}
             {!location.loading && location.category && (
-              <div style={{ fontSize: 11, color: '#4f8ef7', marginTop: 2 }}>
+              <div style={{ fontSize: 11, color: '#f59e0b', marginTop: 2 }}>
                 {location.category}
               </div>
             )}
@@ -141,7 +141,7 @@ export default function LocationBottomSheet({ location, riderLocation, onNavigat
             disabled={!!location.loading}
             style={{
               flex: 1,
-              background: location.loading ? '#374151' : '#2d6fe8',
+              background: location.loading ? '#374151' : '#d97706',
               border: 'none', borderRadius: 12, padding: '11px',
               color: 'white', fontWeight: 700, fontSize: 13,
               cursor: location.loading ? 'default' : 'pointer',

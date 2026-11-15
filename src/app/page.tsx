@@ -47,7 +47,7 @@ const MapView = dynamic(() => import('@/components/Map/MapView'), {
   loading: () => (
     <div className="flex-1 flex items-center justify-center" style={{background:'var(--bg)'}}>
       <div className="text-center">
-        <div className="w-10 h-10 border-2 border-t-transparent rounded-full animate-spin mx-auto mb-3" style={{borderColor:'#2d6fe8',borderTopColor:'transparent'}} />
+        <div className="w-10 h-10 border-2 border-t-transparent rounded-full animate-spin mx-auto mb-3" style={{borderColor:'#d97706',borderTopColor:'transparent'}} />
         <p className="text-sm" style={{color:'var(--muted)'}}>Loading map…</p>
       </div>
     </div>
@@ -185,18 +185,7 @@ export default function Home() {
         {/* Shield logo with glow */}
         <div style={{ position: 'relative', marginBottom: 28 }}>
           <div style={{ position: 'absolute', inset: -20, borderRadius: '50%', background: 'radial-gradient(circle, rgba(245,158,11,0.22) 0%, transparent 70%)', filter: 'blur(14px)', pointerEvents: 'none' }} />
-          <svg width="120" height="120" viewBox="0 0 64 64" fill="none">
-            <defs>
-              <linearGradient id="splashG" x1="0" y1="0" x2="1" y2="1">
-                <stop offset="0%" stopColor="#f59e0b" stopOpacity="0.95"/>
-                <stop offset="100%" stopColor="#d97706" stopOpacity="0.75"/>
-              </linearGradient>
-            </defs>
-            <path d="M32 4L8 14v16c0 13.2 10.2 25.5 24 28.6C45.8 55.5 56 43.2 56 30V14L32 4z"
-              fill="url(#splashG)" stroke="#f59e0b" strokeWidth="1.5"/>
-            <path d="M30 16 L28 28 L33 32 L31 46" stroke="#0a0e1a" strokeWidth="2.5" strokeLinecap="round"/>
-            <text x="32" y="38" textAnchor="middle" fill="#0a0e1a" fontSize="18" fontWeight="900" fontFamily="system-ui,sans-serif">Z</text>
-          </svg>
+          <img src="/icons/icon-zivo.svg" alt="ZIVO" width={112} height={112} style={{ position: 'relative', borderRadius: 28 }} />
         </div>
         <h1 style={{ fontSize: 52, fontWeight: 900, color: 'white', letterSpacing: -2, margin: 0, lineHeight: 1 }}>ZIVO</h1>
         <p style={{ fontSize: 15, color: 'rgba(255,255,255,0.45)', marginTop: 10, letterSpacing: 1.5, textTransform: 'uppercase', fontWeight: 500 }}>Ride smart. Go home.</p>
@@ -215,7 +204,7 @@ export default function Home() {
       {/* Demo banner */}
       {SHOW_DEMO_BANNER && demoInfo.isDemo && (
         <div className="flex items-center justify-center gap-2 px-4 py-1.5 text-xs font-semibold flex-shrink-0"
-          style={{background:'rgba(45,111,232,0.15)',borderBottom:'1px solid rgba(45,111,232,0.2)',color:'#93c5fd'}}>
+          style={{background:'rgba(245,158,11,0.15)',borderBottom:'1px solid rgba(245,158,11,0.2)',color:'#93c5fd'}}>
           🎉 Demo Mode — All features unlocked · {demoInfo.daysLeft} days remaining
         </div>
       )}
@@ -226,7 +215,7 @@ export default function Home() {
           <SafeBoundary name="mapa" fallback={(reset) => (
             <div style={{ position: 'absolute', inset: 0, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 12, background: 'var(--bg, #0a0e1a)', color: 'var(--text, #fff)' }}>
               <div style={{ fontSize: 15, fontWeight: 700 }}>O mapa encontrou um problema</div>
-              <button onClick={reset} style={{ background: '#2d6fe8', color: 'white', border: 'none', borderRadius: 12, padding: '10px 20px', fontWeight: 700 }}>Recarregar mapa</button>
+              <button onClick={reset} style={{ background: '#d97706', color: 'white', border: 'none', borderRadius: 12, padding: '10px 20px', fontWeight: 700 }}>Recarregar mapa</button>
             </div>
           )}>
           <MapView

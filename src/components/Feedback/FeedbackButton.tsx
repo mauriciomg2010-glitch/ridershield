@@ -76,8 +76,8 @@ export default function FeedbackButton({ open: externalOpen, onOpen, onClose: ex
                   <button key={ft.value} onClick={() => setTipo(ft.value)}
                     className="py-3 rounded-xl text-sm font-semibold flex flex-col items-center gap-1.5 transition-all"
                     style={{
-                      background: tipo === ft.value ? 'rgba(45,111,232,0.15)' : 'var(--card)',
-                      border: `1px solid ${tipo === ft.value ? '#2d6fe8' : 'var(--border)'}`,
+                      background: tipo === ft.value ? 'rgba(245,158,11,0.15)' : 'var(--card)',
+                      border: `1px solid ${tipo === ft.value ? '#d97706' : 'var(--border)'}`,
                       color: tipo === ft.value ? '#93c5fd' : 'var(--muted)',
                     }}>
                     <span style={{ fontSize: '22px' }}>{ft.icon}</span>
@@ -101,7 +101,7 @@ export default function FeedbackButton({ open: externalOpen, onOpen, onClose: ex
                 onClick={handleSubmit}
                 disabled={!mensagem.trim() || loading}
                 className="w-full text-white font-bold py-4 rounded-xl transition-opacity"
-                style={{ background: 'linear-gradient(135deg, #4f8ef7 0%, #1a5fd4 100%)' }}>
+                style={{ background: 'linear-gradient(135deg, #f59e0b 0%, #b45309 100%)' }}>
                 {loading ? t('loading') : `📤 ${t('feedback_title')}`}
               </button>
             </div>

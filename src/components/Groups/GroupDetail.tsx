@@ -590,8 +590,8 @@ export default function GroupDetail({ group: initialGroup, onBack }: Props) {
                 width: '44px',
                 height: '44px',
                 borderRadius: '50%',
-                background: 'linear-gradient(135deg, #4f8ef7 0%, #1a5fd4 100%)',
-                boxShadow: '0 4px 15px rgba(45,111,232,0.45)',
+                background: 'linear-gradient(135deg, #f59e0b 0%, #b45309 100%)',
+                boxShadow: '0 4px 15px rgba(245,158,11,0.45)',
                 border: 'none',
                 cursor: 'pointer',
                 display: 'flex',
@@ -642,7 +642,7 @@ export default function GroupDetail({ group: initialGroup, onBack }: Props) {
             borderRadius: '16px', padding: '24px',
             width: 'min(320px, 90vw)',
             boxShadow: '0 20px 60px rgba(0,0,0,0.6)',
-            border: '1px solid rgba(45,111,232,0.3)',
+            border: '1px solid rgba(245,158,11,0.3)',
           }}>
             <h2 style={{ fontSize: '18px', fontWeight: '700', color: 'var(--text, white)', marginBottom: '12px' }}>A partilhar localização</h2>
             <p style={{ fontSize: '14px', color: 'var(--text-dim, #a0a0b0)', marginBottom: '24px', lineHeight: '1.5' }}>
@@ -657,7 +657,7 @@ export default function GroupDetail({ group: initialGroup, onBack }: Props) {
               </button>
               <button
                 onClick={confirmLeave}
-                style={{ flex: 1, padding: '10px', borderRadius: '10px', border: 'none', background: '#2d6fe8', color: 'white', fontSize: '14px', fontWeight: '700', cursor: 'pointer' }}
+                style={{ flex: 1, padding: '10px', borderRadius: '10px', border: 'none', background: '#d97706', color: 'white', fontSize: '14px', fontWeight: '700', cursor: 'pointer' }}
               >
                 Sair
               </button>

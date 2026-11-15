@@ -14,9 +14,9 @@
   --text: #ffffff;
   --text-dim: #94a3b8;
   --accent: #f59e0b;
-  --accent-bright: #4f8ef7;
-  --accent-dim: #1a5fd4;
-  --primary: #1a56db;
+  --accent-bright: #f59e0b;
+  --accent-dim: #b45309;
+  --primary: #d97706;
   --danger: #dc3545;
 }
 
@@ -29,9 +29,9 @@
   --muted: #6b7280;
   --text: #0f172a;
   --text-dim: #4b5563;
-  --accent: #2d6fe8;
-  --accent-bright: #4f8ef7;
-  --accent-dim: #1a5fd4;
+  --accent: #d97706;
+  --accent-bright: #f59e0b;
+  --accent-dim: #b45309;
 }
 
 * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }

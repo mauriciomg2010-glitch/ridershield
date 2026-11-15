@@ -1,6 +1,20 @@
-<svg xmlns="http://www.w3.org/2000/svg" width="512" height="512" viewBox="0 0 512 512">
-  <rect width="512" height="512" rx="100" fill="#0d0a1a"/>
-  <path d="M256 60 C256 60 140 100 140 180 L140 290 C140 350 200 400 256 440 C312 400 372 350 372 290 L372 180 C372 100 256 60 256 60 Z" fill="#7c3aed"/>
-  <text x="168" y="295" font-weight="800" font-size="140" font-family="system-ui, -apple-system, sans-serif" fill="white">RS</text>
-  <rect x="190" y="370" width="132" height="6" rx="3" fill="#a78bfa"/>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512">
+  <defs>
+    <linearGradient id="g" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#fcd34d"/>
+      <stop offset="0.55" stop-color="#f59e0b"/>
+      <stop offset="1" stop-color="#b45309"/>
+    </linearGradient>
+    <linearGradient id="bg" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#111827"/>
+      <stop offset="1" stop-color="#05070d"/>
+    </linearGradient>
+  </defs>
+  <rect width="512" height="512" fill="url(#bg)"/>
+  <!-- escudo dourado (dentro da zona segura dos ícones adaptativos) -->
+  <path d="M256 70 L410 122 V244 C410 340 345 414 256 446 C167 414 102 340 102 244 V122 Z" fill="url(#g)"/>
+  <!-- brilho superior -->
+  <path d="M256 70 L410 122 V150 L256 98 L102 150 V122 Z" fill="#fff" fill-opacity="0.22"/>
+  <!-- Z (rota) recortado em preto -->
+  <path d="M184 184 H326 L188 324 H330" fill="none" stroke="#0a0e1a" stroke-width="46" stroke-linejoin="miter" stroke-miterlimit="4"/>
 </svg>

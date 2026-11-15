@@ -107,7 +107,7 @@ export default function GroupsScreen() {
       <div className="flex gap-3 px-6 py-4">
         <button onClick={()=>setShowCreate(true)}
           className="flex-1 flex items-center justify-center gap-2 text-white font-semibold py-3 rounded-xl text-sm"
-          style={{background:'linear-gradient(135deg, #4f8ef7 0%, #1a5fd4 100%)'}}>
+          style={{background:'linear-gradient(135deg, #f59e0b 0%, #b45309 100%)'}}>
           + {t('create_group')}
         </button>
         <button onClick={()=>setShowJoin(true)}
@@ -145,7 +145,7 @@ export default function GroupsScreen() {
                     </h3>
                     <p className="text-xs mt-0.5" style={{color:'var(--muted)'}}>
                       {group.members.length} {group.members.length !== 1 ? t('members') : t('member')}
-                      {isAdmin(group) && <span style={{color:'#4f8ef7'}}> · {t('admin')}</span>}
+                      {isAdmin(group) && <span style={{color:'#f59e0b'}}> · {t('admin')}</span>}
                     </p>
                   </div>
                   <span className="text-xs font-mono px-2 py-0.5 rounded" style={{background:'var(--surface)',border:'1px solid var(--border)',color:'var(--text-dim)'}}>
@@ -180,7 +180,7 @@ export default function GroupsScreen() {
               style={{border:'1px solid var(--border)',color:'var(--muted)'}}>{t('cancel')}</button>
             <button onClick={handleCreate} disabled={loading||(!user?.isPremium && !user?.isAdmin)}
               className="flex-1 py-4 rounded-xl text-sm font-semibold text-white disabled:opacity-50"
-              style={{background:'linear-gradient(135deg, #4f8ef7 0%, #1a5fd4 100%)'}}>
+              style={{background:'linear-gradient(135deg, #f59e0b 0%, #b45309 100%)'}}>
               {loading ? t('creating') : t('create_group')}
             </button>
           </div>
@@ -203,7 +203,7 @@ export default function GroupsScreen() {
               style={{border:'1px solid var(--border)',color:'var(--muted)'}}>{t('cancel')}</button>
             <button onClick={handleJoin} disabled={loading}
               className="flex-1 py-4 rounded-xl text-sm font-semibold text-white disabled:opacity-50"
-              style={{background:'linear-gradient(135deg, #4f8ef7 0%, #1a5fd4 100%)'}}>
+              style={{background:'linear-gradient(135deg, #f59e0b 0%, #b45309 100%)'}}>
               {loading ? t('joining') : t('join_group')}
             </button>
           </div>

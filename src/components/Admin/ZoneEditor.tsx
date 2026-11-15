@@ -359,7 +359,7 @@ export default function ZoneEditor({ onToast, isSuperAdmin = false, currentUid =
         <div style={{ display: 'flex', gap: 8, marginBottom: 8 }}>
           {polyPoints.length >= 3 && (
             <button onClick={fecharPoligono}
-              style={{ flex: 1, background: '#1a56db', color: 'white', border: 'none', borderRadius: 10, padding: '10px 14px', fontSize: 13, fontWeight: 700, cursor: 'pointer' }}>
+              style={{ flex: 1, background: '#d97706', color: 'white', border: 'none', borderRadius: 10, padding: '10px 14px', fontSize: 13, fontWeight: 700, cursor: 'pointer' }}>
               ✅ Fechar área ({polyPoints.length} pontos)
             </button>
           )}

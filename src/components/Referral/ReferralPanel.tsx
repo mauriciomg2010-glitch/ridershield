@@ -107,7 +107,7 @@ export default function ReferralPanel({ uid, onClose, onUpgrade }: Props) {
         {loading ? (
           <div className="flex items-center justify-center py-16">
             <div className="w-8 h-8 border-2 border-t-transparent rounded-full animate-spin"
-              style={{ borderColor: '#2d6fe8', borderTopColor: 'transparent' }} />
+              style={{ borderColor: '#d97706', borderTopColor: 'transparent' }} />
           </div>
         ) : (
           <>
@@ -167,26 +167,26 @@ export default function ReferralPanel({ uid, onClose, onUpgrade }: Props) {
             </div>
 
             {/* Referral code card */}
-            <div style={{ borderRadius: 14, overflow: 'hidden', background: 'var(--card)', border: '1px solid rgba(45,111,232,0.25)' }}>
+            <div style={{ borderRadius: 14, overflow: 'hidden', background: 'var(--card)', border: '1px solid rgba(245,158,11,0.25)' }}>
               <div style={{ padding: '12px 16px 10px', borderBottom: '1px solid var(--border)' }}>
                 <p style={{ fontSize: 11, fontWeight: 700, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: 0.5, marginBottom: 8 }}>
                   O teu código de indicação
                 </p>
                 <div style={{
                   display: 'flex', alignItems: 'center', gap: 10,
-                  background: 'rgba(45,111,232,0.06)', borderRadius: 10,
+                  background: 'rgba(245,158,11,0.06)', borderRadius: 10,
                   padding: '10px 14px',
-                  border: '1px solid rgba(45,111,232,0.15)',
+                  border: '1px solid rgba(245,158,11,0.15)',
                 }}>
                   <span style={{ fontSize: 16, flexShrink: 0 }}>🛡️</span>
-                  <span style={{ fontFamily: 'monospace', fontSize: 18, fontWeight: 800, color: '#4f8ef7', letterSpacing: 1, flex: 1 }}>
+                  <span style={{ fontFamily: 'monospace', fontSize: 18, fontWeight: 800, color: '#f59e0b', letterSpacing: 1, flex: 1 }}>
                     {code || '…'}
                   </span>
                   <button
                     onClick={handleCopy}
                     style={{
-                      background: 'rgba(45,111,232,0.12)', border: '1px solid rgba(45,111,232,0.25)',
-                      borderRadius: 8, padding: '6px 12px', color: '#4f8ef7',
+                      background: 'rgba(245,158,11,0.12)', border: '1px solid rgba(245,158,11,0.25)',
+                      borderRadius: 8, padding: '6px 12px', color: '#f59e0b',
                       fontSize: 12, fontWeight: 700, cursor: 'pointer', flexShrink: 0,
                     }}
                   >
@@ -200,7 +200,7 @@ export default function ReferralPanel({ uid, onClose, onUpgrade }: Props) {
                   width: '100%', padding: '11px 16px',
                   background: 'none', border: 'none',
                   display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8,
-                  color: '#4f8ef7', fontWeight: 700, fontSize: 13, cursor: 'pointer',
+                  color: '#f59e0b', fontWeight: 700, fontSize: 13, cursor: 'pointer',
                 }}
               >
                 <span style={{ fontSize: 16 }}>↗</span> Partilhar código
@@ -220,14 +220,14 @@ export default function ReferralPanel({ uid, onClose, onUpgrade }: Props) {
                 <div key={n} style={{ display: 'flex', alignItems: 'flex-start', gap: 10, marginBottom: 10 }}>
                   <div style={{
                     width: 22, height: 22, borderRadius: '50%', flexShrink: 0,
-                    background: 'rgba(45,111,232,0.12)', border: '1px solid rgba(45,111,232,0.25)',
+                    background: 'rgba(245,158,11,0.12)', border: '1px solid rgba(245,158,11,0.25)',
                     display: 'flex', alignItems: 'center', justifyContent: 'center',
-                    fontSize: 11, fontWeight: 800, color: '#4f8ef7',
+                    fontSize: 11, fontWeight: 800, color: '#f59e0b',
                   }}>{n}</div>
                   <p style={{ fontSize: 13, color: 'var(--text)', lineHeight: 1.5, paddingTop: 2 }}>{text}</p>
                 </div>
               ))}
-              <div style={{ marginTop: 4, padding: '8px 10px', borderRadius: 8, background: 'rgba(45,111,232,0.06)', border: '1px solid rgba(45,111,232,0.15)' }}>
+              <div style={{ marginTop: 4, padding: '8px 10px', borderRadius: 8, background: 'rgba(245,158,11,0.06)', border: '1px solid rgba(245,158,11,0.15)' }}>
                 <p style={{ fontSize: 11, color: '#93c5fd' }}>
                   ℹ️ Qualquer rider pode indicar · Crédito só após 2º mês Pro · Mínimo €10 para levantar
                 </p>
@@ -251,7 +251,7 @@ export default function ReferralPanel({ uid, onClose, onUpgrade }: Props) {
                   {(confirmedCount + pendingCount) > 0 && (
                     <span style={{
                       marginLeft: 8, fontSize: 11, fontWeight: 700,
-                      background: 'rgba(45,111,232,0.12)', color: '#4f8ef7',
+                      background: 'rgba(245,158,11,0.12)', color: '#f59e0b',
                       padding: '2px 7px', borderRadius: 10,
                     }}>
                       {confirmedCount + pendingCount}

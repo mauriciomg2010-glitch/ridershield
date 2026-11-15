@@ -310,7 +310,7 @@ export default function MyServicesScreen({ onBack }: Props) {
                       <button
                         onClick={() => window.open(`https://maps.google.com/?q=${req.lat},${req.lng}`, '_blank')}
                         className="text-xs px-2 py-1 rounded-lg flex-shrink-0"
-                        style={{ background: 'rgba(45,111,232,0.12)', color: '#4f8ef7', border: '1px solid rgba(45,111,232,0.25)' }}>
+                        style={{ background: 'rgba(245,158,11,0.12)', color: '#f59e0b', border: '1px solid rgba(245,158,11,0.25)' }}>
                         🗺️ Ver
                       </button>
                     )}

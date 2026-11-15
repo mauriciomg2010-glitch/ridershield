@@ -172,7 +172,7 @@ export default function ServiceRequestsScreen({ onBack }: Props) {
         {tab === 'pending' && (loading ? (
           <div className="flex items-center justify-center py-16">
             <div className="w-8 h-8 border-2 border-t-transparent rounded-full animate-spin"
-              style={{ borderColor: '#2d6fe8', borderTopColor: 'transparent' }} />
+              style={{ borderColor: '#d97706', borderTopColor: 'transparent' }} />
           </div>
         ) : pending.length === 0 ? (
           <div className="flex flex-col items-center justify-center py-16 text-center">

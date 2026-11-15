@@ -2069,7 +2069,7 @@ export default function MapView({ groupMembers = EMPTY_MEMBERS, currentUserId, g
               <div
                 onClick={() => { setSelectedAltIdx(i); handleRouteSelected(i) }}
                 style={{
-                  background: isSel ? '#1a56db' : 'white',
+                  background: isSel ? '#d97706' : 'white',
                   color: isSel ? 'white' : '#333',
                   border: isSel ? 'none' : '1px solid #ccc',
                   padding: '5px 10px', borderRadius: 20,
@@ -2228,7 +2228,7 @@ export default function MapView({ groupMembers = EMPTY_MEMBERS, currentUserId, g
 
         {/* Category search pins — tap opens info sheet, not auto-navigation */}
         {categoryPins.map((pin, i) => {
-          const color = CAT_COLORS[pin.catKey] ?? '#2d6fe8'
+          const color = CAT_COLORS[pin.catKey] ?? '#d97706'
           return (
             <Marker key={`cat_${i}`} longitude={pin.lng} latitude={pin.lat} anchor="bottom">
               <div
@@ -2510,8 +2510,8 @@ export default function MapView({ groupMembers = EMPTY_MEMBERS, currentUserId, g
               mapRef.current?.fitBounds([[Math.min(...lngs), Math.min(...lats)], [Math.max(...lngs), Math.max(...lats)]], { padding: 40, maxZoom: 15 })
             }}
             className="rounded-xl px-3 py-2 shadow-lg transition-colors"
-            style={{ background: 'var(--surface)', border: `1px solid ${filteredIncidents.length > 0 ? '#2d6fe8' : 'var(--border)'}`, cursor: filteredIncidents.length > 0 ? 'pointer' : 'default' }}>
-            <span className="text-xs font-semibold" style={{ color: filteredIncidents.length > 0 ? '#4f8ef7' : 'var(--muted)' }}>
+            style={{ background: 'var(--surface)', border: `1px solid ${filteredIncidents.length > 0 ? '#d97706' : 'var(--border)'}`, cursor: filteredIncidents.length > 0 ? 'pointer' : 'default' }}>
+            <span className="text-xs font-semibold" style={{ color: filteredIncidents.length > 0 ? '#f59e0b' : 'var(--muted)' }}>
               {filteredIncidents.length} reports {filteredIncidents.length > 0 ? '→' : ''}
             </span>
           </button>
@@ -2575,9 +2575,9 @@ export default function MapView({ groupMembers = EMPTY_MEMBERS, currentUserId, g
               <button key={h} onClick={() => setTimeFilter(h)}
                 style={{
                   flexShrink: 0, padding: '7px 14px', borderRadius: 20, fontSize: 12, fontWeight: 700,
-                  background: timeFilter === h ? '#2d6fe8' : 'var(--card)',
+                  background: timeFilter === h ? '#d97706' : 'var(--card)',
                   color: timeFilter === h ? 'white' : 'var(--muted)',
-                  border: `1px solid ${timeFilter === h ? '#2d6fe8' : 'var(--border)'}`,
+                  border: `1px solid ${timeFilter === h ? '#d97706' : 'var(--border)'}`,
                   cursor: 'pointer',
                 }}>
                 {h}h
@@ -2586,9 +2586,9 @@ export default function MapView({ groupMembers = EMPTY_MEMBERS, currentUserId, g
             <button onClick={() => setShowHeatmap(!showHeatmap)}
               style={{
                 flexShrink: 0, padding: '7px 14px', borderRadius: 20, fontSize: 12, fontWeight: 700,
-                background: showHeatmap ? '#2d6fe8' : 'var(--card)',
+                background: showHeatmap ? '#d97706' : 'var(--card)',
                 color: showHeatmap ? 'white' : 'var(--muted)',
-                border: `1px solid ${showHeatmap ? '#2d6fe8' : 'var(--border)'}`,
+                border: `1px solid ${showHeatmap ? '#d97706' : 'var(--border)'}`,
                 cursor: 'pointer',
               }}>
               🔥 Calor
@@ -2892,7 +2892,7 @@ export default function MapView({ groupMembers = EMPTY_MEMBERS, currentUserId, g
                   </div>
                   <button
                     onClick={() => { setPendingNavDest({ lat: pin.lat, lng: pin.lng }); setTappedLocation(null); setShowModeSelector(true) }}
-                    style={{ background: '#2d6fe8', border: 'none', borderRadius: 10, padding: '7px 13px', color: 'white', fontWeight: 700, fontSize: 11, cursor: 'pointer', flexShrink: 0 }}>
+                    style={{ background: '#d97706', border: 'none', borderRadius: 10, padding: '7px 13px', color: 'white', fontWeight: 700, fontSize: 11, cursor: 'pointer', flexShrink: 0 }}>
                     Navegar
                   </button>
                 </div>
@@ -2968,7 +2968,7 @@ export default function MapView({ groupMembers = EMPTY_MEMBERS, currentUserId, g
                   setShowModeSelector(true)
                   onPanelChange?.(false)
                 }}
-                style={{ marginTop: 10, background: '#2d6fe8', border: 'none', borderRadius: 10, padding: '9px 18px', color: 'white', fontWeight: 700, fontSize: 13, cursor: 'pointer', width: '100%' }}>
+                style={{ marginTop: 10, background: '#d97706', border: 'none', borderRadius: 10, padding: '9px 18px', color: 'white', fontWeight: 700, fontSize: 13, cursor: 'pointer', width: '100%' }}>
                 🧭 Navegar até aqui
               </button>
             )}
@@ -2979,7 +2979,7 @@ export default function MapView({ groupMembers = EMPTY_MEMBERS, currentUserId, g
       {/* Auto-follow indicator */}
       {autoFollow && currentLocation && !isNavigating && (
         <div className="absolute z-[400] flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-semibold pointer-events-none"
-          style={{ bottom: '212px', right: '12px', background: 'rgba(45,111,232,0.88)', color: 'white', backdropFilter: 'blur(4px)' }}>
+          style={{ bottom: '212px', right: '12px', background: 'rgba(245,158,11,0.88)', color: 'white', backdropFilter: 'blur(4px)' }}>
           <div className="w-1.5 h-1.5 rounded-full bg-white animate-pulse flex-shrink-0" />
           A seguir
         </div>
@@ -2995,8 +2995,8 @@ export default function MapView({ groupMembers = EMPTY_MEMBERS, currentUserId, g
           className="absolute z-[400] w-11 h-11 rounded-full flex items-center justify-center text-xl shadow-lg transition-opacity"
           style={{
             bottom: '160px', right: '12px',
-            background: autoFollow ? '#2d6fe8' : 'var(--surface)',
-            border: `2px solid ${autoFollow ? '#2d6fe8' : 'var(--border)'}`,
+            background: autoFollow ? '#d97706' : 'var(--surface)',
+            border: `2px solid ${autoFollow ? '#d97706' : 'var(--border)'}`,
             opacity: currentLocation ? 1 : 0.4,
           }}>
           🎯
@@ -3017,10 +3017,10 @@ export default function MapView({ groupMembers = EMPTY_MEMBERS, currentUserId, g
             boxShadow: '0 2px 12px rgba(0,0,0,0.35)',
             display: 'flex', alignItems: 'center', gap: 8,
             fontSize: 14, fontWeight: 700,
-            color: '#1a56db', cursor: 'pointer',
+            color: '#d97706', cursor: 'pointer',
           }}
         >
-          <svg width="16" height="16" viewBox="0 0 24 24" fill="#1a56db">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="#d97706">
             <polygon points="12,2 22,22 12,17 2,22" />
           </svg>
           Re-center
@@ -3180,7 +3180,7 @@ export default function MapView({ groupMembers = EMPTY_MEMBERS, currentUserId, g
                   setShowModeSelector(true)
                   onPanelChange?.(false)
                 }}
-                style={{ marginTop: 10, background: '#2d6fe8', border: 'none', borderRadius: 10, padding: '9px 18px', color: 'white', fontWeight: 700, fontSize: 13, cursor: 'pointer', width: '100%' }}>
+                style={{ marginTop: 10, background: '#d97706', border: 'none', borderRadius: 10, padding: '9px 18px', color: 'white', fontWeight: 700, fontSize: 13, cursor: 'pointer', width: '100%' }}>
                 🧭 Navegar até aqui
               </button>
             )}

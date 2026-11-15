@@ -148,7 +148,7 @@ export default function ReferralsListScreen({ uid, credits, onBack }: Props) {
         {loading ? (
           <div className="flex items-center justify-center py-16">
             <div className="w-8 h-8 border-2 border-t-transparent rounded-full animate-spin"
-              style={{ borderColor: '#2d6fe8', borderTopColor: 'transparent' }} />
+              style={{ borderColor: '#d97706', borderTopColor: 'transparent' }} />
           </div>
         ) : referrals.length === 0 ? (
           <div style={{ textAlign: 'center', padding: '40px 16px' }}>

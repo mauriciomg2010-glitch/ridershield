@@ -141,7 +141,7 @@ export default function GroupChat({ groupId, groupName, onClose, currentUserId, 
                     width: '32px', height: '32px', borderRadius: '50%',
                     display: 'flex', alignItems: 'center', justifyContent: 'center',
                     fontSize: '12px', fontWeight: 700, color: 'white', flexShrink: 0,
-                    background: isOwn ? 'linear-gradient(135deg, #4f8ef7 0%, #1a5fd4 100%)' : '#6b7280',
+                    background: isOwn ? 'linear-gradient(135deg, #f59e0b 0%, #b45309 100%)' : '#6b7280',
                   }}>
                     {initial}
                   </div>
@@ -162,7 +162,7 @@ export default function GroupChat({ groupId, groupName, onClose, currentUserId, 
                       padding: '8px 12px',
                       fontSize: '14px',
                       lineHeight: 1.4,
-                      background: isOwn ? 'linear-gradient(135deg, #4f8ef7 0%, #1a5fd4 100%)' : 'var(--card)',
+                      background: isOwn ? 'linear-gradient(135deg, #f59e0b 0%, #b45309 100%)' : 'var(--card)',
                       color: isOwn ? 'white' : 'var(--text)',
                       borderRadius: isOwn ? '14px 4px 14px 14px' : '4px 14px 14px 14px',
                       border: isOwn ? 'none' : '1px solid var(--border)',
@@ -213,7 +213,7 @@ export default function GroupChat({ groupId, groupName, onClose, currentUserId, 
           onClick={() => setShowEmojis(s => !s)}
           style={{
             fontSize: 22, background: 'none', border: 'none', cursor: 'pointer', padding: '0 2px',
-            color: showEmojis ? '#4f8ef7' : 'var(--muted)', flexShrink: 0,
+            color: showEmojis ? '#f59e0b' : 'var(--muted)', flexShrink: 0,
           }}>
           😊
         </button>
@@ -243,7 +243,7 @@ export default function GroupChat({ groupId, groupName, onClose, currentUserId, 
             width: '40px',
             height: '40px',
             borderRadius: '50%',
-            background: 'linear-gradient(135deg, #4f8ef7 0%, #1a5fd4 100%)',
+            background: 'linear-gradient(135deg, #f59e0b 0%, #b45309 100%)',
             display: 'flex',
             alignItems: 'center',
             justifyContent: 'center',

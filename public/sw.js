@@ -1,6 +1,6 @@
-const CACHE_NAME = 'ridershield-v3'
-const DATA_CACHE = 'ridershield-data-v3'
-const TILES_CACHE = 'ridershield-tiles-v3'
+const CACHE_NAME = 'ridershield-v4'
+const DATA_CACHE = 'ridershield-data-v4'
+const TILES_CACHE = 'ridershield-tiles-v4'
 
 const PRECACHE_URLS = [
   '/',

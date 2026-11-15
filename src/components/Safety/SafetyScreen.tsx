@@ -95,14 +95,14 @@ export default function SafetyScreen() {
         <button
           onClick={() => { setShowInsurance(true); setInsuranceTab('ebike') }}
           className="w-full flex items-center gap-3 rounded-2xl px-5 py-4"
-          style={{ background: 'rgba(45,111,232,0.08)', border: '1px solid rgba(45,111,232,0.25)' }}
+          style={{ background: 'rgba(245,158,11,0.08)', border: '1px solid rgba(245,158,11,0.25)' }}
         >
           <span style={{ fontSize: 24 }}>🛡️</span>
           <div className="flex-1 text-left">
             <p className="font-bold text-sm" style={{ color: '#93c5fd' }}>Seguradoras</p>
             <p className="text-xs" style={{ color: 'var(--muted)' }}>E-Bike · Moto · Carro — comparar planos</p>
           </div>
-          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#4f8ef7" strokeWidth="2">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#f59e0b" strokeWidth="2">
             <polyline points="9 18 15 12 9 6" />
           </svg>
         </button>
@@ -150,7 +150,7 @@ export default function SafetyScreen() {
           <div className="flex items-center justify-between mb-3">
             <p className="text-sm font-bold" style={{ color: 'var(--text)' }}>📍 {t('community_suggestions')}</p>
             <button onClick={openSuggest} className="text-xs font-semibold px-3 py-1.5 rounded-lg"
-              style={{ color: '#4f8ef7', border: '1px solid rgba(45,111,232,0.3)' }}>+ {t('suggest_area')}</button>
+              style={{ color: '#f59e0b', border: '1px solid rgba(245,158,11,0.3)' }}>+ {t('suggest_area')}</button>
           </div>
           <p className="text-xs mb-3" style={{ color: 'var(--muted)' }}>Community-reported areas not yet on the official map. Vote to escalate to admin.</p>
           <div className="space-y-2">
@@ -163,9 +163,9 @@ export default function SafetyScreen() {
                 </div>
                 <button onClick={() => handleVote(s.id)}
                   className="flex flex-col items-center gap-0.5 px-3 py-2 rounded-xl flex-shrink-0"
-                  style={{ background: voted.has(s.id) ? 'rgba(45,111,232,0.2)' : 'rgba(45,111,232,0.1)', border: `1px solid ${voted.has(s.id) ? '#2d6fe8' : 'rgba(45,111,232,0.2)'}` }}>
-                  <span className="text-base" style={{ color: voted.has(s.id) ? '#2d6fe8' : '#4f8ef7' }}>▲</span>
-                  <span className="text-xs font-bold" style={{ color: '#4f8ef7' }}>{s.votes}</span>
+                  style={{ background: voted.has(s.id) ? 'rgba(245,158,11,0.2)' : 'rgba(245,158,11,0.1)', border: `1px solid ${voted.has(s.id) ? '#d97706' : 'rgba(245,158,11,0.2)'}` }}>
+                  <span className="text-base" style={{ color: voted.has(s.id) ? '#d97706' : '#f59e0b' }}>▲</span>
+                  <span className="text-xs font-bold" style={{ color: '#f59e0b' }}>{s.votes}</span>
                 </button>
               </div>
             ))}
@@ -176,13 +176,13 @@ export default function SafetyScreen() {
         <div className="rounded-2xl overflow-hidden" style={{ background: '#1a0a2e', border: '1px solid #4c1d95' }}>
           <div className="px-4 pt-4 pb-3" style={{ borderBottom: '1px solid rgba(76,29,149,0.5)' }}>
             <p className="font-bold text-sm" style={{ color: '#c4b5fd' }}>🔒 {t('bike_moto_security')}</p>
-            <p className="text-xs mt-0.5" style={{ color: '#2d6fe8' }}>{t('tips_vehicle_safe')}</p>
+            <p className="text-xs mt-0.5" style={{ color: '#d97706' }}>{t('tips_vehicle_safe')}</p>
           </div>
           <div className="p-4">
             <p className="text-xs font-semibold mb-2" style={{ color: '#93c5fd' }}>⚡ {t('anti_theft_tips')}</p>
             {[t('tips_vehicle_tip1'), t('tips_vehicle_tip2'), t('tips_vehicle_tip3'), t('tips_vehicle_tip4'), t('tips_vehicle_tip5')].map((tip, i) => (
               <div key={i} className="flex gap-2 mb-2">
-                <span style={{ color: '#4f8ef7' }}>•</span>
+                <span style={{ color: '#f59e0b' }}>•</span>
                 <p className="text-xs" style={{ color: '#c4b5fd' }}>{tip}</p>
               </div>
             ))}
@@ -203,7 +203,7 @@ export default function SafetyScreen() {
             ] as { id: typeof insuranceTab; label: string }[]).map(tab => (
               <button key={tab.id} onClick={() => setInsuranceTab(tab.id)}
                 className="flex-1 py-2.5 rounded-xl text-sm font-bold"
-                style={{ background: insuranceTab === tab.id ? '#2d6fe8' : 'var(--card)', color: insuranceTab === tab.id ? 'white' : 'var(--muted)', border: `1px solid ${insuranceTab === tab.id ? '#2d6fe8' : 'var(--border)'}` }}>
+                style={{ background: insuranceTab === tab.id ? '#d97706' : 'var(--card)', color: insuranceTab === tab.id ? 'white' : 'var(--muted)', border: `1px solid ${insuranceTab === tab.id ? '#d97706' : 'var(--border)'}` }}>
                 {tab.label}
               </button>
             ))}
@@ -215,7 +215,7 @@ export default function SafetyScreen() {
               { name: 'Qover Bike Insurance', desc: 'Seguro flexível para bikes e e-bikes. Sem depreciação nos primeiros 3 anos. A partir de €5/mês.', url: 'https://bike.qover.com/en-ie', btn: 'Ver planos →' },
               { name: 'Ucompare — Bicycle Insurance', desc: 'Comparador de seguros de bicicleta. Compara múltiplas seguradoras ao mesmo tempo.', url: 'https://ucompare.ie/bicycle-insurance', btn: 'Comparar →' },
             ] as { name: string; desc: string; url: string; btn: string; phone?: string }[]).map(ins => (
-              <InsuranceCard key={ins.name} {...ins} color="#4f8ef7" />
+              <InsuranceCard key={ins.name} {...ins} color="#f59e0b" />
             ))}
             {insuranceTab === 'moto' && ([
               { name: 'AXA Ireland — Motorbike', desc: 'Maior seguradora de motos em Ireland. Plano Bikecare (mopeds/50cc) e Easirider (motos completas). Desconto 40% se tiveres carro na AXA.', url: 'https://www.axa.ie/motorbike-insurance', phone: '1890 24 7 365', btn: 'Pedir orçamento →' },
@@ -268,7 +268,7 @@ export default function SafetyScreen() {
                 {['theft', 'robbery', 'aggression', 'suspicious_activity'].map((riskType) => (
                   <button key={riskType} onClick={() => setForm({ ...form, type: riskType })}
                     className="py-2.5 rounded-xl text-xs font-semibold"
-                    style={{ background: form.type === riskType ? '#2d6fe8' : 'var(--card)', color: form.type === riskType ? 'white' : 'var(--muted)', border: `1px solid ${form.type === riskType ? '#2d6fe8' : 'var(--border)'}` }}>
+                    style={{ background: form.type === riskType ? '#d97706' : 'var(--card)', color: form.type === riskType ? 'white' : 'var(--muted)', border: `1px solid ${form.type === riskType ? '#d97706' : 'var(--border)'}` }}>
                     {riskType === 'theft' ? t('theft') : riskType === 'robbery' ? t('robbery') : riskType === 'aggression' ? t('aggression_risk') : t('suspicious')}
                   </button>
                 ))}
@@ -281,7 +281,7 @@ export default function SafetyScreen() {
                 className="w-full rounded-xl px-4 py-3 text-sm focus:outline-none resize-none"
                 style={{ background: 'var(--card)', border: '1px solid var(--border)', color: 'var(--text)' }} />
             </div>
-            <button onClick={handleSuggest} className="w-full text-white font-bold py-4 rounded-xl" style={{ background: 'linear-gradient(135deg, #4f8ef7 0%, #1a5fd4 100%)' }}>
+            <button onClick={handleSuggest} className="w-full text-white font-bold py-4 rounded-xl" style={{ background: 'linear-gradient(135deg, #f59e0b 0%, #b45309 100%)' }}>
               📍 {t('submit_suggestion')}
             </button>
           </div>

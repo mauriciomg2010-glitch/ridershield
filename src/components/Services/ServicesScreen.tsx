@@ -46,7 +46,7 @@ interface Service {
 
 type ServiceRequestType = 'mechanic_local' | 'mechanic_workshop' | 'rescue' | 'accident'
 const REQUEST_TYPES: Record<ServiceRequestType, { icon: string; label: string; sublabel: string; color: string; bg: string }> = {
-  mechanic_local:    { icon: '🔧', label: 'Avaria / Manutenção',  sublabel: 'Mecânico local',       color: '#4f8ef7', bg: 'rgba(79,142,247,0.12)'  },
+  mechanic_local:    { icon: '🔧', label: 'Avaria / Manutenção',  sublabel: 'Mecânico local',       color: '#f59e0b', bg: 'rgba(79,142,247,0.12)'  },
   mechanic_workshop: { icon: '🏭', label: 'Preciso de oficina',   sublabel: 'Mecânico com oficina',  color: '#f59e0b', bg: 'rgba(245,158,11,0.12)'  },
   rescue:            { icon: '🚐', label: 'Resgate com van',       sublabel: 'Transportar bicicleta', color: '#22c55e', bg: 'rgba(34,197,94,0.12)'   },
   accident:          { icon: '🚨', label: 'Tive um acidente',      sublabel: 'Emergência — 112',      color: '#ef4444', bg: 'rgba(239,68,68,0.12)'   },
@@ -300,7 +300,7 @@ export default function ServicesScreen() {
         <div className="flex items-center justify-between mb-1">
           <h1 className="text-2xl font-bold" style={{ color: 'var(--text)' }}>{t('services_title')}</h1>
           <button onClick={() => setShowRegister(true)} className="text-xs font-semibold px-3 py-1.5 rounded-lg"
-            style={{ color: '#4f8ef7', border: '1px solid rgba(45,111,232,0.3)' }}>+ {t('register_service')}</button>
+            style={{ color: '#f59e0b', border: '1px solid rgba(245,158,11,0.3)' }}>+ {t('register_service')}</button>
         </div>
         <p className="text-sm mb-4" style={{ color: 'var(--muted)' }}>{t('services_desc')}</p>
         <button onClick={() => setShowHelp(true)} className="w-full font-bold py-3 rounded-xl flex items-center justify-center gap-2"
@@ -318,7 +318,7 @@ export default function ServicesScreen() {
         ] as { id: ServiceFilter; label: string }[]).map((f) => (
           <button key={f.id} onClick={() => setFilter(f.id)}
             className="px-4 py-1.5 rounded-xl text-xs font-semibold whitespace-nowrap transition-colors"
-            style={{ background: filter === f.id ? '#2d6fe8' : 'var(--card)', color: filter === f.id ? 'white' : 'var(--muted)', border: `1px solid ${filter === f.id ? '#2d6fe8' : 'var(--border)'}` }}>
+            style={{ background: filter === f.id ? '#d97706' : 'var(--card)', color: filter === f.id ? 'white' : 'var(--muted)', border: `1px solid ${filter === f.id ? '#d97706' : 'var(--border)'}` }}>
             {f.label}
           </button>
         ))}
@@ -352,7 +352,7 @@ export default function ServicesScreen() {
                       <div className="flex gap-2">
                         <a href={`tel:${h.phone}`}
                           className="flex-1 py-2.5 rounded-xl text-xs font-bold text-center"
-                          style={{ background: 'rgba(45,111,232,0.12)', color: '#4f8ef7', border: '1px solid rgba(45,111,232,0.25)', textDecoration: 'none' }}>
+                          style={{ background: 'rgba(245,158,11,0.12)', color: '#f59e0b', border: '1px solid rgba(245,158,11,0.25)', textDecoration: 'none' }}>
                           📞 Ligar
                         </a>
                         <button onClick={() => window.open(h.mapsUrl, '_blank')}
@@ -398,7 +398,7 @@ export default function ServicesScreen() {
                 <div className="flex gap-2">
                   <button onClick={() => handleCall(service)} disabled={!isOnline}
                     className="flex-1 text-white font-semibold py-2.5 rounded-xl text-sm disabled:opacity-50"
-                    style={{ background: isOnline ? 'linear-gradient(135deg, #4f8ef7 0%, #1a5fd4 100%)' : 'var(--surface)', border: isOnline ? 'none' : '1px solid var(--border)', color: isOnline ? 'white' : 'var(--muted)' }}>
+                    style={{ background: isOnline ? 'linear-gradient(135deg, #f59e0b 0%, #b45309 100%)' : 'var(--surface)', border: isOnline ? 'none' : '1px solid var(--border)', color: isOnline ? 'white' : 'var(--muted)' }}>
                     📞 {t('call')}
                   </button>
                   <button onClick={() => setSelectedService(service)}
@@ -414,7 +414,7 @@ export default function ServicesScreen() {
             <p className="text-sm font-semibold mb-1" style={{ color: 'var(--text)' }}>{t('are_you_mechanic')}</p>
             <p className="text-xs mb-3" style={{ color: 'var(--muted)' }}>{t('get_listed')}</p>
             <button onClick={() => setShowRegister(true)} className="font-semibold px-6 py-2 rounded-xl text-sm"
-              style={{ background: 'rgba(45,111,232,0.1)', border: '1px solid rgba(45,111,232,0.3)', color: '#4f8ef7' }}>
+              style={{ background: 'rgba(245,158,11,0.1)', border: '1px solid rgba(245,158,11,0.3)', color: '#f59e0b' }}>
               {t('register_service')}
             </button>
           </div>
@@ -523,7 +523,7 @@ export default function ServicesScreen() {
                 {(['mechanic', 'rescue'] as const).map((svcType) => (
                   <button key={svcType} onClick={() => setForm({ ...form, type: svcType })}
                     className="flex-1 py-3 rounded-xl border text-sm font-semibold capitalize"
-                    style={{ background: form.type === svcType ? '#2d6fe8' : 'var(--card)', color: form.type === svcType ? 'white' : 'var(--muted)', borderColor: form.type === svcType ? '#2d6fe8' : 'var(--border)' }}>
+                    style={{ background: form.type === svcType ? '#d97706' : 'var(--card)', color: form.type === svcType ? 'white' : 'var(--muted)', borderColor: form.type === svcType ? '#d97706' : 'var(--border)' }}>
                     {svcType === 'mechanic' ? `🔧 ${t('mechanic')}` : `🚑 ${t('rescue')}`}
                   </button>
                 ))}
@@ -535,7 +535,7 @@ export default function ServicesScreen() {
                 {(['bike', 'moto', 'both'] as const).map((v) => (
                   <button key={v} onClick={() => setForm({ ...form, vehicle: v })}
                     className="flex-1 py-3 rounded-xl border text-xs font-semibold"
-                    style={{ background: form.vehicle === v ? '#2d6fe8' : 'var(--card)', color: form.vehicle === v ? 'white' : 'var(--muted)', borderColor: form.vehicle === v ? '#2d6fe8' : 'var(--border)' }}>
+                    style={{ background: form.vehicle === v ? '#d97706' : 'var(--card)', color: form.vehicle === v ? 'white' : 'var(--muted)', borderColor: form.vehicle === v ? '#d97706' : 'var(--border)' }}>
                     {v === 'bike' ? `🚲 ${t('bike')}` : v === 'moto' ? `🏍️ ${t('moto')}` : `🚲🏍️ ${t('both')}`}
                   </button>
                 ))}
@@ -561,7 +561,7 @@ export default function ServicesScreen() {
             </div>
             <button onClick={handleRegister} disabled={submitting}
               className="w-full text-white font-bold py-4 rounded-xl text-base disabled:opacity-60"
-              style={{ background: 'linear-gradient(135deg, #4f8ef7 0%, #1a5fd4 100%)' }}>
+              style={{ background: 'linear-gradient(135deg, #f59e0b 0%, #b45309 100%)' }}>
               {submitting ? 'A enviar…' : t('submit_registration')}
             </button>
           </div>
@@ -589,7 +589,7 @@ export default function ServicesScreen() {
           </div>
           <button onClick={() => handleCall(selectedService)} disabled={!getServiceOnline(selectedService)}
             className="w-full text-white font-bold py-4 rounded-xl text-base disabled:opacity-50"
-            style={{ background: 'linear-gradient(135deg, #4f8ef7 0%, #1a5fd4 100%)' }}>
+            style={{ background: 'linear-gradient(135deg, #f59e0b 0%, #b45309 100%)' }}>
             📞 Call {selectedService.name}
           </button>
         </FullModal>
