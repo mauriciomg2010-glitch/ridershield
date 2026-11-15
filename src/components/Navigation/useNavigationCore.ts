@@ -11,7 +11,8 @@ import { useStore, GpsFix } from '@/lib/store'
 import { RouteTracker, Progress } from '@/lib/navigation/routeTracker'
 import { fetchMapboxRoutes, findSafeRoute, flattenCongestion } from '@/lib/navigation/routing'
 import { loadAvoidZones, toZoneHit } from '@/lib/navigation/zoneSource'
-import { zonesOnRoute } from '@/lib/navigation/zones'
+import { zonesOnRoute, pointInZone, AvoidZone } from '@/lib/navigation/zones'
+import { ZoneAlertGuide, ZoneAlertState, zoneSpansOnRoute } from '@/lib/navigation/zoneAlert'
 import { bearing as geoBearing, distM } from '@/lib/navigation/geo'
 
 type LatLng = { lat: number; lng: number }
@@ -59,6 +60,9 @@ export function useNavigationCore({ isNavigating, currentFix, navDest, routeProf
   const [isRecalculating, setIsRecalculating] = useState(false)
   const [hasArrived, setHasArrived] = useState(false)
   const [routeTrim, setRouteTrim] = useState<{ seg: number; point: [number, number] } | null>(null)
+  // modo alerta: estado da faixa + último aviso de voz
+  const [zoneAlert, setZoneAlert] = useState<ZoneAlertState | null>(null)
+  const [zoneSpeech, setZoneSpeech] = useState<{ id: number; text: string } | null>(null)
 
   // ── referências (valores vivos para callbacks, sem re-render) ──
   const trackerRef = useRef<RouteTracker | null>(null)
@@ -72,6 +76,10 @@ export function useNavigationCore({ isNavigating, currentFix, navDest, routeProf
   const hasArrivedRef = useRef(false)
   const navigatingRef = useRef(isNavigating)
   const cbRef = useRef({ onBearing, onArrived, onRouteApplied })
+  const alertGuideRef = useRef<ZoneAlertGuide | null>(null)
+  const allZonesRef = useRef<AvoidZone[]>([])
+  const zoneAlertRef = useRef<ZoneAlertState | null>(null)
+  const speechIdRef = useRef(0)
   navDestRef.current = navDest
   profileRef.current = routeProfile
   navigatingRef.current = isNavigating
@@ -87,6 +95,12 @@ export function useNavigationCore({ isNavigating, currentFix, navDest, routeProf
         const hits = zonesOnRoute(coords, zs)
         setRiskOnRoute(hits.length > 0)
         setActiveRouteZones(hits.map(toZoneHit))
+        allZonesRef.current = zs
+        // modo alerta: trechos da rota dentro de cada zona (usa a mesma geometria do rastreador)
+        const trCoords = trackerRef.current?.coords ?? coords
+        alertGuideRef.current = new ZoneAlertGuide(zoneSpansOnRoute(trCoords, hits)).adoptFrom(navigatingRef.current ? alertGuideRef.current : null)
+        zoneAlertRef.current = null
+        setZoneAlert(null)
       }))
       .catch(() => {})
   }, [])
@@ -133,6 +147,10 @@ export function useNavigationCore({ isNavigating, currentFix, navDest, routeProf
     setCurrentStepIdx(0)
     setRiskOnRoute(false)
     setIsRecalculating(false)
+    alertGuideRef.current = null
+    zoneAlertRef.current = null
+    setZoneAlert(null)
+    setZoneSpeech(null)
   }, [])
 
   /** Recalcula SEMPRE pela rota segura. */
@@ -158,6 +176,12 @@ export function useNavigationCore({ isNavigating, currentFix, navDest, routeProf
       setIsRecalculating(false)
     }
   }, [applyRoute])
+
+  /** Botão "mudar para rota segura" do modo alerta. */
+  const switchToSafeRoute = useCallback(() => {
+    const fix = useStore.getState().currentFix
+    if (fix) reroute({ lat: fix.lat, lng: fix.lng })
+  }, [reroute])
 
   // ── a cada leitura do GPS ──
   useEffect(() => {
@@ -189,6 +213,22 @@ export function useNavigationCore({ isNavigating, currentFix, navDest, routeProf
         prevTrim && prevTrim.seg === tr.currentSeg && Math.abs(prevTrim.point[0] - p.snapped[0]) < 1e-6 && Math.abs(prevTrim.point[1] - p.snapped[1]) < 1e-6
           ? prevTrim : { seg: tr.currentSeg, point: p.snapped })
       if (v > 2) cbRef.current.onBearing?.(Math.round(p.offRouteM < 40 ? p.routeBearing : (headingGps ?? p.routeBearing)))
+
+      // modo alerta nas zonas (separado: um erro aqui não afeta as instruções da rota)
+      guard('zoneAlert', () => {
+        const guide = alertGuideRef.current
+        if (!guide) return
+        const here: [number, number] = [currentFix.lng, currentFix.lat]
+        const inside = new Set(allZonesRef.current.filter(z => pointInZone(here, z)).map(z => z.id))
+        const r = guide.update(p.along, inside, v, Date.now(), allZonesRef.current)
+        const prevA = zoneAlertRef.current
+        const st = r.state
+        const changed = !prevA || prevA.phase !== st.phase || prevA.zoneId !== st.zoneId || prevA.remaining !== st.remaining
+          || Math.abs((prevA.distToEntry ?? 0) - (st.distToEntry ?? 0)) >= 10
+          || Math.abs((prevA.distToExit ?? 0) - (st.distToExit ?? 0)) >= 10
+        if (changed) { zoneAlertRef.current = st; setZoneAlert(st) }
+        if (r.speak) setZoneSpeech({ id: ++speechIdRef.current, text: r.speak })
+      })
 
       if (p.arrived && !hasArrivedRef.current) {
         hasArrivedRef.current = true
@@ -240,10 +280,10 @@ export function useNavigationCore({ isNavigating, currentFix, navDest, routeProf
   return {
     // estado
     routeGeoJSON, routeCongestion, navSteps, currentStepIdx, distToNext, remainingDist, remainingSec, navEta,
-    riskOnRoute, activeRouteZones, isRecalculating, hasArrived, routeTrim, nextGap,
+    riskOnRoute, activeRouteZones, isRecalculating, hasArrived, routeTrim, nextGap, zoneAlert, zoneSpeech,
     // refs (leitura pela câmera)
     trackerRef, progressRef,
     // ações
-    applyRoute, beginSession, resetNav, updateRiskForRoute, setActiveRouteZones, setHasArrived,
+    applyRoute, beginSession, resetNav, updateRiskForRoute, setActiveRouteZones, setHasArrived, switchToSafeRoute,
   }
 }

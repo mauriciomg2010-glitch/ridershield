@@ -56,6 +56,12 @@ export function instructionText(step: any): string {
   return t.replace(/\.$/, '')
 }
 
+/** Texto do painel: longe do destino mostra "Siga até o destino" em vez de "Você chegou". */
+export function bannerText(step: any, distToManeuver: number): string {
+  if (step?.maneuver?.type === 'arrive' && distToManeuver > 80) return 'Siga até o destino'
+  return instructionText(step)
+}
+
 /** Distância no estilo do Google: "50 m", "350 m", "1,2 km", "12 km". */
 export function formatDistance(m: number): string {
   if (!isFinite(m) || m < 0) return ''

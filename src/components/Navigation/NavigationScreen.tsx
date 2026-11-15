@@ -4,7 +4,9 @@ import { useEffect, useRef, useCallback, useState } from 'react'
 import { getModeIcon } from '@/components/Map/TransportModeSelector'
 import { INCIDENT_TYPES } from '@/data/incidentTypes'
 import { Incident } from '@/types'
-import { VoiceGuide, instructionText, formatDistance } from '@/lib/navigation/instructions'
+import { VoiceGuide, instructionText, bannerText, formatDistance } from '@/lib/navigation/instructions'
+import type { ZoneAlertState } from '@/lib/navigation/zoneAlert'
+import ZoneAlertBanner from './ZoneAlertBanner'
 
 function timeAgo(d: Date): string {
   const mins = Math.floor((Date.now() - d.getTime()) / 60000)
@@ -56,6 +58,9 @@ interface Props {
   nearbyIncident?: Incident | null
   currentUserId?: string
   onVoteIncident?: (id: string, vote: 'confirm' | 'deny') => void
+  zoneAlert?: ZoneAlertState | null
+  zoneSpeech?: { id: number; text: string } | null
+  onSwitchToSafe?: () => void
 }
 
 export default function NavigationScreen({
@@ -87,6 +92,9 @@ export default function NavigationScreen({
   nearbyIncident = null,
   currentUserId,
   onVoteIncident,
+  zoneAlert = null,
+  zoneSpeech = null,
+  onSwitchToSafe,
 }: Props) {
   const [muted, setMuted] = useState(false)
   const [voting, setVoting] = useState(false)
@@ -125,7 +133,8 @@ export default function NavigationScreen({
   const speak = useCallback((text: string) => {
     if (typeof window === 'undefined' || !window.speechSynthesis) return
     if (muted) return
-    window.speechSynthesis.cancel()
+    // não corta a frase que está sendo falada (ex.: aviso de zona); só descarta fila antiga
+    if (window.speechSynthesis.pending) window.speechSynthesis.cancel()
     const utterance = new SpeechSynthesisUtterance(text)
     const voice = getVoice()
     if (voice) utterance.voice = voice
@@ -152,6 +161,14 @@ export default function NavigationScreen({
   useEffect(() => {
     if (hasArrived && isNavigating && !muted) speak('Você chegou ao destino')
   }, [hasArrived, isNavigating, muted, speak])
+
+  // Modo alerta: avisos de zona de risco
+  const lastZoneSpeechRef = useRef(0)
+  useEffect(() => {
+    if (!isNavigating || muted || !zoneSpeech || zoneSpeech.id === lastZoneSpeechRef.current) return
+    lastZoneSpeechRef.current = zoneSpeech.id
+    speak(zoneSpeech.text)
+  }, [isNavigating, muted, zoneSpeech, speak])
 
   // Announce recalculation
   useEffect(() => {
@@ -209,7 +226,7 @@ export default function NavigationScreen({
             padding: '14px 16px 12px',
             boxShadow: '0 4px 24px rgba(0,0,0,0.5)',
           }}>
-            {riskOnRoute && (
+            {riskOnRoute && !zoneAlert && (
               <div style={{ color: '#fbbf24', fontSize: 11, fontWeight: 700, marginBottom: 6, letterSpacing: 0.3 }}>
                 ⚠️ Zona de risco à frente
               </div>
@@ -226,14 +243,14 @@ export default function NavigationScreen({
                 display: 'flex', alignItems: 'center', justifyContent: 'center',
                 fontSize: 26, lineHeight: 1, color: 'white',
               }}>
-                {getManeuverIcon(currentStep.maneuver?.type ?? '', currentStep.maneuver?.modifier)}
+                {currentStep.maneuver?.type === 'arrive' && distToNext > 80 ? '↑' : getManeuverIcon(currentStep.maneuver?.type ?? '', currentStep.maneuver?.modifier)}
               </div>
               <div style={{ flex: 1, minWidth: 0 }}>
                 <div style={{
                   color: 'white', fontSize: 17, fontWeight: 700, lineHeight: 1.25,
                   overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
                 }}>
-                  {instructionText(currentStep)}
+                  {bannerText(currentStep, distToNext)}
                 </div>
                 <div style={{ color: '#93c5fd', fontSize: 13, marginTop: 3 }}>
                   {currentStep.name ? `${currentStep.name} · ` : ''}
@@ -264,6 +281,11 @@ export default function NavigationScreen({
             )}
           </div>
         </div>
+      )}
+
+      {/* Modo alerta — fica na tela até passar por todas as zonas ou mudar para a rota segura */}
+      {!hideControls && onSwitchToSafe && (
+        <ZoneAlertBanner alert={zoneAlert} isRecalculating={isRecalculating} onSwitchToSafe={onSwitchToSafe} />
       )}
 
       {/* Side column: compass + mute + SOS — hidden when any report panel is open */}

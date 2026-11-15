@@ -410,9 +410,6 @@ export default function MapView({ groupMembers = EMPTY_MEMBERS, currentUserId, g
   const [selectedPermZone, setSelectedPermZone] = useState<PermanentZone | null>(null)
   const [currentHour, setCurrentHour] = useState(() => new Date().getHours())
   const [safeRouteData, setSafeRouteData] = useState<any | null>(null)
-  const [zoneAlert, setZoneAlert] = useState<{ zone: any; dist: number } | null>(null)
-  const alertedZonesRef = useRef<Set<string>>(new Set())
-  const zoneAlertTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const [nearbyIncident, setNearbyIncident] = useState<Incident | null>(null)
   const alertedIncidentIdsRef = useRef<Set<string>>(new Set())
   const prevExternalReportRef = useRef(false)
@@ -472,14 +469,13 @@ export default function MapView({ groupMembers = EMPTY_MEMBERS, currentUserId, g
   // ── Motor de navegação isolado (src/components/Navigation/useNavigationCore.ts) ──
   const {
     routeGeoJSON, routeCongestion, navSteps, currentStepIdx, distToNext, remainingDist, remainingSec, navEta,
-    riskOnRoute, activeRouteZones, isRecalculating, hasArrived, routeTrim, nextGap,
+    riskOnRoute, activeRouteZones, isRecalculating, hasArrived, routeTrim, nextGap, zoneAlert, zoneSpeech,
     trackerRef, progressRef,
-    applyRoute, beginSession, resetNav, updateRiskForRoute, setActiveRouteZones, setHasArrived,
+    applyRoute, beginSession, resetNav, updateRiskForRoute, setActiveRouteZones, setHasArrived, switchToSafeRoute,
   } = useNavigationCore({
     isNavigating, currentFix, navDest, routeProfile,
     onBearing: setNavBearing,
     onArrived: () => mapRef.current?.easeTo({ pitch: 0, bearing: 0, duration: 600, easing: (t: number) => t }),
-    onRouteApplied: () => { alertedZonesRef.current = new Set() },
   })
 
   const mapStyle = 'mapbox://styles/mapbox/streets-v12'
@@ -1212,27 +1208,9 @@ export default function MapView({ groupMembers = EMPTY_MEMBERS, currentUserId, g
     }
   }, [currentLocation, currentFix, isNavigating])
 
-  // Zone proximity alerts during navigation (fast route with zones)
-  useEffect(() => {
-    if (!isNavigating || !riskOnRoute || !currentLocation || activeRouteZones.length === 0) return
-    for (const zona of activeRouteZones) {
-      if (alertedZonesRef.current.has(zona.id)) continue
-      // distância até a BORDA da zona (zonas grandes: o aviso vinha só depois de entrar)
-      const dist = Math.max(0, distMeters(currentLocation, { lat: zona.lat, lng: zona.lng }) - (zona.radius ?? 0))
-      if (dist < 300) {
-        alertedZonesRef.current.add(zona.id)
-        setZoneAlert({ zone: zona, dist: Math.round(dist) })
-        if (zoneAlertTimerRef.current) clearTimeout(zoneAlertTimerRef.current)
-        zoneAlertTimerRef.current = setTimeout(() => setZoneAlert(null), 9000)
-      }
-    }
-  }, [currentLocation, isNavigating, riskOnRoute, activeRouteZones])
-
   // Clear alert refs when navigation ends
   useEffect(() => {
     if (!isNavigating) {
-      alertedZonesRef.current = new Set()
-      setZoneAlert(null)
       alertedIncidentIdsRef.current = new Set()
       setNearbyIncident(null)
     }
@@ -2248,6 +2226,9 @@ export default function MapView({ groupMembers = EMPTY_MEMBERS, currentUserId, g
         steps={navSteps}
         stepIdx={currentStepIdx}
         nextGap={nextGap}
+        zoneAlert={zoneAlert}
+        zoneSpeech={zoneSpeech}
+        onSwitchToSafe={switchToSafeRoute}
         speedMps={navSpeed / 3.6}
         hasArrived={hasArrived}
         distToNext={distToNext}
@@ -2581,46 +2562,6 @@ export default function MapView({ groupMembers = EMPTY_MEMBERS, currentUserId, g
           </div>
         )
       })()}
-
-      {/* Zone proximity alert — shown during navigation on fast route */}
-      {zoneAlert && isNavigating && (
-        <div style={{
-          position: 'fixed', top: 110, left: 12, right: 12, zIndex: 2000,
-          background: zoneAlert.zone.riskLevel === 'critical' ? '#4c1d95' :
-                      zoneAlert.zone.riskLevel === 'high' ? '#7f1d1d' : '#7c2d12',
-          color: 'white', borderRadius: 14,
-          padding: '12px 16px',
-          display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12,
-          boxShadow: '0 4px 20px rgba(0,0,0,0.5)',
-          animation: 'slideDown 0.2s ease-out',
-        }}>
-          <div style={{ flex: 1, minWidth: 0 }}>
-            <div style={{ fontWeight: 800, fontSize: 14, marginBottom: 2 }}>
-              ⚠️ Zona de atenção a {zoneAlert.dist}m
-            </div>
-            <div style={{ fontSize: 12, opacity: 0.9, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-              {zoneAlert.zone.name} · {zoneAlert.zone.zone}
-            </div>
-          </div>
-          <div style={{ display: 'flex', gap: 8, flexShrink: 0 }}>
-            <button
-              onClick={() => {
-                setZoneAlert(null)
-                if (navDest) startNavigation(navDest, routeProfile)
-              }}
-              style={{
-                background: 'white',
-                color: zoneAlert.zone.riskLevel === 'critical' ? '#4c1d95' :
-                       zoneAlert.zone.riskLevel === 'high' ? '#7f1d1d' : '#7c2d12',
-                border: 'none', borderRadius: 8,
-                padding: '7px 12px', fontSize: 12, fontWeight: 800, cursor: 'pointer',
-              }}>
-              Desviar
-            </button>
-            <button onClick={() => setZoneAlert(null)} style={{ background: 'rgba(255,255,255,0.2)', border: 'none', borderRadius: 8, padding: '7px 10px', color: 'white', cursor: 'pointer', fontSize: 14, lineHeight: 1 }}>✕</button>
-          </div>
-        </div>
-      )}
 
       <SafeBoundary name="busca">
       {/* Search overlay — autocomplete */}

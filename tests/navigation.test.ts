@@ -5,7 +5,7 @@ import { distM, destination, decodePolyline6, LngLat, bearing } from '../src/lib
 import { fromFirestoreZone, zonesOnRoute, pointInZone, AvoidZone } from '../src/lib/navigation/zones'
 import { flattenSteps, findSafeRoute, valhallaTripToRoute } from '../src/lib/navigation/routing'
 import { RouteTracker } from '../src/lib/navigation/routeTracker'
-import { VoiceGuide, formatDistance, spokenDistance, instructionText, buildInstruction } from '../src/lib/navigation/instructions'
+import { VoiceGuide, formatDistance, spokenDistance, instructionText, buildInstruction, bannerText } from '../src/lib/navigation/instructions'
 
 const DUB: LngLat = [-6.2603, 53.3498]
 
@@ -141,6 +141,8 @@ test('textos: distância e instrução em português mesmo se o servidor mandar 
   assert.equal(spokenDistance(1000), '1 quilômetro'); assert.equal(spokenDistance(1500), '1,5 quilômetros'); assert.equal(spokenDistance(320), '300 metros')
   assert.equal(instructionText({ name: 'Main St', maneuver: { type: 'turn', modifier: 'right', instruction: 'Turn right onto Main St' } }), 'Vire à direita na Main St')
   assert.equal(buildInstruction({ maneuver: { type: 'roundabout', exit: 2 }, name: 'R101' }), 'Na rotatória, pegue a 2ª saída para R101')
+  assert.equal(bannerText({ maneuver: { type: 'arrive', instruction: 'Você chegou ao destino' } }, 5900), 'Siga até o destino')
+  assert.equal(bannerText({ maneuver: { type: 'arrive', instruction: 'Você chegou ao destino' } }, 30), 'Você chegou ao destino')
 })
 
 test('Valhalla → formato Mapbox', () => {
@@ -222,4 +224,53 @@ test('rota segura: destino dentro da zona → zona inevitável, não tenta desvi
   mockFetch(url => ({ code: 'Ok', routes: [mbRouteThrough([O, Zmid])] }))
   const res = await findSafeRoute({ lat: O[1], lng: O[0] }, { lat: Zmid[1], lng: Zmid[0] }, 'cycling', [zone])
   assert.equal(res.unavoidable.length, 1); assert.equal(res.method, 'direct'); assert.ok(res.route)
+})
+
+// ─── Modo alerta nas zonas ──────────────────────────────────────────────────
+import { zoneSpansOnRoute, ZoneAlertGuide } from '../src/lib/navigation/zoneAlert'
+
+test('modo alerta: avisa antes, ao entrar, ao sair e quando a rota fica livre', () => {
+  const end = destination(DUB, 3000, 90)
+  const coords = line(DUB, end, 20)
+  const c1 = destination(DUB, 1000, 90), c2 = destination(DUB, 2000, 90)
+  const z1 = fromFirestoreZone({ id: 'z1', areaName: 'Zona Norte', lat: c1[1], lng: c1[0], radius: 150 })!
+  const z2 = fromFirestoreZone({ id: 'z2', areaName: 'Zona Sul', lat: c2[1], lng: c2[0], radius: 150 })!
+  const spans = zoneSpansOnRoute(coords, [z2, z1])
+  assert.deepEqual(spans.map(s => s.zone.id), ['z1', 'z2'])
+  assert.ok(Math.abs(spans[0].entry - 850) < 25 && Math.abs(spans[0].exit - 1150) < 25)
+  const g = new ZoneAlertGuide(spans)
+  const said: string[] = []; let t = 0; let phases = new Set<string>()
+  for (let a = 0; a <= 3000; a += 10) {
+    t += 1000
+    const r = g.update(a, new Set(), 10, t)
+    phases.add(r.state.phase)
+    if (r.speak) said.push(`${a}:${r.speak}`)
+  }
+  assert.equal(said.length, 6, said.join(' | '))
+  assert.match(said[0], /^5[4-6]0:Atenção: zona de risco em 300 metros, Zona Norte/)
+  assert.match(said[1], /entrou em zona de risco, Zona Norte/)
+  assert.match(said[2], /saiu da zona de risco\. Falta 1 zona na rota/)
+  assert.match(said[3], /zona de risco em 300 metros, Zona Sul/)
+  assert.match(said[4], /entrou em zona de risco, Zona Sul/)
+  assert.match(said[5], /Rota livre de zonas de risco/)
+  assert.ok(['ahead', 'approaching', 'inside', 'clear'].every(p => phases.has(p)))
+  assert.equal(g.update(3000, new Set(), 10, t + 1000).state.phase, 'clear')
+})
+
+test('modo alerta: lembrete a cada minuto dentro da zona e alerta mesmo fora da rota (GPS)', () => {
+  const end = destination(DUB, 2000, 90)
+  const coords = line(DUB, end, 20)
+  const c = destination(DUB, 1000, 90)
+  const z = fromFirestoreZone({ id: 'z', areaName: 'Z', lat: c[1], lng: c[0], radius: 300 })!
+  const g = new ZoneAlertGuide(zoneSpansOnRoute(coords, [z]))
+  const said: string[] = []
+  let t = 0
+  for (let a = 600; a <= 1400; a += 2) { t += 1000; const r = g.update(a, new Set(), 2, t); if (r.speak) said.push(r.speak) }
+  assert.ok(said.filter(s => s.startsWith('Ainda em zona de risco')).length >= 4, said.join(' | '))
+  // fora da rota, mas o GPS está dentro da zona → continua em alerta
+  const g2 = new ZoneAlertGuide(zoneSpansOnRoute(coords, [z]))
+  const r = g2.update(100, new Set(['z']), 5, 1000)
+  assert.equal(r.state.phase, 'inside'); assert.match(r.speak ?? '', /entrou em zona de risco/)
+  const out = g2.update(100, new Set(), 5, 2000)
+  assert.match(out.speak ?? '', /saiu da zona de risco/)
 })
