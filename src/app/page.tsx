@@ -29,6 +29,7 @@ import ShiftBar from '@/components/Shift/ShiftBar'
 import { useShift } from '@/contexts/ShiftContext'
 import MapSearchBar from '@/components/Map/MapSearchBar'
 import dynamic from 'next/dynamic'
+import SafeBoundary from '@/components/SafeBoundary'
 
 const SHOW_DEMO_BANNER = false
 
@@ -221,6 +222,12 @@ export default function Home() {
       <div className="flex-1 overflow-hidden relative">
         {/* Map always fills the entire container — no z-index when on map tab so internal controls at z-[400] are above the search overlay at z-[200] */}
         <div className={`absolute inset-0 ${activeTab==='map'?'':'z-0 pointer-events-none'}`}>
+          <SafeBoundary name="mapa" fallback={(reset) => (
+            <div style={{ position: 'absolute', inset: 0, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 12, background: 'var(--bg, #0a0e1a)', color: 'var(--text, #fff)' }}>
+              <div style={{ fontSize: 15, fontWeight: 700 }}>O mapa encontrou um problema</div>
+              <button onClick={reset} style={{ background: '#2d6fe8', color: 'white', border: 'none', borderRadius: 12, padding: '10px 20px', fontWeight: 700 }}>Recarregar mapa</button>
+            </div>
+          )}>
           <MapView
             requestNavTo={searchDest}
             onNavRequested={() => setSearchDest(null)}
@@ -235,6 +242,7 @@ export default function Home() {
             externalReportOpen={showReport}
             isActive={activeTab === 'map'}
           />
+          </SafeBoundary>
         </div>
 
         {/* Floating search bar + category chips — z-[500] so the MapSearchBar full-screen overlay (fixed, z=2000 within this context) paints above MapView controls at z-[400] */}
@@ -280,13 +288,13 @@ export default function Home() {
           </div>
         )}
 
-        {activeTab==='groups' && <div className="absolute inset-0 z-10 overflow-y-auto"><GroupsScreen /></div>}
-        {activeTab==='services' && <div className="absolute inset-0 z-10 overflow-y-auto"><ServicesScreen /></div>}
-        {activeTab==='safety' && <div className="absolute inset-0 z-10 overflow-y-auto"><SafetyScreen /></div>}
-        {activeTab==='earnings' && <div className="absolute inset-0 z-10 overflow-y-auto"><EarningsScreen /></div>}
-        {activeTab==='partners' && <div className="absolute inset-0 z-10 overflow-y-auto"><PartnersScreen /></div>}
-        {activeTab==='service-requests' && <div className="absolute inset-0 z-10 overflow-y-auto"><ServiceRequestsScreen onBack={() => setActiveTab('map' as Tab)} /></div>}
-        {activeTab==='my-services' && <div className="absolute inset-0 z-10 overflow-y-auto"><MyServicesScreen onBack={() => setActiveTab('map' as Tab)} /></div>}
+        {activeTab==='groups' && <div className="absolute inset-0 z-10 overflow-y-auto"><SafeBoundary name="aba"><GroupsScreen /></SafeBoundary></div>}
+        {activeTab==='services' && <div className="absolute inset-0 z-10 overflow-y-auto"><SafeBoundary name="aba"><ServicesScreen /></SafeBoundary></div>}
+        {activeTab==='safety' && <div className="absolute inset-0 z-10 overflow-y-auto"><SafeBoundary name="aba"><SafetyScreen /></SafeBoundary></div>}
+        {activeTab==='earnings' && <div className="absolute inset-0 z-10 overflow-y-auto"><SafeBoundary name="aba"><EarningsScreen /></SafeBoundary></div>}
+        {activeTab==='partners' && <div className="absolute inset-0 z-10 overflow-y-auto"><SafeBoundary name="aba"><PartnersScreen /></SafeBoundary></div>}
+        {activeTab==='service-requests' && <div className="absolute inset-0 z-10 overflow-y-auto"><SafeBoundary name="aba"><ServiceRequestsScreen onBack={() => setActiveTab('map' as Tab)} /></SafeBoundary></div>}
+        {activeTab==='my-services' && <div className="absolute inset-0 z-10 overflow-y-auto"><SafeBoundary name="aba"><MyServicesScreen onBack={() => setActiveTab('map' as Tab)} /></SafeBoundary></div>}
       </div>
 
       {!isNavigating && !isModeSelector && (
@@ -295,14 +303,18 @@ export default function Home() {
           onMenuClick={()=>setShowSideMenu(true)}
           onSOSClick={()=>setShowSOS(true)} />
       )}
+      <SafeBoundary name="sobreposicoes">
       {showUpgradeScreen && <UpgradeScreen onClose={() => setShowUpgradeScreen(false)} />}
       {showReport && <ReportModal onClose={() => setShowReport(false)} initialLocation={reportLocation} />}
       {user && <MechanicAlertOverlay onNavigate={(tab) => setActiveTab(tab as Tab)} />}
+      </SafeBoundary>
       {showSOS && <SOSModal onClose={()=>setShowSOS(false)} />}
+      <SafeBoundary name="feedback-menu">
       <FeedbackButton open={showFeedback} onOpen={() => setShowFeedback(true)} onClose={() => setShowFeedback(false)} />
       <SideMenu open={showSideMenu} onClose={() => setShowSideMenu(false)} onNavigate={(tab) => {
         if (tab === 'upgrade') { setShowUpgradeScreen(true) } else { setActiveTab(tab as Tab) }
       }} />
+      </SafeBoundary>
       {showOnboarding && (
         <OnboardingScreen onComplete={() => {
           localStorage.setItem(`ridershield_onboarding_${firebaseUser.uid}`, '1')
