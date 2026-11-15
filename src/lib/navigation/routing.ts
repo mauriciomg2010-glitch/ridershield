@@ -135,7 +135,25 @@ function exclusionRing(z: AvoidZone): LngLat[] {
   return out
 }
 
+// O servidor público da FOSSGIS permite no máximo 1 consulta por segundo (regra de uso).
+// Com servidor próprio (NEXT_PUBLIC_VALHALLA_URL) o limite não se aplica.
+const IS_PUBLIC_VALHALLA = /openstreetmap\.de/.test(VALHALLA_URL)
+const VALHALLA_MIN_GAP_MS = 1100
+let nextValhallaSlot = 0
+async function waitValhallaSlot(signal?: AbortSignal) {
+  if (!IS_PUBLIC_VALHALLA) return
+  const now = Date.now()
+  const at = Math.max(now, nextValhallaSlot)
+  nextValhallaSlot = at + VALHALLA_MIN_GAP_MS
+  const wait = at - now
+  if (wait > 0) await new Promise<void>((res, rej) => {
+    const t = setTimeout(res, wait)
+    signal?.addEventListener('abort', () => { clearTimeout(t); const e = new Error('aborted'); e.name = 'AbortError'; rej(e) })
+  })
+}
+
 export async function fetchValhallaRoutes(origin: LatLng, dest: LatLng, profile: string, exclude: AvoidZone[], signal?: AbortSignal): Promise<NavRoute[]> {
+  await waitValhallaSlot(signal)
   const body: any = {
     locations: [{ lat: origin.lat, lon: origin.lng }, { lat: dest.lat, lon: dest.lng }],
     costing: VAL_COSTING[profile] ?? 'auto',

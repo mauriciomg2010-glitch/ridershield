@@ -274,3 +274,16 @@ test('modo alerta: lembrete a cada minuto dentro da zona e alerta mesmo fora da 
   const out = g2.update(100, new Set(), 5, 2000)
   assert.match(out.speak ?? '', /saiu da zona de risco/)
 })
+
+test('servidor público do Valhalla: no máximo 1 consulta por segundo', async () => {
+  const times: number[] = []
+  mockFetch(url => {
+    if (url.includes('/route?json=')) { times.push(Date.now()); return { trip: null } }
+    return { code: 'Ok', routes: [] }
+  })
+  const { fetchValhallaRoutes } = await import('../src/lib/navigation/routing')
+  const o = { lat: O[1], lng: O[0] }, d = { lat: D[1], lng: D[0] }
+  await Promise.all([fetchValhallaRoutes(o, d, 'driving', []), fetchValhallaRoutes(o, d, 'driving', []), fetchValhallaRoutes(o, d, 'driving', [])])
+  assert.equal(times.length, 3)
+  assert.ok(times[1] - times[0] >= 1000 && times[2] - times[1] >= 1000, JSON.stringify(times))
+})
