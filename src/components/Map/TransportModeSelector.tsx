@@ -3,6 +3,7 @@ import { useEffect, useState, useRef } from 'react'
 import { fetchMapboxRoutes, findSafeRoute } from '@/lib/navigation/routing'
 import { loadAvoidZones, toZoneHit } from '@/lib/navigation/zoneSource'
 import { zonesOnRoute as zonesHitByRoute, pointInZone } from '@/lib/navigation/zones'
+import { zoneSpansOnRoute } from '@/lib/navigation/zoneAlert'
 
 export const TRANSPORT_MODES = [
   { key: 'car',     label: 'Carro/Moto', icon: '🚗', profile: 'driving-traffic' },
@@ -106,6 +107,8 @@ export default function TransportModeSelector({
   type TipoAnalise = 'loading' | 'sem_zonas' | 'destino_em_zona' | 'tem_rota_segura' | 'todas_passam_por_zona'
   const [tipoAnalise, setTipoAnalise] = useState<TipoAnalise>('loading')
   const [destZonaInfo, setDestZonaInfo] = useState<any | null>(null)
+  // metros da rota rápida dentro de zonas de risco (para mostrar ao rider)
+  const [fastRiskMeters, setFastRiskMeters] = useState(0)
 
   // Panel height: 3 states — normal (45vh default), expanded (80vh), minimized (72px)
   const [heightState, setHeightState] = useState<'normal' | 'expanded' | 'minimized'>('normal')
@@ -180,6 +183,9 @@ export default function TransportModeSelector({
       const semZona = analysed.filter((a: any) => a.zones.length === 0).sort((a: any, b: any) => a.route.duration - b.route.duration)
       const comZona = analysed.filter((a: any) => a.zones.length > 0).sort((a: any, b: any) => a.route.duration - b.route.duration)
       const fastZones = (comZona[0]?.zones ?? []).map(toZoneHit) as ZoneHit[]
+      setFastRiskMeters(comZona[0]
+        ? zoneSpansOnRoute(comZona[0].route.geometry.coordinates, comZona[0].zones).reduce((sum, sp) => sum + Math.max(0, sp.exit - sp.entry), 0)
+        : 0)
 
       let safe: any | null = semZona[0]?.route ?? null
       if (!safe && comZona.length) {
@@ -261,6 +267,8 @@ export default function TransportModeSelector({
   const extraMinutos = safeRoute && fastRoute
     ? Math.max(0, Math.round((safeRoute.duration - fastRoute.duration) / 60))
     : 0
+  const extraKm = safeRoute && fastRoute ? (safeRoute.distance - fastRoute.distance) / 1000 : 0
+  const zonasTxt = `${zonesOnRoute.length} zona${zonesOnRoute.length !== 1 ? 's' : ''}`
 
   const levelColor = (level: string) =>
     level === 'critical' ? '#7c3aed' : level === 'high' ? '#dc2626' : '#f97316'
@@ -441,6 +449,21 @@ export default function TransportModeSelector({
         ) : hasZones && tipoAnalise === 'tem_rota_segura' ? (
           // ── CASO 2: Tem rota segura e rota com zonas ──────────────────────────
           <>
+            {/* Comparação direta: quanto custa evitar as zonas */}
+            {safeRoute && fastRoute && !safeRouteLoading && (
+              <div style={{
+                display: 'flex', alignItems: 'center', gap: 10, marginBottom: 12,
+                background: 'var(--card)', border: '1px solid var(--border)', borderRadius: 12, padding: '10px 12px',
+              }}>
+                <span style={{ fontSize: 20 }}>⚖️</span>
+                <div style={{ fontSize: 12, color: 'var(--text)', lineHeight: 1.4 }}>
+                  A rota segura leva <b>{extraMinutos > 0 ? `+${extraMinutos} min` : 'o mesmo tempo'}</b>
+                  {Math.abs(extraKm) >= 0.1 && <> e <b>{extraKm > 0 ? '+' : ''}{extraKm.toFixed(1).replace('.', ',')} km</b></>}
+                  {' '}e evita <b>{zonasTxt}</b>
+                  {fastRiskMeters >= 50 && <> ({fmtDist(fastRiskMeters)} dentro de zonas na rota rápida)</>}.
+                </div>
+              </div>
+            )}
             {/* SAFE ROUTE CARD */}
             <div
               onClick={() => !safeRouteLoading && safeRoute && setRouteChoice('safe')}
@@ -617,6 +640,11 @@ export default function TransportModeSelector({
                 '⚡ Usar rota rápida'
               )}
             </button>
+            {routeChoice === 'fast' && (
+              <div style={{ fontSize: 12, color: '#e65100', background: 'rgba(230,81,0,0.1)', borderRadius: 10, padding: '8px 10px', lineHeight: 1.4 }}>
+                ⚠️ Esta rota passa por {zonasTxt} de atenção. O app vai ficar em <b>modo alerta</b> (aviso na tela e por voz) até você sair de todas elas — e você pode trocar para a rota segura a qualquer momento.
+              </div>
+            )}
             <button
               onClick={() => setRouteChoice(c => c === 'safe' ? 'fast' : 'safe')}
               disabled={safeRouteLoading || !safeRoute}
