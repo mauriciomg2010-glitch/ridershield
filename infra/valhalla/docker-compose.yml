@@ -1,0 +1,19 @@
+# Servidor de rotas próprio (Valhalla) — Fase 2 do RiderShield
+# Uso: veja infra/valhalla/README.md
+services:
+  valhalla:
+    image: ghcr.io/nilsnolde/docker-valhalla/valhalla:latest
+    container_name: ridershield-valhalla
+    restart: unless-stopped
+    ports:
+      - "8002:8002"
+    volumes:
+      - ./custom_files:/custom_files
+    environment:
+      # Irlanda + Irlanda do Norte (Geofabrik). Para incluir o Brasil depois, adicione
+      # outra URL separada por espaço (precisa de bem mais memória e disco).
+      - tile_urls=https://download.geofabrik.de/europe/ireland-and-northern-ireland-latest.osm.pbf
+      - server_threads=2
+      - use_tiles_ignore_pbf=True
+      - build_admins=True
+      - build_time_zones=True

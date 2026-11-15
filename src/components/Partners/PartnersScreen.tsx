@@ -27,7 +27,7 @@ export default function PartnersScreen() {
       <div className="px-4 py-4 space-y-4">
         {loading ? (
           <div className="flex justify-center py-12">
-            <div className="w-8 h-8 border-2 border-t-transparent rounded-full animate-spin" style={{ borderColor: '#2d6fe8', borderTopColor: 'transparent' }} />
+            <div className="w-8 h-8 border-2 border-t-transparent rounded-full animate-spin" style={{ borderColor: '#d97706', borderTopColor: 'transparent' }} />
           </div>
         ) : partners.length === 0 ? (
           <div className="rounded-2xl p-8 text-center" style={{ background: 'var(--surface)', border: '1px dashed var(--border)' }}>
@@ -37,7 +37,7 @@ export default function PartnersScreen() {
           </div>
         ) : (
           partners.map(p => {
-            const color = p.color ?? '#2d6fe8'
+            const color = p.color ?? '#d97706'
             return (
               <div key={p.id} className="rounded-2xl overflow-hidden"
                 style={{ background: 'var(--surface)', border: `1px solid ${color}50` }}>

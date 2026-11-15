@@ -3,6 +3,11 @@ declare global {
 }
 
 let soundInterval: ReturnType<typeof setInterval> | null = null
+let soundTimeout: ReturnType<typeof setTimeout> | null = null
+// osciladores agendados — para conseguir parar o som na hora sem suspender o AudioContext
+const liveNodes = new Set<OscillatorNode>()
+// alarme toca no máximo 2 minutos se ninguém parar
+const MAX_ALARM_MS = 2 * 60 * 1000
 
 function getCtx(): AudioContext | null {
   try {
@@ -37,6 +42,8 @@ function beep(ctx: AudioContext, freq: number, start: number, duration: number, 
   gain.gain.linearRampToValueAtTime(0, start + duration)
   osc.start(start)
   osc.stop(start + duration + 0.05)
+  liveNodes.add(osc)
+  osc.onended = () => liveNodes.delete(osc)
 }
 
 function playCycle() {
@@ -61,8 +68,16 @@ function playCycle() {
 
 export function playEmergencySound() {
   if (soundInterval) return
-  playCycle()
+  const ctx = getCtx()
+  // se o contexto ainda estiver retomando, espera ele ficar ativo antes de agendar os bipes
+  if (ctx && ctx.state !== 'running') ctx.resume().then(playCycle).catch(() => {})
+  else playCycle()
   soundInterval = setInterval(playCycle, 4500)
+  soundTimeout = setTimeout(stopEmergencySound, MAX_ALARM_MS)
+}
+
+export function isEmergencySoundPlaying() {
+  return soundInterval !== null
 }
 
 export async function ensureAudioUnlocked() {
@@ -72,16 +87,21 @@ export async function ensureAudioUnlocked() {
   }
 }
 
+// BUG CORRIGIDO: antes esta função SUSPENDIA o AudioContext. Como o alarme chamava
+// stop() logo antes de play(), o contexto era suspenso por cima dos bipes recém-agendados
+// e o som não tocava. Agora só interrompe os bipes; o contexto continua ativo.
 export function stopEmergencySound() {
   if (soundInterval) {
     clearInterval(soundInterval)
     soundInterval = null
   }
-  try {
-    if (window.__audioCtx && window.__audioCtx.state !== 'closed') {
-      window.__audioCtx.suspend()
-    }
-  } catch {}
+  if (soundTimeout) {
+    clearTimeout(soundTimeout)
+    soundTimeout = null
+  }
+  liveNodes.forEach(o => { try { o.stop() } catch {} })
+  liveNodes.clear()
+  try { navigator.vibrate?.(0) } catch {}
 }
 
 export function playEmergencyConfirmSound() {

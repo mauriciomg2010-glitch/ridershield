@@ -1,7 +1,10 @@
 // src/components/Referral/ReferralsListScreen.tsx
 'use client'
 import { useState, useEffect } from 'react'
-import { getDetailedReferrals, ReferralDetail } from '@/lib/firestore'
+import { getDetailedReferrals, ReferralDetail, adminRegistarMesPago } from '@/lib/firestore'
+import { useAuth } from '@/contexts/AuthContext'
+import { isAdminUser, ADMIN_UID } from '@/lib/admin'
+import toast from 'react-hot-toast'
 
 interface Props {
   uid: string
@@ -47,7 +50,7 @@ function StatusBadge({ status, month1PaidAt }: { status: ReferralDetail['status'
   return <span style={{ fontSize: 12, fontWeight: 700, color: '#f59e0b' }}>⚠️ Inválido</span>
 }
 
-function ReferralCard({ r }: { r: ReferralDetail }) {
+function ReferralCard({ r, isAdmin, onChanged }: { r: ReferralDetail; isAdmin?: boolean; onChanged?: () => void }) {
   const isConfirmed = r.status === 'confirmed'
   const isCancelled = r.status === 'cancelled' || r.status === 'invalid'
   const estimatedConfirmation = r.month1PaidAt
@@ -105,6 +108,19 @@ function ReferralCard({ r }: { r: ReferralDetail }) {
           <span style={{ fontSize: 11, color: '#f59e0b', fontWeight: 600 }}>Aguarda renovação</span>
         </div>
       )}
+      {isAdmin && r.status === 'pending' && (
+        <button
+          onClick={async () => {
+            try {
+              const res = await adminRegistarMesPago(r.id)
+              toast.success(res === 'month1' ? '🧪 Mês 1 marcado como pago' : res === 'confirmed' ? '🧪 Mês 2 pago — comissão creditada' : 'Já estava confirmada')
+              onChanged?.()
+            } catch (e: any) { toast.error(e?.message ?? 'Erro') }
+          }}
+          style={{ marginTop: 8, marginLeft: 46, padding: '6px 10px', borderRadius: 8, border: '1px dashed rgba(245,158,11,0.5)', background: 'transparent', color: '#f59e0b', fontSize: 11, fontWeight: 700, cursor: 'pointer' }}>
+          🧪 Teste admin: marcar {r.month1PaidAt ? '2º' : '1º'} mês pago
+        </button>
+      )}
     </div>
   )
 }
@@ -114,6 +130,10 @@ export default function ReferralsListScreen({ uid, credits, onBack }: Props) {
   const [localCredits, setLocalCredits] = useState(credits)
   const [creditsPaid, setCreditsPaid] = useState(0)
   const [loading, setLoading] = useState(true)
+  const [reloadKey, setReloadKey] = useState(0)
+  const { firebaseUser } = useAuth()
+  // mesmo critério das regras do Firestore (uid/e-mail de admin) — o botão só funciona para eles
+  const isAdmin = firebaseUser?.uid === ADMIN_UID || isAdminUser(firebaseUser?.email)
 
   useEffect(() => {
     getDetailedReferrals(uid)
@@ -124,7 +144,7 @@ export default function ReferralsListScreen({ uid, credits, onBack }: Props) {
       })
       .catch(() => {})
       .finally(() => setLoading(false))
-  }, [uid])
+  }, [uid, reloadKey])
 
   const confirmed = referrals.filter(r => r.status === 'confirmed')
   const pending = referrals.filter(r => r.status === 'pending')
@@ -148,7 +168,7 @@ export default function ReferralsListScreen({ uid, credits, onBack }: Props) {
         {loading ? (
           <div className="flex items-center justify-center py-16">
             <div className="w-8 h-8 border-2 border-t-transparent rounded-full animate-spin"
-              style={{ borderColor: '#2d6fe8', borderTopColor: 'transparent' }} />
+              style={{ borderColor: '#d97706', borderTopColor: 'transparent' }} />
           </div>
         ) : referrals.length === 0 ? (
           <div style={{ textAlign: 'center', padding: '40px 16px' }}>
@@ -162,7 +182,7 @@ export default function ReferralsListScreen({ uid, credits, onBack }: Props) {
             {confirmed.length > 0 && (
               <div style={{ marginBottom: 8 }}>
                 <p style={{ fontSize: 11, fontWeight: 700, color: '#10b981', textTransform: 'uppercase', letterSpacing: 0.5, marginBottom: 4 }}>
-                  CONFIRMADOS — receberás €{(confirmed.length * 3).toFixed(2)} total
+                  CONFIRMADOS — receberás €{confirmed.reduce((t, r) => t + r.commissionAmount, 0).toFixed(2)} total
                 </p>
                 <div style={{ background: 'var(--card)', borderRadius: 12, padding: '0 14px', border: '1px solid rgba(16,185,129,0.2)' }}>
                   {confirmed.map(r => <ReferralCard key={r.id} r={r} />)}
@@ -177,7 +197,7 @@ export default function ReferralsListScreen({ uid, credits, onBack }: Props) {
                   A AGUARDAR — ainda não confirmados
                 </p>
                 <div style={{ background: 'var(--card)', borderRadius: 12, padding: '0 14px', border: '1px solid rgba(245,158,11,0.2)' }}>
-                  {pending.map(r => <ReferralCard key={r.id} r={r} />)}
+                  {pending.map(r => <ReferralCard key={r.id} r={r} isAdmin={isAdmin} onChanged={() => setReloadKey(k => k + 1)} />)}
                 </div>
               </div>
             )}

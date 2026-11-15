@@ -1,6 +1,6 @@
-const CACHE_NAME = 'ridershield-v3'
-const DATA_CACHE = 'ridershield-data-v3'
-const TILES_CACHE = 'ridershield-tiles-v3'
+const CACHE_NAME = 'ridershield-v4'
+const DATA_CACHE = 'ridershield-data-v4'
+const TILES_CACHE = 'ridershield-tiles-v4'
 
 const PRECACHE_URLS = [
   '/',
@@ -137,7 +137,7 @@ self.addEventListener('message', (event) => {
 
 self.addEventListener('push', (event) => {
   const data = event.data ? event.data.json() : {}
-  const title = data.title || 'RiderShield'
+  const title = data.title || 'ZIVO'
   const options = {
     body: data.body || 'New notification',
     icon: '/icons/icon-192x192.png',

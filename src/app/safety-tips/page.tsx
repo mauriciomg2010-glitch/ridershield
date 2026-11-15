@@ -103,7 +103,7 @@ export default function SafetyTipsPage() {
       <div className="px-5 py-4 space-y-4 pb-20">
         {/* Under Construction banner */}
         <div className="rounded-2xl p-5 flex flex-col items-center text-center"
-          style={{ background: 'rgba(45,111,232,0.08)', border: '1px solid rgba(45,111,232,0.25)' }}>
+          style={{ background: 'rgba(245,158,11,0.08)', border: '1px solid rgba(245,158,11,0.25)' }}>
           <span className="text-3xl mb-2">🚧</span>
           <p className="font-bold text-sm mb-1" style={{ color: '#93c5fd' }}>{t('videos_under_construction')}</p>
           <p className="text-xs" style={{ color: 'var(--muted)' }}>{t('videos_uc_desc')}</p>
@@ -116,11 +116,11 @@ export default function SafetyTipsPage() {
               className="w-full rounded-2xl p-4 text-left flex items-center gap-4"
               style={{ background: 'var(--card)', border: '1px solid var(--border)' }}>
               <div className="w-14 h-14 rounded-xl flex items-center justify-center text-3xl flex-shrink-0"
-                style={{ background: 'rgba(45,111,232,0.15)' }}>{video.thumbnail}</div>
+                style={{ background: 'rgba(245,158,11,0.15)' }}>{video.thumbnail}</div>
               <div className="flex-1 min-w-0">
                 <h3 className="font-bold text-sm leading-tight" style={{ color: 'var(--text)' }}>{video.title}</h3>
                 <p className="text-xs mt-1" style={{ color: 'var(--muted)' }}>{video.description}</p>
-                <span className="text-xs mt-1 inline-block" style={{ color: '#4f8ef7' }}>⏱ {video.duration} · {video.tips.length} tips</span>
+                <span className="text-xs mt-1 inline-block" style={{ color: '#f59e0b' }}>⏱ {video.duration} · {video.tips.length} tips</span>
               </div>
               <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#6b7280" strokeWidth="2">
                 <polyline points="9 18 15 12 9 6" />
@@ -134,11 +134,11 @@ export default function SafetyTipsPage() {
       {selectedVideo && (
         <FullModal onClose={() => setSelectedVideo(null)} title={selectedVideo.title}>
           <div className="w-full rounded-2xl flex items-center justify-center mb-4"
-            style={{ background: 'rgba(45,111,232,0.1)', border: '1px solid rgba(45,111,232,0.2)', height: '120px', fontSize: '48px' }}>
+            style={{ background: 'rgba(245,158,11,0.1)', border: '1px solid rgba(245,158,11,0.2)', height: '120px', fontSize: '48px' }}>
             {selectedVideo.thumbnail}
           </div>
           <div className="rounded-xl p-3 mb-4 flex flex-col items-center gap-1"
-            style={{ background: 'rgba(45,111,232,0.08)', border: '1px solid rgba(45,111,232,0.2)' }}>
+            style={{ background: 'rgba(245,158,11,0.08)', border: '1px solid rgba(245,158,11,0.2)' }}>
             <p className="text-sm font-bold" style={{ color: '#93c5fd' }}>🚧 {t('videos_under_construction')}</p>
             <p className="text-xs text-center" style={{ color: 'var(--muted)' }}>{t('videos_uc_desc')}</p>
           </div>
@@ -148,7 +148,7 @@ export default function SafetyTipsPage() {
             {selectedVideo.tips.map((tip, i) => (
               <div key={i} className="flex gap-3 items-start p-3 rounded-xl" style={{ background: 'var(--card)' }}>
                 <div className="w-6 h-6 rounded-full flex items-center justify-center text-xs font-bold flex-shrink-0 text-white"
-                  style={{ background: 'linear-gradient(135deg, #4f8ef7 0%, #1a5fd4 100%)', minWidth: '24px' }}>{i + 1}</div>
+                  style={{ background: 'linear-gradient(135deg, #f59e0b 0%, #b45309 100%)', minWidth: '24px' }}>{i + 1}</div>
                 <p className="text-sm" style={{ color: 'var(--text)' }}>{tip}</p>
               </div>
             ))}

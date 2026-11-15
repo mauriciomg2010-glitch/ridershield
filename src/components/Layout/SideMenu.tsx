@@ -13,15 +13,28 @@ import { collection, query, where, onSnapshot, getDoc, doc } from 'firebase/fire
 import { isAdminUser, ADMIN_UID as MENU_ADMIN_UID } from '@/lib/admin'
 import { EmergencyContacts } from '@/types'
 import ReferralPanel from '@/components/Referral/ReferralPanel'
+import DeleteAccountSection from '@/components/Account/DeleteAccountSection'
 import toast from 'react-hot-toast'
+
+export interface MenuCategory { key: string; label: string; icon: string; query: string }
 
 interface Props {
   open: boolean
   onClose: () => void
   onNavigate: (tab: string) => void
+  /** buscas rápidas no mapa (antes eram botões em cima do mapa, ocupando a tela) */
+  categories?: readonly MenuCategory[]
+  activeCategoryKey?: string | null
+  onCategory?: (cat: MenuCategory) => void
 }
 
-export default function SideMenu({ open, onClose, onNavigate }: Props) {
+// Como as buscas ficam agrupadas no menu
+const CATEGORY_GROUPS: { title: string; keys: string[] }[] = [
+  { title: '🛠️ Para a moto / bike', keys: ['mechanic', 'charging', 'partners'] },
+  { title: '☕ Pausa e emergência', keys: ['cafe', 'hospital'] },
+]
+
+export default function SideMenu({ open, onClose, onNavigate, categories = [], activeCategoryKey = null, onCategory }: Props) {
   const router = useRouter()
   const { signOut, firebaseUser } = useAuth()
   const { theme, toggleTheme } = useTheme()
@@ -235,7 +248,7 @@ export default function SideMenu({ open, onClose, onNavigate }: Props) {
 
             <div className="px-4 py-5 space-y-4">
               {/* Intro */}
-              <div className="rounded-xl p-4" style={{ background: 'rgba(45,111,232,0.1)', border: '1px solid rgba(45,111,232,0.25)' }}>
+              <div className="rounded-xl p-4" style={{ background: 'rgba(245,158,11,0.1)', border: '1px solid rgba(245,158,11,0.25)' }}>
                 <p className="text-sm font-semibold mb-1" style={{ color: '#93c5fd' }}>Como funciona</p>
                 <p className="text-xs leading-relaxed" style={{ color: 'var(--muted)' }}>
                   Cria um Atalho no iPhone que lê o endereço copiado e abre o ZIVO com a rota já verificada — sem trocar de app manualmente.
@@ -258,7 +271,7 @@ export default function SideMenu({ open, onClose, onNavigate }: Props) {
                       style={{ background: 'var(--card)', border: '1px solid var(--border)' }}>
                       <div style={{
                         flexShrink: 0, width: 24, height: 24, borderRadius: '50%',
-                        background: 'rgba(45,111,232,0.2)', border: '1px solid rgba(45,111,232,0.35)',
+                        background: 'rgba(245,158,11,0.2)', border: '1px solid rgba(245,158,11,0.35)',
                         display: 'flex', alignItems: 'center', justifyContent: 'center',
                         fontSize: 11, fontWeight: 700, color: '#93c5fd',
                       }}>{n}</div>
@@ -476,6 +489,7 @@ export default function SideMenu({ open, onClose, onNavigate }: Props) {
                 </div>}
               </div>
 
+              <DeleteAccountSection />
             </div>
           </div>
         )}
@@ -501,12 +515,12 @@ export default function SideMenu({ open, onClose, onNavigate }: Props) {
           />
 
           {/* Name + rider ID */}
-          <div className="px-5 pt-3 pb-4" style={{ background: 'linear-gradient(135deg, rgba(45,111,232,0.1), var(--surface))' }}>
+          <div className="px-5 pt-3 pb-4" style={{ background: 'linear-gradient(135deg, rgba(245,158,11,0.1), var(--surface))' }}>
             <h2 style={{ fontSize: '18px', fontWeight: 500, color: 'var(--text)', marginBottom: '8px' }}>{user?.name}</h2>
             {riderId && (
               <button onClick={copyRiderId}
                 className="inline-flex items-center gap-2 px-3 py-1.5 rounded-lg text-xs font-mono font-bold"
-                style={{ background: 'rgba(26,95,212,0.08)', border: '1px solid #1a5fd4', color: '#1a5fd4' }}>
+                style={{ background: 'rgba(26,95,212,0.08)', border: '1px solid #b45309', color: '#b45309' }}>
                 {riderId}
                 <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
                   {copied
@@ -537,7 +551,7 @@ export default function SideMenu({ open, onClose, onNavigate }: Props) {
               </div>
               <button onClick={toggleTheme}
                 className="w-11 h-6 rounded-full relative transition-colors"
-                style={{ background: theme === 'dark' ? '#2d6fe8' : '#d1d5db' }}>
+                style={{ background: theme === 'dark' ? '#d97706' : '#d1d5db' }}>
                 <div className="w-4 h-4 bg-white rounded-full absolute top-1 transition-all shadow"
                   style={{ left: theme === 'dark' ? '24px' : '4px' }} />
               </button>
@@ -563,7 +577,7 @@ export default function SideMenu({ open, onClose, onNavigate }: Props) {
                   }
                 }}
                 className="w-11 h-6 rounded-full relative transition-colors"
-                style={{ background: isSharingLocation ? '#2d6fe8' : '#d1d5db' }}>
+                style={{ background: isSharingLocation ? '#d97706' : '#d1d5db' }}>
                 <div className="w-4 h-4 bg-white rounded-full absolute top-1 transition-all shadow"
                   style={{ left: isSharingLocation ? '24px' : '4px' }} />
               </button>
@@ -598,7 +612,7 @@ export default function SideMenu({ open, onClose, onNavigate }: Props) {
                       onClick={() => { setLang(l.code); setLangOpen(false) }}
                       className="w-full flex items-center gap-3 px-4 py-2.5"
                       style={{
-                        background: lang === l.code ? 'rgba(45,111,232,0.12)' : 'transparent',
+                        background: lang === l.code ? 'rgba(245,158,11,0.12)' : 'transparent',
                         borderBottom: i < LANGUAGES.length - 1 ? '1px solid var(--border)' : 'none',
                       }}>
                       <span className="text-base">{l.flag}</span>
@@ -616,6 +630,39 @@ export default function SideMenu({ open, onClose, onNavigate }: Props) {
               )}
             </div>
           </div>
+
+          {/* Encontrar perto de mim — buscas no mapa agrupadas */}
+          {onCategory && categories.length > 0 && (
+            <div>
+              <p className="text-xs font-semibold uppercase tracking-widest mb-2" style={{ color: 'var(--muted)' }}>
+                Encontrar perto de mim
+              </p>
+              {CATEGORY_GROUPS.map(g => {
+                const items = g.keys.map(k => categories.find(c => c.key === k)).filter(Boolean) as MenuCategory[]
+                if (!items.length) return null
+                return (
+                  <div key={g.title} className="mb-3">
+                    <p className="text-xs mb-1.5" style={{ color: 'var(--muted)' }}>{g.title}</p>
+                    <div className="rounded-xl overflow-hidden" style={{ background: 'var(--card)', border: '1px solid var(--border)' }}>
+                      {items.map((cat, i) => {
+                        const on = cat.key === activeCategoryKey
+                        return (
+                          <button key={cat.key}
+                            onClick={() => { onCategory(cat); onClose() }}
+                            className="w-full flex items-center gap-3 px-4 py-3 text-left active:bg-blue-900/20"
+                            style={{ borderBottom: i < items.length - 1 ? '1px solid var(--border)' : 'none', background: on ? 'rgba(245,158,11,0.12)' : undefined }}>
+                            <span className="text-base">{cat.icon}</span>
+                            <span className="text-sm font-medium flex-1" style={{ color: 'var(--text)' }}>{cat.label}</span>
+                            {on && <span className="text-xs font-bold" style={{ color: '#f59e0b' }}>no mapa ✓</span>}
+                          </button>
+                        )
+                      })}
+                    </div>
+                  </div>
+                )
+              })}
+            </div>
+          )}
 
           {/* Navigation shortcuts */}
           <div>

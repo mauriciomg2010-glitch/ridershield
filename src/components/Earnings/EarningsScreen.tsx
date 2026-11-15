@@ -24,7 +24,7 @@ const STORAGE_KEY = 'rs-earnings'
 type Period = 'day' | 'week' | 'month' | 'custom'
 
 const PLATFORM_COLORS: Record<string, string> = {
-  'Deliveroo': '#00CCBC', 'Just Eat': '#FF8000', 'Uber Eats': '#06C167', 'Other': '#4f8ef7',
+  'Deliveroo': '#00CCBC', 'Just Eat': '#FF8000', 'Uber Eats': '#06C167', 'Other': '#f59e0b',
 }
 
 const INITIAL_EARNINGS: Record<string, string> = { Deliveroo: '', 'Just Eat': '', 'Uber Eats': '', Other: '' }
@@ -142,7 +142,7 @@ export default function EarningsScreen() {
       <div className="px-5 pt-14 pb-4 border-b flex-shrink-0" style={{ background: 'var(--surface)', borderColor: 'var(--border)' }}>
         <div className="flex items-center justify-between mb-1">
           <h1 className="text-2xl font-bold" style={{ color: 'var(--text)' }}>{t('earnings_title')}</h1>
-          <button onClick={() => setShowAdd(true)} className="text-white font-semibold px-4 py-2 rounded-xl text-sm" style={{ background: 'linear-gradient(135deg, #4f8ef7 0%, #1a5fd4 100%)' }}>
+          <button onClick={() => setShowAdd(true)} className="text-white font-semibold px-4 py-2 rounded-xl text-sm" style={{ background: 'linear-gradient(135deg, #f59e0b 0%, #b45309 100%)' }}>
             {t('add_session')}
           </button>
         </div>
@@ -151,7 +151,7 @@ export default function EarningsScreen() {
           {(['day', 'week', 'month', 'custom'] as Period[]).map(p => (
             <button key={p} onClick={() => setPeriod(p)}
               className="px-3 py-1.5 rounded-xl text-xs font-semibold transition-colors"
-              style={{ background: period === p ? '#2d6fe8' : 'var(--card)', color: period === p ? 'white' : 'var(--muted)', border: `1px solid ${period === p ? '#2d6fe8' : 'var(--border)'}` }}>
+              style={{ background: period === p ? '#d97706' : 'var(--card)', color: period === p ? 'white' : 'var(--muted)', border: `1px solid ${period === p ? '#d97706' : 'var(--border)'}` }}>
               {PERIOD_LABELS[p]}
             </button>
           ))}
@@ -197,7 +197,7 @@ export default function EarningsScreen() {
         <div className="grid grid-cols-2 gap-3">
           {[
             { label: t('net_earnings'), value: `€${netEarnings.toFixed(2)}`, sub: t('after_costs'), color: '#22c55e' },
-            { label: t('hourly_rate'), value: `€${hourlyRate.toFixed(2)}/h`, sub: t('net_per_hour'), color: '#4f8ef7' },
+            { label: t('hourly_rate'), value: `€${hourlyRate.toFixed(2)}/h`, sub: t('net_per_hour'), color: '#f59e0b' },
             { label: t('gross_earnings'), value: `€${totalEarnings.toFixed(2)}`, sub: `${totalHours.toFixed(1)}h ${t('worked')}`, color: 'var(--text)' },
             { label: t('total_costs'), value: `€${totalCosts.toFixed(2)}`, sub: t('fuel_expenses'), color: '#ef4444' },
           ].map(stat => (
@@ -273,7 +273,7 @@ export default function EarningsScreen() {
                             <p className="text-xs" style={{ color: 'var(--muted)' }}>{t('worked')}</p>
                           </div>
                           <div>
-                            <p className="text-base font-bold" style={{ color: '#4f8ef7' }}>€{((sTotal - s.fuel) / s.hours).toFixed(2)}/h</p>
+                            <p className="text-base font-bold" style={{ color: '#f59e0b' }}>€{((sTotal - s.fuel) / s.hours).toFixed(2)}/h</p>
                             <p className="text-xs" style={{ color: 'var(--muted)' }}>{t('rate')}</p>
                           </div>
                         </div>
@@ -293,7 +293,7 @@ export default function EarningsScreen() {
           <p className="text-sm font-bold mb-2" style={{ color: '#c4b5fd' }}>🔒 {t('anti_theft_tips')}</p>
           {[t('anti_theft_tip1'), t('anti_theft_tip2'), t('anti_theft_tip3'), t('anti_theft_tip4'), t('anti_theft_tip5')].map((tip, i) => (
             <div key={i} className="flex gap-2 mb-1.5">
-              <span className="text-xs" style={{ color: '#4f8ef7' }}>•</span>
+              <span className="text-xs" style={{ color: '#f59e0b' }}>•</span>
               <p className="text-xs" style={{ color: '#c4b5fd' }}>{tip}</p>
             </div>
           ))}
@@ -322,7 +322,7 @@ export default function EarningsScreen() {
                 {PLATFORMS.map(p => (
                   <button key={p} onClick={() => togglePlatform(p)}
                     className="py-3 rounded-xl text-sm font-semibold transition-colors"
-                    style={{ background: form.selectedPlatforms.includes(p) ? '#2d6fe8' : 'var(--card)', color: form.selectedPlatforms.includes(p) ? 'white' : 'var(--muted)', border: `1px solid ${form.selectedPlatforms.includes(p) ? '#2d6fe8' : 'var(--border)'}` }}>
+                    style={{ background: form.selectedPlatforms.includes(p) ? '#d97706' : 'var(--card)', color: form.selectedPlatforms.includes(p) ? 'white' : 'var(--muted)', border: `1px solid ${form.selectedPlatforms.includes(p) ? '#d97706' : 'var(--border)'}` }}>
                     {p === 'Other' ? t('other') : p}
                   </button>
                 ))}
@@ -369,7 +369,7 @@ export default function EarningsScreen() {
             </div>
 
             <div className="pt-2">
-              <button onClick={handleAdd} className="w-full text-white font-bold py-4 rounded-xl text-base" style={{ background: 'linear-gradient(135deg, #4f8ef7 0%, #1a5fd4 100%)' }}>
+              <button onClick={handleAdd} className="w-full text-white font-bold py-4 rounded-xl text-base" style={{ background: 'linear-gradient(135deg, #f59e0b 0%, #b45309 100%)' }}>
                 💾 {t('save_session')}
               </button>
             </div>

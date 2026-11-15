@@ -21,10 +21,29 @@ function metersBetween(a: { lat: number; lng: number }, b: { lat: number; lng: n
 const PUBLISH_MIN_METRES = 15   // skip write if rider moved less than this
 const PUBLISH_MIN_MS     = 5000 // always write at least once every 5 s regardless of distance
 
+// timeout curto (2 s) fazia o aparelho reportar erro de tempo esgotado com frequência
 const GEO_OPTIONS: PositionOptions = {
   enableHighAccuracy: true,
-  timeout: 2000,
-  maximumAge: 0,
+  timeout: 10000,
+  maximumAge: 1000,
+}
+
+function toFix(pos: GeolocationPosition) {
+  const c = pos.coords
+  return {
+    lat: c.latitude,
+    lng: c.longitude,
+    accuracy: Number.isFinite(c.accuracy) ? c.accuracy : null,
+    heading: c.heading != null && Number.isFinite(c.heading) ? c.heading : null,
+    speed: c.speed != null && Number.isFinite(c.speed) ? c.speed : null,
+    time: pos.timestamp || Date.now(),
+  }
+}
+
+function geoErrorMessage(err: GeolocationPositionError): string | null {
+  if (err.code === err.PERMISSION_DENIED) return 'Location access denied'
+  if (err.code === err.POSITION_UNAVAILABLE) return 'Location unavailable'
+  return null // TIMEOUT: o watchPosition continua tentando — não é "acesso negado"
 }
 
 export function useGeolocation({
@@ -32,7 +51,7 @@ export function useGeolocation({
   userId,
   enabled = false,
 }: UseGeolocationOptions = {}) {
-  const setCurrentLocation = useStore((s) => s.setCurrentLocation)
+  const setCurrentFix = useStore((s) => s.setCurrentFix)
   const currentLocation = useStore((s) => s.currentLocation)
   const user = useStore((s) => s.user)
   const [error, setError] = useState<string | null>(null)
@@ -51,12 +70,12 @@ export function useGeolocation({
     }
     watchIdRef.current = navigator.geolocation.watchPosition(
       (pos) => {
-        setCurrentLocation({ lat: pos.coords.latitude, lng: pos.coords.longitude })
+        setCurrentFix(toFix(pos))
         setHeading(pos.coords.heading ?? null)
         setSpeed(pos.coords.speed ?? null)
         setError(null)
       },
-      () => setError('Location access denied'),
+      (err) => { const m = geoErrorMessage(err); if (m) setError(m) },
       GEO_OPTIONS
     )
     return () => {
@@ -65,7 +84,7 @@ export function useGeolocation({
         watchIdRef.current = null
       }
     }
-  }, [setCurrentLocation])
+  }, [setCurrentFix])
 
   // Restart watchPosition when app returns to foreground (iOS/Android background fix)
   useEffect(() => {
@@ -77,7 +96,7 @@ export function useGeolocation({
       }
       watchIdRef.current = navigator.geolocation.watchPosition(
         (pos) => {
-          setCurrentLocation({ lat: pos.coords.latitude, lng: pos.coords.longitude })
+          setCurrentFix(toFix(pos))
           setHeading(pos.coords.heading ?? null)
           setSpeed(pos.coords.speed ?? null)
           setError(null)
@@ -86,14 +105,14 @@ export function useGeolocation({
         GEO_OPTIONS
       )
       navigator.geolocation.getCurrentPosition(
-        (pos) => setCurrentLocation({ lat: pos.coords.latitude, lng: pos.coords.longitude }),
+        (pos) => setCurrentFix(toFix(pos)),
         null,
         { enableHighAccuracy: true, maximumAge: 10000 }
       )
     }
     document.addEventListener('visibilitychange', handleVisibilityChange)
     return () => document.removeEventListener('visibilitychange', handleVisibilityChange)
-  }, [setCurrentLocation])
+  }, [setCurrentFix])
 
   // Publish to GROUP — throttled: write only when rider moved >= 15 m OR >= 5 s elapsed
   useEffect(() => {

@@ -11,6 +11,7 @@ import Map, { Source, Layer, Marker } from 'react-map-gl/mapbox'
 import type { MapRef } from 'react-map-gl/mapbox'
 import 'mapbox-gl/dist/mapbox-gl.css'
 import { useStore } from '@/lib/store'
+import { nextReportOnRoute } from '@/lib/navigation/reportAhead'
 import { subscribeToIncidents, subscribeToGlobalPresence, reportIncident, voteIncident } from '@/lib/firestore'
 import { INCIDENT_TYPES as QUICK_REPORT_TYPES } from '@/data/incidentTypes'
 import { useLang } from '@/contexts/LangContext'
@@ -25,6 +26,13 @@ import TransportModeSelector, { ModeKey, getSavedMode, getProfileForMode, ZoneHi
 import NavigationScreen from '@/components/Navigation/NavigationScreen'
 import { ALL_ZONES, getRiskLevelActual, circleToPolygon, PERM_ZONE_COLORS, COUNTRY_FLAG, CITY_LABEL, PermanentZone } from '@/lib/permanentZones'
 import toast from 'react-hot-toast'
+import { findSafeRoute } from '@/lib/navigation/routing'
+import { loadAvoidZones, primeZoneCache } from '@/lib/navigation/zoneSource'
+import { lerpAngle } from '@/lib/navigation/geo'
+import { useNavigationCore, guard } from '@/components/Navigation/useNavigationCore'
+import SafeBoundary from '@/components/SafeBoundary'
+import UserPuck from './UserPuck'
+import { formatDistance } from '@/lib/navigation/instructions'
 
 const DUBLIN_LNG = -6.2603
 const DUBLIN_LAT = 53.3498
@@ -97,20 +105,30 @@ const zonesGeoJSON = {
 }
 
 // ─── Camera constants — tune here if rider position needs adjustment ──────────
-const NAV_ZOOM    = 16.8  // zoom level during nav — lower = further back, more road ahead visible
-const NAV_PITCH   = 62    // 3D tilt — Google Maps-style; try 65 for even more horizon
-const NAV_RIDER_Y = 0.78  // screen Y of rider (0=top, 1=bottom); tune here — with pitchCorrection=1.0 this gives ~76% of screen height at pitch=62°
+const NAV_ZOOM    = 16.2  // zoom inicial da navegação (parado) — igual ao Google: vê as ruas à volta
+const NAV_PITCH   = 60    // inclinação 3D estilo Google Maps (visão de quem dirige)
+const NAV_RIDER_Y = 0.80  // seta no terço de baixo do ecrã (0=topo, 1=base) — mais rua à frente
+const NAV_ZOOM_BIAS_KEY = 'zivo_nav_zoom_bias'
 
 // ---- Navigation helpers ----
 
-// Zoom adapts to speed — low speed: close view; high speed: wide view ahead
+// Zoom conforme a velocidade (estilo Google Maps): parado/devagar mostra o quarteirão e as
+// ruas vizinhas; mais rápido afasta para ver mais estrada à frente.
 function calcularZoomPorVelocidade(speedKmh: number): number {
-  if (!speedKmh || speedKmh < 1) return 17.5   // stationary / very slow
-  if (speedKmh < 5)              return 17.2   // walking
-  if (speedKmh < 12)             return 17.0   // cycling
-  if (speedKmh < 25)             return 16.5   // e-bike / slow scooter
-  if (speedKmh < 50)             return 16.0   // scooter / motorcycle
-  return 15.5                                  // fast — maximum road-ahead view
+  if (!speedKmh || speedKmh < 5) return 16.2   // parado / a pé
+  if (speedKmh < 15)             return 16.0   // bicicleta / trânsito lento
+  if (speedKmh < 30)             return 15.8   // cidade
+  if (speedKmh < 50)             return 15.5   // avenidas
+  if (speedKmh < 80)             return 15.1
+  return 14.7                                  // via rápida
+}
+
+// Ajuste de zoom escolhido pelo rider (pinça + "re-centralizar") — fica guardado no aparelho
+function lerZoomBias(): number {
+  try { const v = Number(localStorage.getItem(NAV_ZOOM_BIAS_KEY)); return Number.isFinite(v) ? Math.max(-2, Math.min(1.5, v)) : 0 } catch { return 0 }
+}
+function gravarZoomBias(v: number) {
+  try { localStorage.setItem(NAV_ZOOM_BIAS_KEY, String(Math.round(v * 100) / 100)) } catch {}
 }
 
 // Moves camera center AHEAD of rider (+ sign) so rider appears in lower third.
@@ -201,46 +219,11 @@ function pointInPolygon(lat: number, lng: number, polygon: [number, number][]): 
   return inside
 }
 
-function routeCrossesHighRiskZone(coords: [number, number][], hour = new Date().getHours()): boolean {
-  for (const [lng, lat] of coords) {
-    for (const zone of RISK_ZONES)
-      if (zone.level === 'high' && pointInPolygon(lat, lng, zone.polygon)) return true
-    for (const pz of ALL_ZONES) {
-      const level = getRiskLevelActual(pz, hour)
-      if ((level === 'high' || level === 'critical') && distMeters({ lat, lng }, { lat: pz.lat, lng: pz.lng }) < pz.radius) return true
-    }
-  }
-  return false
-}
-
 function polygonCentroid(polygon: [number, number][]): { lat: number; lng: number } {
   return {
     lat: polygon.reduce((s, p) => s + p[0], 0) / polygon.length,
     lng: polygon.reduce((s, p) => s + p[1], 0) / polygon.length,
   }
-}
-
-async function fetchRoute(
-  origin: { lat: number; lng: number },
-  dest: { lat: number; lng: number },
-  profile: string
-): Promise<any> {
-  const token = process.env.NEXT_PUBLIC_MAPBOX_TOKEN
-  const params = [
-    'steps=true', 'voice_instructions=true', 'banner_instructions=true',
-    'geometries=geojson', 'overview=full', 'language=pt',
-    'annotations=congestion,duration,distance',
-    'alternatives=true',
-    'exclude=ferry',
-    profile === 'cycling' ? 'continue_straight=false' : null,
-    `access_token=${token}`,
-  ].filter(Boolean).join('&')
-  const url =
-    `https://api.mapbox.com/directions/v5/mapbox/${profile}` +
-    `/${origin.lng},${origin.lat};${dest.lng},${dest.lat}?${params}`
-  const res = await fetch(url)
-  const data = await res.json()
-  return data.routes?.[0] ?? null
 }
 
 function parseCoordinates(text: string): { lat: number; lng: number } | null {
@@ -319,6 +302,24 @@ interface Props {
   isActive?: boolean
 }
 
+// GeoJSON estável por geometria: o <Source> reenvia os dados ao mapa sempre que recebe um
+// objeto novo, então criar `{ type: 'Feature', ... }` dentro do JSX custava um envio por render.
+const featureCache = new WeakMap<object, any>()
+function asFeature(geometry: any) {
+  if (!geometry || typeof geometry !== 'object') return { type: 'Feature', geometry, properties: {} }
+  let f = featureCache.get(geometry)
+  if (!f) { f = { type: 'Feature', geometry, properties: {} }; featureCache.set(geometry, f) }
+  return f
+}
+
+// Nível de zoom a partir do qual as zonas aparecem como ÁREA (polígono). Mais afastado que isso,
+// aparecem só como pontos. Antes era 13 (bem perto); 10 mostra as áreas de quase toda a cidade.
+const ZONE_AREA_MIN_ZOOM = 10
+
+// Lista vazia ESTÁVEL: um `= []` no parâmetro cria um array novo a cada render, o que fazia o
+// efeito dos "riders próximos" rodar em loop infinito (aviso "Maximum update depth exceeded").
+const EMPTY_MEMBERS: GroupMemberLocation[] = []
+
 function RiderPin({ name, isEmergency = false }: { name: string; isEmergency?: boolean }) {
   const ring = isEmergency ? '#dc3545' : '#f59e0b'
   return (
@@ -361,7 +362,7 @@ function RiderPin({ name, isEmergency = false }: { name: string; isEmergency?: b
   )
 }
 
-export default function MapView({ groupMembers = [], currentUserId, groupId, onPanelChange, followUserId, onFollowChange, requestNavTo, onNavRequested, onNavigationChange, searchCategory = null, onSOS, onModeSelectorChange, workMode = false, onReport, onCategorySearching, controlsTopOffset = 12, externalReportOpen = false, isActive = true }: Props) {
+export default function MapView({ groupMembers = EMPTY_MEMBERS, currentUserId, groupId, onPanelChange, followUserId, onFollowChange, requestNavTo, onNavRequested, onNavigationChange, searchCategory = null, onSOS, onModeSelectorChange, workMode = false, onReport, onCategorySearching, controlsTopOffset = 12, externalReportOpen = false, isActive = true }: Props) {
   const { t } = useLang()
   const { theme } = useTheme()
   const mapUser = useStore((s) => s.user)
@@ -382,6 +383,10 @@ export default function MapView({ groupMembers = [], currentUserId, groupId, onP
   const autoFollowRef = useRef(true)
   const firstFixRef = useRef(false)
   const tapTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  // Toque longo (≈0,6 s) no mapa = "navegar até aqui". Toque curto só fecha painéis.
+  const longPressRef = useRef<{ timer: ReturnType<typeof setTimeout> | null; x: number; y: number; fired: boolean }>({ timer: null, x: 0, y: 0, fired: false })
+  const zoneTapPointRef = useRef<{ lat: number; lng: number } | null>(null)
+  const tapHintShownRef = useRef(false)
   const [weather, setWeather] = useState<WeatherData | null>(null)
   const [weatherFading, setWeatherFading] = useState(false)
   const weatherFetchedRef = useRef(false)
@@ -397,26 +402,15 @@ export default function MapView({ groupMembers = [], currentUserId, groupId, onP
   // Navigation
   const [isNavigating, setIsNavigating] = useState(false)
   const [navDest, setNavDest] = useState<{ lat: number; lng: number } | null>(null)
-  const [routeGeoJSON, setRouteGeoJSON] = useState<any>(null)
-  const [navSteps, setNavSteps] = useState<any[]>([])
-  const [currentStepIdx, setCurrentStepIdx] = useState(0)
-  const [distToNext, setDistToNext] = useState(0)
-  const [remainingDist, setRemainingDist] = useState(0)
-  const [navEta, setNavEta] = useState(0)
   const [routeProfile, setRouteProfile] = useState<string>(() => getProfileForMode(getSavedMode()))
   const [navModeKey, setNavModeKey] = useState<string>(getSavedMode)
   const [navBearing, setNavBearing] = useState(0)
-  const [riskOnRoute, setRiskOnRoute] = useState(false)
-  const [isRecalculating, setIsRecalculating] = useState(false)
   const [northLocked, setNorthLocked] = useState(false)
-  const [hasArrived, setHasArrived] = useState(false)
   const [navTotalDist, setNavTotalDist] = useState(0)
   const [navSpeed, setNavSpeed] = useState(0)
-  const [routeCongestion, setRouteCongestion] = useState<string[]>([])
   const [heading, setHeading] = useState(0)
   const [compassActive, setCompassActive] = useState(false)
   const speedPrevRef = useRef<{ lat: number; lng: number; time: number } | null>(null)
-  const navRefreshRef = useRef<{ dest: { lat: number; lng: number } | null; profile: string; loc: { lat: number; lng: number } | null }>({ dest: null, profile: '', loc: null })
   const handleOrientationRef = useRef<((e: Event) => void) | null>(null)
   const compassFiredAbsoluteRef = useRef(false)
   const [showCategorySheet, setShowCategorySheet] = useState(false)
@@ -432,8 +426,6 @@ export default function MapView({ groupMembers = [], currentUserId, groupId, onP
   const [mapBearing, setMapBearing] = useState(0)
   const [showQuickReport, setShowQuickReport] = useState(false)
   const [quickReporting, setQuickReporting] = useState(false)
-  const [smoothedPos, setSmoothedPos] = useState<{ lat: number; lng: number } | null>(null)
-  const [smoothedHeading, setSmoothedHeading] = useState(0)
   // Frozen position captured at the moment the report button is pressed
   const [frozenReportPos, setFrozenReportPos] = useState<{ lat: number; lng: number; timestamp: number; heading: number; speed: number } | null>(null)
   const [toastNav, setToastNav] = useState<string | null>(null)
@@ -446,12 +438,13 @@ export default function MapView({ groupMembers = [], currentUserId, groupId, onP
   const [selectedPermZone, setSelectedPermZone] = useState<PermanentZone | null>(null)
   const [currentHour, setCurrentHour] = useState(() => new Date().getHours())
   const [safeRouteData, setSafeRouteData] = useState<any | null>(null)
-  const [activeRouteZones, setActiveRouteZones] = useState<any[]>([])
-  const [zoneAlert, setZoneAlert] = useState<{ zone: any; dist: number } | null>(null)
-  const alertedZonesRef = useRef<Set<string>>(new Set())
-  const zoneAlertTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const [nearbyIncident, setNearbyIncident] = useState<Incident | null>(null)
   const alertedIncidentIdsRef = useRef<Set<string>>(new Set())
+  // 'ahead' = aviso antes de chegar (com distância); 'passed' = já passou, pergunta se ainda está
+  const [incidentPhase, setIncidentPhase] = useState<'ahead' | 'passed'>('ahead')
+  const [incidentDist, setIncidentDist] = useState<number | null>(null)
+  const incidentAlongRef = useRef<number | null>(null)
+  const incidentPassTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const prevExternalReportRef = useRef(false)
   const prevSelectedPermZoneRef = useRef<typeof selectedPermZone>(null)
 
@@ -483,6 +476,10 @@ export default function MapView({ groupMembers = [], currentUserId, groupId, onP
   // from bubbling to the map and accidentally cancelling the snap timer it just started.
   const snapFromResumeRef = useRef(false)
 
+  const zoomAtualRef = useRef(NAV_ZOOM)
+  const zoomBiasRef = useRef(0)
+  useEffect(() => { zoomBiasRef.current = lerZoomBias() }, [])
+
   // Search
   const [showSearch, setShowSearch] = useState(false)
   const [searchText, setSearchText] = useState('')
@@ -502,6 +499,19 @@ export default function MapView({ groupMembers = [], currentUserId, groupId, onP
   const incidents = useStore((s) => s.incidents)
   const setIncidents = useStore((s) => s.setIncidents)
   const currentLocation = useStore((s) => s.currentLocation)
+  const currentFix = useStore((s) => s.currentFix)
+
+  // ── Motor de navegação isolado (src/components/Navigation/useNavigationCore.ts) ──
+  const {
+    routeGeoJSON, routeCongestion, navSteps, currentStepIdx, distToNext, remainingDist, remainingSec, navEta,
+    riskOnRoute, activeRouteZones, isRecalculating, hasArrived, routeTrim, nextGap, zoneAlert, zoneSpeech,
+    trackerRef, progressRef,
+    applyRoute, beginSession, resetNav, updateRiskForRoute, setActiveRouteZones, setHasArrived, switchToSafeRoute,
+  } = useNavigationCore({
+    isNavigating, currentFix, navDest, routeProfile,
+    onBearing: setNavBearing,
+    onArrived: () => mapRef.current?.easeTo({ pitch: 0, bearing: 0, duration: 600, easing: (t: number) => t }),
+  })
 
   const mapStyle = 'mapbox://styles/mapbox/streets-v12'
 
@@ -510,6 +520,7 @@ export default function MapView({ groupMembers = [], currentUserId, groupId, onP
     localStorage.setItem('showZones', JSON.stringify(showZones))
   }, [showZones])
 
+  const incidentsLoadedRef = useRef(false)
   // 24h cutoff — stable reference so the effect doesn't restart on every render
   const incidentCutoff = useMemo(() => new Date(Date.now() - 24 * 3600 * 1000), [])
 
@@ -517,7 +528,7 @@ export default function MapView({ groupMembers = [], currentUserId, groupId, onP
   useEffect(() => {
     if (!isActive) return
     setIncidents([])
-    return subscribeToIncidents(setIncidents, incidentCutoff)
+    return subscribeToIncidents(list => { incidentsLoadedRef.current = true; setIncidents(list) }, incidentCutoff)
   }, [isActive, setIncidents, incidentCutoff])
 
   // Subscribe to Firestore risk_zones — when shield is on OR zones modal is open, and not navigating
@@ -525,18 +536,46 @@ export default function MapView({ groupMembers = [], currentUserId, groupId, onP
     if ((!showZones && !showZonesModal) || isNavigating) return
     const unsub = onSnapshot(
       query(collection(db, 'risk_zones'), orderBy('createdAt', 'desc')),
-      snap => setFirestoreZones(snap.docs.map(d => ({ id: d.id, ...d.data() })))
+      snap => {
+        const zs = snap.docs.map(d => ({ id: d.id, ...d.data() }))
+        setFirestoreZones(zs)
+        // rota segura usa as zonas mais recentes sem nova leitura — só dados confirmados pelo
+        // servidor (o 1º evento pode vir do cache local, vazio ou desatualizado)
+        if (!snap.metadata.fromCache) primeZoneCache(zs)
+      }
     )
     return unsub
   }, [showZones, showZonesModal, isNavigating])
 
+  // Reports vêm dos usuários: um registro malformado não pode derrubar o mapa (nem a navegação)
   const filteredIncidents = useMemo(
     () => incidents.filter(i =>
-      i.timestamp.getTime() > Date.now() - timeFilter * 3600000
+      i && i.location && Number.isFinite(i.location.lat) && Number.isFinite(i.location.lng)
+      && i.timestamp instanceof Date && !isNaN(i.timestamp.getTime())
+      && i.timestamp.getTime() > Date.now() - timeFilter * 3600000
       && (i.denials ?? 0) < 3
     ),
     [incidents, timeFilter]
   )
+
+  const nearbyNavRidersGeoJSON = useMemo(() => ({
+    type: 'FeatureCollection' as const,
+    features: nearbyNavRiders.map(r => ({
+      type: 'Feature' as const,
+      properties: { uid: r.userId },
+      geometry: { type: 'Point' as const, coordinates: [r.lng, r.lat] },
+    })),
+  }), [nearbyNavRiders])
+
+  const globalRidersGeoJSON = useMemo(() => {
+    const groupIds = new Set([...groupMembers.map(m => m.userId), currentUserId].filter(Boolean) as string[])
+    return {
+      type: 'FeatureCollection' as const,
+      features: globalRiders
+        .filter(r => !groupIds.has(r.userId) && Number.isFinite(r.lat) && Number.isFinite(r.lng))
+        .map(r => ({ type: 'Feature' as const, properties: { uid: r.userId }, geometry: { type: 'Point' as const, coordinates: [r.lng, r.lat] } })),
+    }
+  }, [globalRiders, groupMembers, currentUserId])
 
   const incidentsGeoJSON = useMemo(() => ({
     type: 'FeatureCollection' as const,
@@ -549,8 +588,23 @@ export default function MapView({ groupMembers = [], currentUserId, groupId, onP
 
   // Normalise polygon coords — handles both legacy [lng,lat] arrays and new {lng,lat} objects
   function normCoords(raw: any[]): number[][] {
-    return raw.map(p => Array.isArray(p) ? p as number[] : [p.lng, p.lat])
+    return raw
+      .map(p => Array.isArray(p) ? p as number[] : [p?.lng, p?.lat])
+      .filter(c => Number.isFinite(c[0]) && Number.isFinite(c[1]))
   }
+
+  // Hora atual (muda 1x por hora) — zonas "só nas horas de pico" ficam apagadas fora do horário
+  const [hourNow, setHourNow] = useState(() => new Date().getHours())
+  useEffect(() => {
+    const t = setInterval(() => {
+      const h = new Date().getHours()
+      setHourNow(prev => (prev === h ? prev : h))
+    }, 60_000)
+    return () => clearInterval(t)
+  }, [])
+  const zoneOffNow = (z: any) =>
+    z?.blockOnlyInPeakHours === true && Array.isArray(z.peakHours) && z.peakHours.length > 0
+    && !z.peakHours.map(Number).includes(hourNow)
 
   // GeoJSON from Firestore risk_zones (manual zones saved via ZoneEditor)
   const firestoreZonesGeoJSON = useMemo(() => ({
@@ -558,11 +612,12 @@ export default function MapView({ groupMembers = [], currentUserId, groupId, onP
     features: firestoreZones.flatMap(z => {
       const level = z.riskLevel ?? 'medium'
       // polygon type — stored as [{lng,lat}] objects (or legacy [[lng,lat]] arrays)
-      if (z.polygon && z.polygon.length >= 3) {
+      if (Array.isArray(z.polygon) && z.polygon.length >= 3) {
         const coords = normCoords(z.polygon)
+        if (coords.length < 3) return []
         return [{
           type: 'Feature' as const,
-          properties: { id: z.id, level, name: z.areaName ?? z.id },
+          properties: { id: z.id, level, name: z.areaName ?? z.id, off: zoneOffNow(z) },
           geometry: { type: 'Polygon' as const, coordinates: [coords] },
         }]
       }
@@ -571,19 +626,41 @@ export default function MapView({ groupMembers = [], currentUserId, groupId, onP
         const poly = circleToPolygon(z.lat, z.lng, z.radius ?? 200)
         return [{
           type: 'Feature' as const,
-          properties: { id: z.id, level, name: z.areaName ?? z.id },
+          properties: { id: z.id, level, name: z.areaName ?? z.id, off: zoneOffNow(z) },
           geometry: { type: 'Polygon' as const, coordinates: [poly.map((p: number[]) => [p[1], p[0]])] },
         }]
       }
       return []
     }),
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }), [firestoreZones])
+  }), [firestoreZones, hourNow])
+
+  // Durante a navegação desenha só o trecho que falta (como o Google Maps)
+  // Um ponto por zona (centro), usado quando o mapa está afastado
+  const firestoreZonePinsGeoJSON = useMemo(() => ({
+    type: 'FeatureCollection' as const,
+    features: firestoreZones.flatMap(z => {
+      let lng = Number(z.lng), lat = Number(z.lat)
+      if (!Number.isFinite(lat) || !Number.isFinite(lng) || (lat === 0 && lng === 0)) {
+        const pts = Array.isArray(z.polygon) ? normCoords(z.polygon) : []
+        if (!pts.length) return []
+        lng = pts.reduce((a, p) => a + p[0], 0) / pts.length
+        lat = pts.reduce((a, p) => a + p[1], 0) / pts.length
+      }
+      return [{ type: 'Feature' as const, properties: { id: z.id, level: z.riskLevel ?? 'medium', off: zoneOffNow(z) }, geometry: { type: 'Point' as const, coordinates: [lng, lat] } }]
+    }),
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }), [firestoreZones, hourNow])
 
   const routeCongestionGeoJSON = useMemo(() => {
     if (!routeGeoJSON?.coordinates) return null
-    return buildCongestionGeoJSON(routeGeoJSON.coordinates, routeCongestion)
-  }, [routeGeoJSON, routeCongestion])
+    const coords: [number, number][] = routeGeoJSON.coordinates
+    if (isNavigating && routeTrim && routeTrim.seg < coords.length - 1) {
+      const rest: [number, number][] = [routeTrim.point, ...coords.slice(routeTrim.seg + 1)]
+      return buildCongestionGeoJSON(rest, routeCongestion.slice(routeTrim.seg))
+    }
+    return buildCongestionGeoJSON(coords, routeCongestion)
+  }, [routeGeoJSON, routeCongestion, routeTrim, isNavigating])
 
   // Keep currentHour in sync (updates at the top of each hour)
   useEffect(() => {
@@ -632,141 +709,70 @@ export default function MapView({ groupMembers = [], currentUserId, groupId, onP
     if (posAtualRef.current.lat === 0) {
       posAtualRef.current = { lat: currentLocation.lat, lng: currentLocation.lng }
     }
-    // When not navigating, RAF is stopped — update smoothedPos directly from GPS
-    if (!isNavigating) {
-      posAtualRef.current = { lat: currentLocation.lat, lng: currentLocation.lng }
-      setSmoothedPos(currentLocation)
-    }
+    // Fora da navegação a animação fica parada — a posição vem direto do GPS
+    if (!isNavigating) posAtualRef.current = { lat: currentLocation.lat, lng: currentLocation.lng }
   }, [currentLocation, isNavigating])
 
-  // RAF loop — 60fps during navigation, stopped completely when idle
-  // Restarts when isNavigating changes to true
+  // RAF loop — 60fps durante a navegação, parado fora dela.
+  // A seta fica ENCAIXADA na rota e é projetada pelo tempo desde o último GPS (velocidade × tempo),
+  // então anda de forma contínua, sem atraso e sem "pulos". A câmera usa jumpTo a cada quadro
+  // (o código antigo chamava easeTo 60 vezes por segundo, reiniciando a animação o tempo todo).
   useEffect(() => {
     if (!isNavigating) {
-      // Stop RAF when not navigating — saves significant CPU/battery
       if (rafIdRef.current) { cancelAnimationFrame(rafIdRef.current); rafIdRef.current = null }
       return
     }
-    // Start/restart RAF when navigation begins
     lastRafTsRef.current = 0
+    zoomAtualRef.current = mapRef.current?.getZoom() ?? NAV_ZOOM
     const animar = (ts: number) => {
-      const delta = lastRafTsRef.current ? Math.min(ts - lastRafTsRef.current, 100) : 16
+      // erro num quadro não pode parar a animação: registra e agenda o próximo
+      try { animarQuadro(ts) } catch (e) { console.error('[nav] erro no quadro da câmera', e) }
+      rafIdRef.current = requestAnimationFrame(animar)
+    }
+    const animarQuadro = (ts: number) => {
+      const dt = lastRafTsRef.current ? Math.min(ts - lastRafTsRef.current, 100) : 16
       lastRafTsRef.current = ts
       const nav = rafNavStateRef.current
-      {}
+      const tr = trackerRef.current
+      const pr = progressRef.current
 
-      // Lerp position toward GPS target (0.08 = smooth & responsive)
-      const fator = (delta / 100) * 0.08
-      const newLat = posAtualRef.current.lat + (posAlvoRef.current.lat - posAtualRef.current.lat) * fator
-      const newLng = posAtualRef.current.lng + (posAlvoRef.current.lng - posAtualRef.current.lng) * fator
+      let target = posAlvoRef.current
+      let routeBrg: number | null = null
+      if (tr && pr && pr.onRoute) {
+        const elapsed = Math.min(1.5, Math.max(0, (Date.now() - pr.time) / 1000))
+        const ahead = Math.min(tr.length, pr.along + (pr.speedMps > 1 ? pr.speedMps * elapsed : 0))
+        const pt = tr.pointAt(ahead)
+        target = { lat: pt[1], lng: pt[0] }
+        routeBrg = tr.bearingAt(ahead)
+      }
+      if (posAtualRef.current.lat === 0) posAtualRef.current = { ...target }
+      const k = 1 - Math.exp(-dt / 180)
+      const newLat = posAtualRef.current.lat + (target.lat - posAtualRef.current.lat) * k
+      const newLng = posAtualRef.current.lng + (target.lng - posAtualRef.current.lng) * k
       posAtualRef.current = { lat: newLat, lng: newLng }
 
-      // Lerp heading (circular shortest-path interpolation)
-      const targetH = nav.northLocked ? 0 : (nav.compassActive ? nav.heading : nav.navBearing)
-      let diffH = targetH - headingAtualRef.current
-      if (diffH > 180) diffH -= 360
-      if (diffH < -180) diffH += 360
-      headingAtualRef.current = (headingAtualRef.current + diffH * fator * 2 + 360) % 360
+      // Direção: em movimento segue a rua (ou o rumo do GPS); parado usa a bússola
+      const moving = nav.navSpeed > 7
+      const targetH = nav.northLocked ? 0
+        : moving ? (routeBrg ?? nav.navBearing)
+        : (nav.compassActive ? nav.heading : (routeBrg ?? nav.navBearing))
+      headingAtualRef.current = lerpAngle(headingAtualRef.current, targetH, 1 - Math.exp(-dt / 350))
 
-      // Update React state only when position has actually moved (avoids 60fps renders while stationary)
-      const moved =
-        Math.abs(newLat - lastSetPosRef.current.lat) > 1e-6 ||
-        Math.abs(newLng - lastSetPosRef.current.lng) > 1e-6
-      if (moved && posAtualRef.current.lat !== 0) {
-        lastSetPosRef.current = { lat: newLat, lng: newLng }
-        setSmoothedPos({ lat: newLat, lng: newLng })
-      }
-      // Only update heading state when it changed > 1° — prevents 60fps re-renders
-      if (nav.isNavigating) {
-        setSmoothedHeading(prev => {
-          let diff = Math.abs(headingAtualRef.current - prev)
-          if (diff > 180) diff = 360 - diff
-          return diff > 1 ? headingAtualRef.current : prev
-        })
-      }
+      // (a seta é desenhada pelo UserPuck com animação própria — sem redesenhar o mapa inteiro)
 
-      // Update navigation camera — heading-up 3D view (Google Maps / Waze style).
-      // bearing = rider heading (road ahead always at top); pitch = 45 for depth perspective.
-      // duration=300ms: fast enough to track without lag, smooth enough to not jitter.
-      if (nav.isNavigating && !navMapFreeRef.current) {
-        const zoom = calcularZoomPorVelocidade(nav.navSpeed)
+      if (nav.isNavigating && !navMapFreeRef.current && posAtualRef.current.lat !== 0) {
+        // perto de uma curva aproxima um pouco (como o Google) para mostrar a manobra
+        const pertoDaCurva = !!pr && pr.distToManeuver < 120 && nav.navSpeed < 45
+        const zAlvo = calcularZoomPorVelocidade(nav.navSpeed) + zoomBiasRef.current + (pertoDaCurva ? 0.35 : 0)
+        zoomAtualRef.current += (zAlvo - zoomAtualRef.current) * (1 - Math.exp(-dt / 1500))
+        const zoom = zoomAtualRef.current
         const heading = headingAtualRef.current
         const { lat: cLat, lng: cLng } = calcularCentroDeslocado(newLat, newLng, heading, zoom)
-        mapRef.current?.easeTo({
-          center: [cLng, cLat],
-          bearing: heading,
-          pitch: NAV_PITCH,
-          zoom,
-          duration: 300,
-        })
+        mapRef.current?.getMap()?.jumpTo({ center: [cLng, cLat], bearing: heading, pitch: NAV_PITCH, zoom })
       }
-
-      rafIdRef.current = requestAnimationFrame(animar)
     }
     rafIdRef.current = requestAnimationFrame(animar)
     return () => { if (rafIdRef.current) { cancelAnimationFrame(rafIdRef.current); rafIdRef.current = null } }
-  }, [isNavigating])  // restart loop when navigation state changes
-
-  // Step advancement + bearing + auto-recalculate
-  useEffect(() => {
-    if (!isNavigating || !currentLocation || navSteps.length === 0) return
-    const step = navSteps[currentStepIdx]
-    if (!step) return
-    const [sLng, sLat] = step.maneuver.location
-    const dist = distMeters(currentLocation, { lat: sLat, lng: sLng })
-    setDistToNext(Math.round(dist))
-    if (dist < 25 && currentStepIdx < navSteps.length - 1) {
-      const nextStep = navSteps[currentStepIdx + 1]
-      const bearingBefore = nextStep?.maneuver?.bearing_before
-      const riderHeading = northLocked ? heading : navBearing
-      if (bearingBefore !== undefined && navSpeed > 3) {
-        let bearingDiff = Math.abs(bearingBefore - riderHeading)
-        if (bearingDiff > 180) bearingDiff = 360 - bearingDiff
-        if (bearingDiff <= 150) setCurrentStepIdx(i => i + 1)
-        // else: instruction would send rider wrong way — skip until heading aligns
-      } else {
-        setCurrentStepIdx(i => i + 1)
-      }
-    }
-    const remaining = navSteps.slice(currentStepIdx).reduce((s: number, st: any) => s + (st.distance ?? 0), 0)
-    setRemainingDist(remaining)
-    setNavEta(Math.round(navSteps.slice(currentStepIdx).reduce((s: number, st: any) => s + (st.duration ?? 0), 0) / 60))
-    if (!northLocked && typeof step.maneuver?.bearing_after === 'number') setNavBearing(step.maneuver.bearing_after)
-    // Auto-recalculate >50m off-route
-    if (routeGeoJSON?.coordinates && navDest && !isRecalculating) {
-      const offDist = distToRouteMeters(currentLocation, routeGeoJSON.coordinates)
-      if (offDist > 40) {
-        setIsRecalculating(true)
-        fetchRoute(currentLocation, navDest, routeProfile)
-          .then(route => {
-            if (route) {
-              setRouteGeoJSON(route.geometry)
-              setRouteCongestion(route.legs?.[0]?.annotation?.congestion ?? [])
-              setNavSteps(route.legs?.[0]?.steps ?? [])
-              setCurrentStepIdx(0)
-              setRemainingDist(route.distance)
-              setNavEta(Math.round(route.duration / 60))
-              setRiskOnRoute(routeCrossesHighRiskZone(route.geometry.coordinates))
-            }
-          })
-          .catch(() => {})
-          .finally(() => setIsRecalculating(false))
-      }
-    }
-  }, [currentLocation, isNavigating, navSteps, currentStepIdx, routeGeoJSON, navDest, routeProfile, isRecalculating, northLocked])
-
-  // Arrived detection — triggers when < 20m remaining and last step reached
-  useEffect(() => {
-    if (!isNavigating || hasArrived) return
-    if (remainingDist > 0 && remainingDist < 20) {
-      setHasArrived(true)
-      mapRef.current?.easeTo({ pitch: 0, bearing: 0, duration: 600, easing: (t: number) => t })
-    }
-  }, [remainingDist, isNavigating, hasArrived])
-
-  // Reset arrived state when navigation starts or is cancelled
-  useEffect(() => {
-    if (!isNavigating) setHasArrived(false)
   }, [isNavigating])
 
   // Emergency markers from RTDB
@@ -810,13 +816,24 @@ export default function MapView({ groupMembers = [], currentUserId, groupId, onP
   // Pause global presence during navigation — other riders' GPS updates cause unnecessary re-renders
   useEffect(() => {
     if (isNavigating) return
-    return subscribeToGlobalPresence(setGlobalRiders)
+    // no máximo 1 atualização a cada 3 s (cada rider publica a posição a cada poucos segundos;
+    // atualizar o mapa a cada mensagem deixava o app pesado com muitos riders online)
+    let pending: any[] | null = null
+    let timer: ReturnType<typeof setTimeout> | null = null
+    let last = 0
+    const flush = () => { timer = null; last = Date.now(); if (pending) { setGlobalRiders(pending); pending = null } }
+    const unsub = subscribeToGlobalPresence(riders => {
+      pending = riders
+      if (timer) return
+      timer = setTimeout(flush, Math.max(0, 3000 - (Date.now() - last)))
+    })
+    return () => { unsub(); if (timer) clearTimeout(timer) }
   }, [isNavigating])
 
   // During navigation: subscribe to nearby riders and render them as small dots (Waze style).
   // Runs only while navigating; cleans up on cancel. Filters by 2.5 km radius, max 20 riders.
   useEffect(() => {
-    if (!isNavigating) { setNearbyNavRiders([]); return }
+    if (!isNavigating) { setNearbyNavRiders(prev => (prev.length ? [] : prev)); return }
 
     const FIVE_MIN = 5 * 60 * 1000
     const MAX_DIST = 2500  // metres — 2.5 km radius
@@ -851,7 +868,7 @@ export default function MapView({ groupMembers = [], currentUserId, groupId, onP
       if (pos && haversineDist(pos, lastFilterPos) > MIN_MOVE) doFilter()
     }, 5000)
 
-    return () => { unsub(); clearInterval(interval); setNearbyNavRiders([]) }
+    return () => { unsub(); clearInterval(interval); setNearbyNavRiders(prev => (prev.length ? [] : prev)) }
   }, [isNavigating, currentUserId, groupMembers])
 
   useEffect(() => {
@@ -863,16 +880,6 @@ export default function MapView({ groupMembers = [], currentUserId, groupId, onP
     prevFollowPosRef.current = { lat: m.lat, lng: m.lng }
     mapRef.current?.flyTo({ center: [m.lng, m.lat], zoom: 16, duration: 600 })
   }, [followUserId, groupMembers])
-
-  const applyRoute = useCallback((route: any) => {
-    setRouteGeoJSON(route.geometry)
-    setRouteCongestion(route.legs?.[0]?.annotation?.congestion ?? [])
-    setNavSteps(route.legs?.[0]?.steps ?? [])
-    setCurrentStepIdx(0)
-    setRemainingDist(route.distance)
-    setNavEta(Math.round(route.duration / 60))
-    setRiskOnRoute(routeCrossesHighRiskZone(route.geometry.coordinates))
-  }, [])
 
   const startCompass = useCallback(async () => {
     if (handleOrientationRef.current) {
@@ -934,12 +941,23 @@ export default function MapView({ groupMembers = [], currentUserId, groupId, onP
     const p = profile ?? routeProfile
     setNavError(null)
     try {
-      const route = preloadedRoute ?? await fetchRoute(currentLocation, dest, p)
+      let route = preloadedRoute
+      if (!route) {
+        // Sem rota escolhida no seletor: calcula já a rota segura
+        const zones = await loadAvoidZones()
+        const res = await findSafeRoute(currentLocation, dest, p, zones)
+        route = res.route ?? res.candidates
+          .slice().sort((a: any, b: any) => (a._hits?.length ?? 0) - (b._hits?.length ?? 0) || a.duration - b.duration)[0]
+      }
       if (!route) { setNavError('Rota não encontrada'); return }
       // Dismiss any focused input to prevent iOS shake-to-undo dialog during navigation
       if (typeof document !== 'undefined') (document.activeElement as HTMLElement)?.blur()
       setNavDest(dest)
+      beginSession(dest, p)
       applyRoute(route)
+      const b0 = Math.round(trackerRef.current?.bearingAt(0) ?? navBearing)
+      setNavBearing(b0)
+      headingAtualRef.current = b0
       setNavTotalDist(route.distance)
       setIsNavigating(true)
       navMapFreeRef.current = true  // pause RAF so the flyTo intro plays uninterrupted
@@ -961,22 +979,24 @@ export default function MapView({ groupMembers = [], currentUserId, groupId, onP
       setSelectedIncident(null)
       setSelectedZone(null)
       onPanelChange?.(false)
-      const { lat: cLat, lng: cLng } = calcularCentroDeslocado(currentLocation.lat, currentLocation.lng, navBearing, NAV_ZOOM)
+      const z0 = NAV_ZOOM + zoomBiasRef.current
+      const { lat: cLat, lng: cLng } = calcularCentroDeslocado(currentLocation.lat, currentLocation.lng, b0, z0)
       mapRef.current?.flyTo({
         center: [cLng, cLat],
-        pitch: NAV_PITCH, zoom: NAV_ZOOM, bearing: navBearing, duration: 800,
+        pitch: NAV_PITCH, zoom: z0, bearing: b0, duration: 800,
       })
       if (snapTimerRef.current !== null) clearTimeout(snapTimerRef.current)
       snapTimerRef.current = setTimeout(() => {
         snapTimerRef.current = null
         const s = rafNavStateRef.current
-        headingAtualRef.current = s.northLocked ? 0 : (s.compassActive ? s.heading : s.navBearing)
+        headingAtualRef.current = s.northLocked ? 0 : s.navBearing
+        zoomAtualRef.current = NAV_ZOOM + zoomBiasRef.current
         navMapFreeRef.current = false
       }, 800)
     } catch {
       setNavError('Erro ao calcular rota')
     }
-  }, [currentLocation, routeProfile, navBearing, onPanelChange, applyRoute, startCompass])
+  }, [currentLocation, routeProfile, navBearing, onPanelChange, applyRoute, beginSession, startCompass])
 
   const cancelNavigation = useCallback(() => {
     // Capture pre-restore state before clearing
@@ -985,18 +1005,13 @@ export default function MapView({ groupMembers = [], currentUserId, groupId, onP
     const restoreRouteIdx = navRouteIdx
 
     stopCompass()
+    resetNav()
     setIsNavigating(false)
     setNavTotalDist(0)
     setNavSpeed(0)
     speedPrevRef.current = null
     setNavDest(null)
-    setRouteGeoJSON(null)
-    setRouteCongestion([])
-    setNavSteps([])
-    setCurrentStepIdx(0)
-    setRiskOnRoute(false)
     setNavError(null)
-    setIsRecalculating(false)
     setNorthLocked(false)
     navMapFreeRef.current = false
     setNavMapFree(false)
@@ -1031,7 +1046,7 @@ export default function MapView({ groupMembers = [], currentUserId, groupId, onP
       autoFollowRef.current = true
       setAutoFollow(true)
     }
-  }, [navDest, navAltRoutes, navRouteIdx, stopCompass])
+  }, [navDest, navAltRoutes, navRouteIdx, stopCompass, resetNav])
 
   // Single source of truth for resuming follow-mode after any free-camera interaction.
   // All paths that need to re-engage the RAF camera (re-center button, post-route-switch,
@@ -1039,9 +1054,16 @@ export default function MapView({ groupMembers = [], currentUserId, groupId, onP
   const resumeFollow = useCallback(() => {
     if (snapTimerRef.current !== null) { clearTimeout(snapTimerRef.current); snapTimerRef.current = null }
     const s = rafNavStateRef.current
-    const liveHeading = s.northLocked ? 0 : (s.compassActive ? s.heading : s.navBearing)
+    const liveHeading = s.northLocked ? 0 : (s.navSpeed > 7 || !s.compassActive ? s.navBearing : s.heading)
     headingAtualRef.current = liveHeading
-    const zoom = calcularZoomPorVelocidade(s.navSpeed)
+    const auto = calcularZoomPorVelocidade(s.navSpeed)
+    // Se o rider afastou/aproximou com a pinça antes de re-centralizar, guarda essa preferência
+    const zNow = mapRef.current?.getZoom()
+    if (navMapFreeRef.current && typeof zNow === 'number' && Number.isFinite(zNow)) {
+      const bias = Math.max(-2, Math.min(1.5, zNow - auto))
+      if (Math.abs(bias - zoomBiasRef.current) > 0.15) { zoomBiasRef.current = bias; gravarZoomBias(bias) }
+    }
+    const zoom = auto + zoomBiasRef.current
     const pos = posAtualRef.current.lat !== 0 ? posAtualRef.current : currentLocation
     if (!pos || pos.lat === 0) return
     const { lat: rcLat, lng: rcLng } = calcularCentroDeslocado(pos.lat, pos.lng, liveHeading, zoom)
@@ -1055,7 +1077,8 @@ export default function MapView({ groupMembers = [], currentUserId, groupId, onP
       snapTimerRef.current = null
       snapFromResumeRef.current = false
       const s2 = rafNavStateRef.current
-      headingAtualRef.current = s2.northLocked ? 0 : (s2.compassActive ? s2.heading : s2.navBearing)
+      headingAtualRef.current = s2.northLocked ? 0 : (s2.navSpeed > 7 || !s2.compassActive ? s2.navBearing : s2.heading)
+      zoomAtualRef.current = zoom
       navMapFreeRef.current = false
     }, 160)
   }, [currentLocation])
@@ -1170,9 +1193,7 @@ export default function MapView({ groupMembers = [], currentUserId, groupId, onP
     setAltRoutes(routes)
     setSelectedAltIdx(0)
     // Re-evaluate risk any time routes change (catches mode switches: moto→bike→walk)
-    if (routes.length > 0) {
-      setRiskOnRoute(routeCrossesHighRiskZone(routes[0].geometry.coordinates))
-    }
+    if (routes.length > 0) updateRiskForRoute(routes[0].geometry.coordinates)
     if (routes.length === 0 || !mapRef.current) return
     const allCoords = routes.flatMap((r: any) => r.geometry.coordinates as [number, number][])
     const lngs = allCoords.map((c: number[]) => c[0])
@@ -1181,7 +1202,7 @@ export default function MapView({ groupMembers = [], currentUserId, groupId, onP
       [[Math.min(...lngs), Math.min(...lats)], [Math.max(...lngs), Math.max(...lats)]],
       { padding: { top: 80, bottom: 420, left: 40, right: 40 }, duration: 800, maxZoom: 15 }
     )
-  }, [])
+  }, [updateRiskForRoute])
 
   const handleRouteSelected = useCallback((idx: number) => {
     setSelectedAltIdx(idx)
@@ -1207,23 +1228,68 @@ export default function MapView({ groupMembers = [], currentUserId, groupId, onP
     }
   }, [altRoutes])
 
+  const abrirPontoParaNavegar = useCallback((lat: number, lng: number) => {
+    setSelectedIncident(null); setSelectedZone(null); setSelectedPermZone(null)
+    setTappedLocation({ lat, lng, loading: true })
+    reverseGeocode(lat, lng)
+      .then(result => setTappedLocation(prev => prev ? { ...prev, ...result, loading: false } : null))
+      .catch(() => setTappedLocation(prev => prev ? { ...prev, loading: false } : null))
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
+
+  const cancelarToqueLongo = () => {
+    const lp = longPressRef.current
+    if (lp.timer) { clearTimeout(lp.timer); lp.timer = null }
+  }
+  const iniciarToqueLongo = (e: any) => {
+    cancelarToqueLongo()
+    if (navegandoRef.current || showModeSelector) return
+    const pts = e.points ?? (e.point ? [e.point] : [])
+    if (pts.length !== 1 || !e.lngLat) return               // pinça com 2 dedos não conta
+    const lp = longPressRef.current
+    lp.x = pts[0].x; lp.y = pts[0].y; lp.fired = false
+    const { lat, lng } = e.lngLat
+    lp.timer = setTimeout(() => {
+      lp.timer = null
+      lp.fired = true
+      try { navigator.vibrate?.(20) } catch {}
+      abrirPontoParaNavegar(lat, lng)
+    }, 600)
+  }
+  const moverToqueLongo = (e: any) => {
+    const lp = longPressRef.current
+    if (!lp.timer) return
+    const p = e.points?.[0] ?? e.point
+    if (!p || (e.points && e.points.length > 1) || Math.hypot(p.x - lp.x, p.y - lp.y) > 12) cancelarToqueLongo()
+  }
+
   const handleMapClick = useCallback((e: any) => {
-    if (isNavigating || showModeSelector) return
     const features: any[] = e.features ?? []
+    // toque numa zona (área ou ponto) — funciona também durante a navegação
+    const zf = features.find(f => f.layer?.id === 'fs-zones-fill' || f.layer?.id === 'fs-zone-pins')
+    if (zf && !showModeSelector) {
+      const z = firestoreZones.find(x => x.id === zf.properties?.id)
+      if (z) {
+        zoneTapPointRef.current = { lat: e.lngLat.lat, lng: e.lngLat.lng }
+        const level = z.riskLevel ?? 'medium'
+        const lat = Number.isFinite(Number(z.lat)) && Number(z.lat) !== 0 ? Number(z.lat) : e.lngLat.lat
+        const lng = Number.isFinite(Number(z.lng)) && Number(z.lng) !== 0 ? Number(z.lng) : e.lngLat.lng
+        setSelectedPermZone({ id: z.id, name: z.areaName ?? z.id, lat, lng, radius: z.radius ?? 200, zone: 'manual', country: 'ie', riskLevel: level, peakHours: z.peakHours ?? [], notes: z.notes ?? '' } as any)
+        setSelectedZone(null); setSelectedIncident(null); setTappedLocation(null); onPanelChange?.(true)
+        return
+      }
+    }
+    if (isNavigating || showModeSelector) return
     if (features.length === 0) {
       setSelectedIncident(null)
       setSelectedZone(null)
       onPanelChange?.(false)
-      if (!showModeSelector) {
-        if (tapTimerRef.current) clearTimeout(tapTimerRef.current)
-        const { lat, lng } = e.lngLat
-        tapTimerRef.current = setTimeout(() => {
-          tapTimerRef.current = null
-          setTappedLocation({ lat, lng, loading: true })
-          reverseGeocode(lat, lng)
-            .then(result => setTappedLocation(prev => prev ? { ...prev, ...result, loading: false } : null))
-            .catch(() => setTappedLocation(prev => prev ? { ...prev, loading: false } : null))
-        }, 450)
+      // toque curto não abre mais "navegar até aqui" (era fácil abrir sem querer)
+      if (longPressRef.current.fired) { longPressRef.current.fired = false; return }
+      if (tappedLocation) { setTappedLocation(null); return }
+      if (!tapHintShownRef.current) {
+        tapHintShownRef.current = true
+        toast('Mantém o dedo no mapa para navegar até esse ponto', { icon: '👆', duration: 2500 })
       }
       return
     }
@@ -1242,13 +1308,14 @@ export default function MapView({ groupMembers = [], currentUserId, groupId, onP
       setTappedLocation({ lat, lng, name, category, loading: false })
     }
     // Zone fill layers are not interactive — their center pins handle clicks via React Markers
-  }, [filteredIncidents, onPanelChange, isNavigating, showModeSelector, currentHour])
+  }, [filteredIncidents, firestoreZones, onPanelChange, isNavigating, showModeSelector, currentHour])
 
   const interactiveLayerIds = useMemo(() => {
     const ids: string[] = ['poi-label']
     if (!showHeatmap) ids.push('incidents-circle')
+    if (showZones) ids.push('fs-zones-fill', 'fs-zone-pins')
     return ids
-  }, [showHeatmap])
+  }, [showHeatmap, showZones])
 
   const zoneCount = useMemo(() => {
     const c = { high: 0, medium: 0, low: 0 }
@@ -1256,12 +1323,13 @@ export default function MapView({ groupMembers = [], currentUserId, groupId, onP
     return c
   }, [])
 
-  // GPS speed estimation from position deltas
+  // Velocidade: usa a do GPS quando o aparelho informa; senão estima pela variação de posição
   useEffect(() => {
     if (!isNavigating || !currentLocation) {
       if (!isNavigating) { speedPrevRef.current = null; setNavSpeed(0) }
       return
     }
+    if (currentFix?.speed != null) { setNavSpeed(Math.round(currentFix.speed * 3.6)); return }
     const now = Date.now()
     const prev = speedPrevRef.current
     if (prev) {
@@ -1273,29 +1341,15 @@ export default function MapView({ groupMembers = [], currentUserId, groupId, onP
     } else {
       speedPrevRef.current = { ...currentLocation, time: now }
     }
-  }, [currentLocation, isNavigating])
-
-  // Zone proximity alerts during navigation (fast route with zones)
-  useEffect(() => {
-    if (!isNavigating || !riskOnRoute || !currentLocation || activeRouteZones.length === 0) return
-    for (const zona of activeRouteZones) {
-      if (alertedZonesRef.current.has(zona.id)) continue
-      const dist = distMeters(currentLocation, { lat: zona.lat, lng: zona.lng })
-      if (dist < 400) {
-        alertedZonesRef.current.add(zona.id)
-        setZoneAlert({ zone: zona, dist: Math.round(dist) })
-        if (zoneAlertTimerRef.current) clearTimeout(zoneAlertTimerRef.current)
-        zoneAlertTimerRef.current = setTimeout(() => setZoneAlert(null), 9000)
-      }
-    }
-  }, [currentLocation, isNavigating, riskOnRoute, activeRouteZones])
+  }, [currentLocation, currentFix, isNavigating])
 
   // Clear alert refs when navigation ends
   useEffect(() => {
     if (!isNavigating) {
-      alertedZonesRef.current = new Set()
-      setZoneAlert(null)
       alertedIncidentIdsRef.current = new Set()
+      if (incidentPassTimerRef.current) { clearTimeout(incidentPassTimerRef.current); incidentPassTimerRef.current = null }
+      incidentAlongRef.current = null
+      setIncidentDist(null)
       setNearbyIncident(null)
     }
   }, [isNavigating])
@@ -1314,56 +1368,125 @@ export default function MapView({ groupMembers = [], currentUserId, groupId, onP
     if (was && !selectedPermZone && navegandoRef.current) resumeFollow()
   }, [selectedPermZone, resumeFollow])
 
-  // Incident proximity alerts during navigation — only reports from other riders, only ahead
+  // Report novo de OUTRO rider por perto (até 1,5 km): aviso imediato em todos os aparelhos.
+  // Ignora a 1ª carga (reports antigos) e os próprios reports.
+  const seenIncidentIdsRef = useRef<Set<string> | null>(null)
   useEffect(() => {
-    if (!isNavigating || !currentLocation || !currentUserId) return
-    const pos = posAtualRef.current.lat !== 0 ? posAtualRef.current : currentLocation
-    const bearing = northLocked ? 0 : (compassActive ? heading : navBearing)
-
-    // Dismiss current alert if rider has passed it
-    if (nearbyIncident) {
-      const dist = metersBetweenLocal(pos, nearbyIncident.location)
-      const brg = bearingBetween(pos, nearbyIncident.location)
-      const diff = Math.abs(((brg - bearing + 540) % 360) - 180)
-      if (dist > 250 || diff > 90) setNearbyIncident(null)
+    if (!incidentsLoadedRef.current) return
+    if (seenIncidentIdsRef.current === null) {
+      seenIncidentIdsRef.current = new Set(incidents.map(i => i?.id).filter(Boolean))
       return
     }
-
-    for (const inc of filteredIncidents) {
-      if (inc.userId === currentUserId) continue
-      if (alertedIncidentIdsRef.current.has(inc.id)) continue
-      if ((inc.voters ?? []).includes(currentUserId)) continue
-
-      const dist = metersBetweenLocal(pos, inc.location)
-      if (dist > 150) continue
-
-      const brg = bearingBetween(pos, inc.location)
-      const diff = Math.abs(((brg - bearing + 540) % 360) - 180)
-      if (diff > 90) continue
-
-      setNearbyIncident(inc)
-      alertedIncidentIdsRef.current.add(inc.id)
-      break
-    }
-  }, [currentLocation, isNavigating, filteredIncidents, navBearing, heading, northLocked, compassActive, currentUserId, nearbyIncident])
-
-  // Refresh congestion data every 60s during navigation
-  navRefreshRef.current = { dest: navDest, profile: routeProfile, loc: currentLocation }
-  useEffect(() => {
-    if (!isNavigating) return
-    const interval = setInterval(async () => {
-      const { dest, profile, loc } = navRefreshRef.current
-      if (!dest || !loc) return
+    const seen = seenIncidentIdsRef.current
+    for (const inc of incidents) {
+      if (!inc?.id || seen.has(inc.id)) continue
+      seen.add(inc.id)
       try {
-        const route = await fetchRoute(loc, dest, profile)
-        if (route) {
-          setRouteCongestion(route.legs?.[0]?.annotation?.congestion ?? [])
-          setRouteGeoJSON(route.geometry)
+        if (!currentUserId || inc.userId === currentUserId) continue
+        if (!(inc.timestamp instanceof Date) || Date.now() - inc.timestamp.getTime() > 5 * 60_000) continue
+        const pos = posAtualRef.current.lat !== 0 ? posAtualRef.current : currentLocation
+        if (!pos || !inc.location) continue
+        const d = metersBetweenLocal(pos, inc.location)
+        if (d > 1500) continue
+        const label = QUICK_REPORT_TYPES.find(t => t.id === inc.type)?.label ?? 'Incidente'
+        const emoji = QUICK_REPORT_TYPES.find(t => t.id === inc.type)?.emoji ?? '⚠️'
+        toast(`${emoji} Novo report perto: ${label} a ${d < 1000 ? `${Math.round(d / 10) * 10} m` : `${(d / 1000).toFixed(1).replace('.', ',')} km`}`, { duration: 5000 })
+      } catch { /* aviso é opcional */ }
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [incidents])
+
+  // Reports de outros riders durante a navegação (estilo Waze):
+  // avisa a até 300 m À FRENTE NA ROTA (não em linha reta — rua paralela não conta),
+  // e depois de passar pergunta "ainda está aí?" por 20 s.
+  const clearIncidentAlert = useCallback(() => {
+    if (incidentPassTimerRef.current) { clearTimeout(incidentPassTimerRef.current); incidentPassTimerRef.current = null }
+    incidentAlongRef.current = null
+    setIncidentDist(null)
+    setNearbyIncident(null)
+  }, [])
+
+  const askIncidentNow = useCallback(() => {
+    setIncidentPhase('passed')
+    setIncidentDist(null)
+    if (incidentPassTimerRef.current) clearTimeout(incidentPassTimerRef.current)
+    incidentPassTimerRef.current = setTimeout(() => {
+      incidentPassTimerRef.current = null
+      incidentAlongRef.current = null
+      setNearbyIncident(null)
+    }, 20_000)
+  }, [])
+
+  useEffect(() => () => { if (incidentPassTimerRef.current) clearTimeout(incidentPassTimerRef.current) }, [])
+
+  useEffect(() => {
+    if (!isNavigating || !currentLocation || !currentUserId) return
+    try {
+      const tr = trackerRef.current
+      const pr = progressRef.current
+      const pos = posAtualRef.current.lat !== 0 ? posAtualRef.current : currentLocation
+
+      // 1) já há um aviso ativo
+      if (nearbyIncident) {
+        if (incidentPhase === 'passed') return            // o temporizador fecha sozinho
+        if (tr && pr && incidentAlongRef.current != null && !pr.offRoute) {
+          const ahead = incidentAlongRef.current - pr.along
+          if (ahead < -15) { askIncidentNow(); return }
+          const rounded = Math.max(0, Math.round(ahead / 10) * 10)
+          setIncidentDist(prev => (prev === rounded ? prev : rounded))
+          return
         }
-      } catch {}
-    }, 60000)
-    return () => clearInterval(interval)
-  }, [isNavigating])
+        // sem rota (ou saiu dela): passou quando ficou para trás ou longe
+        const dist = metersBetweenLocal(pos, nearbyIncident.location)
+        const bearingNow = northLocked ? 0 : (compassActive ? heading : navBearing)
+        const diff = Math.abs(((bearingBetween(pos, nearbyIncident.location) - bearingNow + 540) % 360) - 180)
+        if (dist < 40 || diff > 100) askIncidentNow()
+        else if (dist > 400) clearIncidentAlert()
+        return
+      }
+
+      // 2) procura o próximo report à frente
+      const candidates = filteredIncidents.filter(inc =>
+        inc.userId !== currentUserId
+        && !alertedIncidentIdsRef.current.has(inc.id)
+        && !(inc.voters ?? []).includes(currentUserId))
+      if (!candidates.length) return
+
+      if (tr && pr && !pr.offRoute) {
+        const hit = nextReportOnRoute(
+          tr, pr.along, tr.currentSeg,
+          candidates.map(inc => ({ inc, id: inc.id, lat: inc.location.lat, lng: inc.location.lng })),
+          300, 35,
+        )
+        if (!hit) return
+        alertedIncidentIdsRef.current.add(hit.report.id)
+        incidentAlongRef.current = hit.reportAlong
+        setIncidentPhase('ahead')
+        setIncidentDist(Math.round(hit.distAhead / 10) * 10)
+        setNearbyIncident(hit.report.inc)
+        return
+      }
+
+      // 3) sem rota: regra antiga (150 m à frente em linha reta)
+      const bearingNow = northLocked ? 0 : (compassActive ? heading : navBearing)
+      for (const inc of candidates) {
+        const dist = metersBetweenLocal(pos, inc.location)
+        if (dist > 150) continue
+        const diff = Math.abs(((bearingBetween(pos, inc.location) - bearingNow + 540) % 360) - 180)
+        if (diff > 90) continue
+        alertedIncidentIdsRef.current.add(inc.id)
+        incidentAlongRef.current = null
+        setIncidentPhase('ahead')
+        setIncidentDist(Math.round(dist / 10) * 10)
+        setNearbyIncident(inc)
+        break
+      }
+    } catch (e) {
+      console.warn('[reports] aviso falhou (navegação segue):', e)
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [currentLocation, isNavigating, filteredIncidents, currentUserId, nearbyIncident, incidentPhase])
+
 
   // Show category sheet when new pins arrive
   useEffect(() => {
@@ -1657,7 +1780,14 @@ export default function MapView({ groupMembers = [], currentUserId, groupId, onP
         mapStyle={mapStyle}
         mapboxAccessToken={process.env.NEXT_PUBLIC_MAPBOX_TOKEN}
         onClick={handleMapClick}
-        onTouchStart={() => {
+        onTouchMove={moverToqueLongo}
+        onTouchEnd={cancelarToqueLongo}
+        onTouchCancel={cancelarToqueLongo}
+        onMouseDown={iniciarToqueLongo}
+        onMouseMove={moverToqueLongo}
+        onMouseUp={cancelarToqueLongo}
+        onTouchStart={(e: any) => {
+          iniciarToqueLongo(e)
           if (snapTimerRef.current !== null) {
             // Re-center button tap bubbles here — don't cancel the snap we just started
             if (snapFromResumeRef.current) return
@@ -1680,7 +1810,8 @@ export default function MapView({ groupMembers = [], currentUserId, groupId, onP
           if (!isNavigating) { autoFollowRef.current = false; setAutoFollow(false) }
           if (isNavigating) { navMapFreeRef.current = true; setNavMapFree(true); setShowReCenter(true) }
           if (tapTimerRef.current) { clearTimeout(tapTimerRef.current); tapTimerRef.current = null }
-          setTappedLocation(null)
+          cancelarToqueLongo()
+          if (!longPressRef.current.fired) setTappedLocation(null)
         }}
         onZoomStart={(e: any) => {
           // Cancel only user-initiated zooms; never cancel a resumeFollow snap
@@ -1689,16 +1820,25 @@ export default function MapView({ groupMembers = [], currentUserId, groupId, onP
           }
           if (isNavigating && e.originalEvent) { navMapFreeRef.current = true; setNavMapFree(true); setShowReCenter(true) }
         }}
+        // Na navegação a câmera se move a cada quadro (jumpTo) e o mapa dispara "fim de movimento"
+        // a cada quadro. Atualizar estado aqui redesenhava o mapa inteiro ~50x/s — por isso só
+        // atualiza quando o valor muda de verdade e ignora movimentos da própria câmera.
         onZoomEnd={(e: any) => {
           const z = mapRef.current?.getZoom() ?? 14
-          setCurrentZoom(z)
+          setCurrentZoom(prev => (Math.abs(prev - z) < 0.25 ? prev : z))
           if (isNavigating && e.originalEvent) setShowNavAlts(z < 14.5)
         }}
         onMoveEnd={(e: any) => {
           if (searchCategory && !isNavigating && e.originalEvent) setShowSearchArea(true)
-          setMapBearing(mapRef.current?.getBearing() ?? 0)
+          if (isNavigating && !e.originalEvent) return
+          const b = mapRef.current?.getBearing() ?? 0
+          setMapBearing(prev => (Math.abs(((b - prev + 540) % 360) - 180) < 2 ? prev : b))
         }}
-        onRotateEnd={() => { setMapBearing(mapRef.current?.getBearing() ?? 0) }}
+        onRotateEnd={(e: any) => {
+          if (isNavigating && !e?.originalEvent) return
+          const b = mapRef.current?.getBearing() ?? 0
+          setMapBearing(prev => (Math.abs(((b - prev + 540) % 360) - 180) < 2 ? prev : b))
+        }}
         interactiveLayerIds={interactiveLayerIds}
       >
 
@@ -1744,7 +1884,7 @@ export default function MapView({ groupMembers = [], currentUserId, groupId, onP
         )}
 
         {/* Risk Zones — dimmed 13-14, full at 15+ */}
-        {showZones && currentZoom >= 13 && (
+        {showZones && currentZoom >= ZONE_AREA_MIN_ZOOM && (
           <Source id="zones" type="geojson" data={zonesGeoJSON}>
             <Layer id="zones-fill" type="fill" paint={{
               'fill-color': ['match', ['get', 'level'], 'high', '#ef4444', 'medium', '#f97316', '#eab308'],
@@ -1767,7 +1907,7 @@ export default function MapView({ groupMembers = [], currentUserId, groupId, onP
         )}
 
         {/* Permanent zones — zoom-gated */}
-        {showZones && currentZoom >= 13 && <Source id="perm-zones" type="geojson" data={permanentZonesGeoJSON}>
+        {showZones && currentZoom >= ZONE_AREA_MIN_ZOOM && <Source id="perm-zones" type="geojson" data={permanentZonesGeoJSON}>
           <Layer id="perm-zones-fill" type="fill" paint={{
             'fill-color': ['match', ['get', 'level'],
               'critical', '#ef4444',
@@ -1803,44 +1943,39 @@ export default function MapView({ groupMembers = [], currentUserId, groupId, onP
           }} />
         </Source>}
 
-        {/* Firestore risk_zones — manual zones, zoom-gated */}
-        {showZones && currentZoom >= 13 && firestoreZonesGeoJSON.features.length > 0 && (
+        <SafeBoundary name="zonas-no-mapa">
+        {/* Zonas do Firestore — ÁREA a partir do zoom ZONE_AREA_MIN_ZOOM, PONTO quando mais afastado.
+            Tudo em camadas do mapa (GPU): antes cada zona era um elemento HTML com sombra por cima do
+            mapa, o que deixava arrastar e dar zoom pesado com muitas zonas. */}
+        {showZones && (
           <Source id="fs-zones" type="geojson" data={firestoreZonesGeoJSON}>
-            <Layer id="fs-zones-fill" type="fill" paint={{
+            <Layer id="fs-zones-fill" type="fill" minzoom={ZONE_AREA_MIN_ZOOM} paint={{
               'fill-color': ['match', ['get', 'level'],
                 'critical', '#ef4444', 'high', '#ef4444', 'medium', '#f97316', '#eab308'],
-              'fill-opacity': 0.2,
-            }} />
-            <Layer id="fs-zones-line" type="line" paint={{
+              'fill-opacity': ['interpolate', ['linear'], ['zoom'],
+                ZONE_AREA_MIN_ZOOM, ['case', ['==', ['get', 'off'], true], 0.04, 0.14],
+                14, ['case', ['==', ['get', 'off'], true], 0.06, 0.22]],
+            } as any} />
+            <Layer id="fs-zones-line" type="line" minzoom={ZONE_AREA_MIN_ZOOM} paint={{
               'line-color': ['match', ['get', 'level'],
                 'critical', '#dc2626', 'high', '#dc2626', 'medium', '#ea580c', '#ca8a04'],
-              'line-width': 2,
-              'line-opacity': 0.55,
-            }} />
+              'line-width': ['interpolate', ['linear'], ['zoom'], ZONE_AREA_MIN_ZOOM, 1, 15, 2],
+              'line-opacity': ['case', ['==', ['get', 'off'], true], 0.25, 0.6],
+            } as any} />
           </Source>
         )}
-        {showZones && firestoreZones.filter(z => z.lat && z.lng).map(z => {
-          const level = z.riskLevel ?? 'medium'
-          const emoji = level === 'critical' ? '🔴' : level === 'high' ? '🔴' : level === 'medium' ? '🟠' : '🟡'
-          const borderColor = level === 'critical' || level === 'high' ? '#ef4444' : level === 'medium' ? '#f97316' : '#eab308'
-          return (
-            <Marker key={`pin-fs-${z.id}`} longitude={z.lng} latitude={z.lat} anchor="bottom">
-              <div
-                onClick={(e) => {
-                  e.stopPropagation()
-                  setSelectedPermZone({ id: z.id, name: z.areaName ?? z.id, lat: z.lat, lng: z.lng, radius: z.radius ?? 200, zone: 'manual', country: 'ie', riskLevel: level, peakHours: z.peakHours ?? [], notes: z.notes ?? '' } as any)
-                  setSelectedZone(null); setSelectedIncident(null); setTappedLocation(null); onPanelChange?.(true)
-                }}
-                style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', cursor: 'pointer', filter: 'drop-shadow(0 2px 4px rgba(0,0,0,0.4))' }}
-              >
-                <div style={{ width: 28, height: 28, borderRadius: '50%', background: 'var(--surface)', border: `2px solid ${borderColor}`, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 13 }}>
-                  {emoji}
-                </div>
-                <div style={{ width: 0, height: 0, borderLeft: '4px solid transparent', borderRight: '4px solid transparent', borderTop: `6px solid ${borderColor}` }} />
-              </div>
-            </Marker>
-          )
-        })}
+        {showZones && (
+          <Source id="fs-zone-pins" type="geojson" data={firestoreZonePinsGeoJSON}>
+            <Layer id="fs-zone-pins" type="circle" maxzoom={ZONE_AREA_MIN_ZOOM} paint={{
+              'circle-radius': 7,
+              'circle-color': ['match', ['get', 'level'],
+                'critical', '#ef4444', 'high', '#ef4444', 'medium', '#f97316', '#eab308'],
+              'circle-stroke-width': 2, 'circle-stroke-color': '#ffffff',
+              'circle-opacity': ['case', ['==', ['get', 'off'], true], 0.35, 1],
+              'circle-stroke-opacity': ['case', ['==', ['get', 'off'], true], 0.35, 1],
+            } as any} />
+          </Source>
+        )}
 
         {/* Zone center pins — ONLY clickable element of each zone (fills are visual-only) */}
         {showZones && !isNavigating && visiblePermZones.map(pz => {
@@ -1910,12 +2045,14 @@ export default function MapView({ groupMembers = [], currentUserId, groupId, onP
           )
         })}
 
+        </SafeBoundary>
+
         {/* Alternative routes — shown when mode selector is open */}
         {showModeSelector && altRoutes.map((route, i) => {
           const isSel = i === selectedAltIdx
           return (
             <Source key={`alt-${i}`} id={`alt-route-${i}`} type="geojson"
-              data={{ type: 'Feature', geometry: route.geometry, properties: {} }}>
+              data={asFeature(route.geometry)}>
               <Layer id={`alt-casing-${i}`} type="line"
                 layout={{ 'line-cap': 'round', 'line-join': 'round' }}
                 paint={{
@@ -1937,7 +2074,7 @@ export default function MapView({ groupMembers = [], currentUserId, groupId, onP
         {/* Safe route — green, shown when mode selector is open and zones found */}
         {showModeSelector && safeRouteData && (
           <Source id="safe-route" type="geojson"
-            data={{ type: 'Feature', geometry: safeRouteData.geometry, properties: {} }}>
+            data={asFeature(safeRouteData.geometry)}>
             <Layer id="safe-route-casing" type="line"
               layout={{ 'line-cap': 'round', 'line-join': 'round' }}
               paint={{ 'line-color': '#0a4a2a', 'line-width': 11, 'line-opacity': 0.9 }} />
@@ -1976,7 +2113,7 @@ export default function MapView({ groupMembers = [], currentUserId, groupId, onP
               <div
                 onClick={() => { setSelectedAltIdx(i); handleRouteSelected(i) }}
                 style={{
-                  background: isSel ? '#1a56db' : 'white',
+                  background: isSel ? '#d97706' : 'white',
                   color: isSel ? 'white' : '#333',
                   border: isSel ? 'none' : '1px solid #ccc',
                   padding: '5px 10px', borderRadius: 20,
@@ -2017,6 +2154,7 @@ export default function MapView({ groupMembers = [], currentUserId, groupId, onP
           </Source>
         )}
 
+        <SafeBoundary name="reports-no-mapa">
         {/* Incidents */}
         <Source id="incidents" type="geojson" data={incidentsGeoJSON}>
           {showHeatmap ? (
@@ -2028,15 +2166,21 @@ export default function MapView({ groupMembers = [], currentUserId, groupId, onP
             }} />
           ) : (
             <Layer id="incidents-circle" type="circle" paint={{
+              // cor por tipo (lista atual + tipos antigos)
               'circle-color': ['match', ['get', 'type'],
-                'robbery', '#ef4444', 'attempted_robbery', '#f97316',
-                'aggression', '#eab308', 'suspicious_activity', '#93c5fd',
-                'accident', '#60a5fa', 'road_hazard', '#34d399', '#6b7280'],
-              'circle-radius': 8, 'circle-stroke-width': 2,
-              'circle-stroke-color': 'white', 'circle-opacity': 0.9,
-            }} />
+                ...QUICK_REPORT_TYPES.flatMap(t => [t.id, t.color]),
+                'robbery', '#ef4444', 'aggression', '#eab308', 'accident', '#60a5fa',
+                '#6b7280'],
+              // maior e visível também com o mapa afastado (antes 8 px fixos)
+              'circle-radius': ['interpolate', ['linear'], ['zoom'], 11, 6, 14, 9, 16, 12, 18, 15],
+              'circle-stroke-width': 3,
+              'circle-stroke-color': 'white', 'circle-opacity': 0.95,
+              'circle-pitch-alignment': 'viewport',
+            } as any} />
           )}
         </Source>
+
+        </SafeBoundary>
 
         {/* Destination marker — bounces on appear */}
         {navDest && (
@@ -2061,28 +2205,19 @@ export default function MapView({ groupMembers = [], currentUserId, groupId, onP
           </Marker>
         )}
 
-        {/* User location — uses smoothedPos for butter-smooth 60fps movement */}
-        {(smoothedPos ?? currentLocation) && (
-          <Marker longitude={(smoothedPos ?? currentLocation)!.lng} latitude={(smoothedPos ?? currentLocation)!.lat} anchor={isNavigating ? 'center' : 'bottom'}>
-            {isNavigating ? (
-              <div style={{
-                width: 48, height: 48,
-                filter: 'drop-shadow(0 3px 6px rgba(0,0,0,0.4))',
-                transform: northLocked ? `rotate(${smoothedHeading}deg)` : 'rotate(0deg)',
-                pointerEvents: 'none',
-              }}>
-                <svg width="48" height="48" viewBox="0 0 48 48">
-                  <polygon points="24,4 38,40 24,33 10,40" fill="#f59e0b" stroke="rgba(0,0,0,0.3)" strokeWidth="1.5" strokeLinejoin="round"/>
-                </svg>
-              </div>
-            ) : (
-              <RiderPin name="Eu" />
-            )}
-          </Marker>
-        )}
+        {/* Usuário — seta com animação própria durante a navegação */}
+        <UserPuck
+          navigating={isNavigating}
+          posRef={posAtualRef}
+          headingRef={headingAtualRef}
+          northLocked={northLocked}
+          fallback={currentLocation}
+          idlePin={<RiderPin name="Eu" />}
+        />
 
+        <SafeBoundary name="riders-e-categorias">
         {/* Group member markers */}
-        {groupMembers.filter(m => m.userId !== currentUserId).map(member => (
+        {groupMembers.filter(m => m.userId !== currentUserId && Number.isFinite(m.lat) && Number.isFinite(m.lng)).map(member => (
           <Marker key={member.userId} longitude={member.lng} latitude={member.lat} anchor="bottom"
             onClick={onFollowChange ? (e) => {
               e.originalEvent.stopPropagation()
@@ -2110,14 +2245,7 @@ export default function MapView({ groupMembers = [], currentUserId, groupId, onP
           <Source
             id="nav-riders"
             type="geojson"
-            data={{
-              type: 'FeatureCollection',
-              features: nearbyNavRiders.map(r => ({
-                type: 'Feature' as const,
-                properties: { uid: r.userId },
-                geometry: { type: 'Point' as const, coordinates: [r.lng, r.lat] },
-              })),
-            }}
+            data={nearbyNavRidersGeoJSON}
           >
             <Layer
               id="nav-riders-dots"
@@ -2134,25 +2262,17 @@ export default function MapView({ groupMembers = [], currentUserId, groupId, onP
           </Source>
         )}
 
-        {/* Global rider presence — hidden below zoom 15 (Waze-style clean map) */}
-        {currentZoom >= 15 && (() => {
-          const groupIds = new Set([...groupMembers.map(m => m.userId), currentUserId].filter(Boolean) as string[])
-          return globalRiders.filter(r => !groupIds.has(r.userId)).map(rider => (
-            <Marker key={`gp_${rider.userId}`} longitude={rider.lng} latitude={rider.lat} anchor="center">
-              <div style={{
-                width: 20, height: 20, borderRadius: '50%',
-                background: '#f59e0b',
-                border: '2px solid white',
-                boxShadow: '0 1px 4px rgba(0,0,0,0.45)',
-                pointerEvents: 'none',
-              }} />
-            </Marker>
-          ))
-        })()}
+        {/* Riders online (fora do grupo) — camada do mapa (GPU), aparece só de perto */}
+        <Source id="global-riders" type="geojson" data={globalRidersGeoJSON}>
+          <Layer id="global-riders-dots" type="circle" minzoom={15} paint={{
+            'circle-radius': 8, 'circle-color': '#f59e0b',
+            'circle-stroke-width': 2, 'circle-stroke-color': '#ffffff',
+          }} />
+        </Source>
 
         {/* Category search pins — tap opens info sheet, not auto-navigation */}
         {categoryPins.map((pin, i) => {
-          const color = CAT_COLORS[pin.catKey] ?? '#2d6fe8'
+          const color = CAT_COLORS[pin.catKey] ?? '#d97706'
           return (
             <Marker key={`cat_${i}`} longitude={pin.lng} latitude={pin.lat} anchor="bottom">
               <div
@@ -2181,12 +2301,14 @@ export default function MapView({ groupMembers = [], currentUserId, groupId, onP
           )
         })}
 
+        </SafeBoundary>
+
         {/* Nav alternative routes — gray lines when zoomed out during navigation */}
         {isNavigating && showNavAlts && navAltRoutes.map((route, i) => {
           if (i === navRouteIdx) return null
           return (
             <Source key={`nav-alt-${i}`} id={`nav-alt-${i}`} type="geojson"
-              data={{ type: 'Feature', geometry: route.geometry, properties: {} }}>
+              data={asFeature(route.geometry)}>
               <Layer id={`nav-alt-casing-${i}`} type="line"
                 layout={{ 'line-cap': 'round', 'line-join': 'round' }}
                 paint={{ 'line-color': '#555', 'line-width': 7, 'line-opacity': 0.4 }} />
@@ -2221,6 +2343,7 @@ export default function MapView({ groupMembers = [], currentUserId, groupId, onP
         })}
       </Map>
 
+      <SafeBoundary name="seletor-de-rota">
       {/* Transport mode selector (full-screen overlay) */}
       {showModeSelector && pendingNavDest && currentLocation && (
         <TransportModeSelector
@@ -2241,6 +2364,9 @@ export default function MapView({ groupMembers = [], currentUserId, groupId, onP
         />
       )}
 
+      </SafeBoundary>
+
+      <SafeBoundary name="local-tocado">
       {/* Location bottom sheet — tap or long press result */}
       {tappedLocation && !isNavigating && !showModeSelector && (
         <LocationBottomSheet
@@ -2255,6 +2381,8 @@ export default function MapView({ groupMembers = [], currentUserId, groupId, onP
           onClose={() => setTappedLocation(null)}
         />
       )}
+
+      </SafeBoundary>
 
       {/* Arrived overlay */}
       {hasArrived && (
@@ -2296,13 +2424,30 @@ export default function MapView({ groupMembers = [], currentUserId, groupId, onP
         </div>
       )}
 
-      {/* Navigation overlay (banner + voice + bottom bar) */}
+      {/* Navigation overlay (banner + voice + bottom bar) — se o painel falhar, mostra uma barra mínima
+          e a navegação (GPS, rota, câmera) continua rodando por baixo */}
+      <SafeBoundary name="painel-navegacao" fallback={(reset) => isNavigating ? (
+        <div className="absolute z-[600]" style={{ bottom: 12, left: 12, right: 12, background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 16, padding: '12px 16px', display: 'flex', alignItems: 'center', gap: 10 }}>
+          <div style={{ flex: 1, color: 'var(--text)', fontWeight: 700 }}>{formatDistance(remainingDist)} · {navEta} min</div>
+          <button onClick={reset} style={{ background: 'transparent', border: '1px solid var(--border)', color: 'var(--text)', borderRadius: 10, padding: '8px 12px', fontSize: 12 }}>Recarregar</button>
+          <button onClick={cancelNavigation} style={{ background: '#ef4444', border: 'none', color: 'white', borderRadius: 10, padding: '8px 14px', fontWeight: 700, fontSize: 13 }}>Cancelar</button>
+        </div>
+      ) : null}>
       <NavigationScreen
         isNavigating={isNavigating}
         currentStep={currentStep}
         nextStep={navSteps[currentStepIdx + 1]}
+        steps={navSteps}
+        stepIdx={currentStepIdx}
+        nextGap={nextGap}
+        zoneAlert={zoneAlert}
+        zoneSpeech={zoneSpeech}
+        onSwitchToSafe={switchToSafeRoute}
+        speedMps={navSpeed / 3.6}
+        hasArrived={hasArrived}
         distToNext={distToNext}
         remainingDist={remainingDist}
+        remainingSec={remainingSec}
         navEta={navEta}
         riskOnRoute={riskOnRoute}
         navModeKey={navModeKey}
@@ -2318,13 +2463,19 @@ export default function MapView({ groupMembers = [], currentUserId, groupId, onP
         heading={heading}
         hideControls={showQuickReport || externalReportOpen}
         nearbyIncident={nearbyIncident}
+        incidentPhase={incidentPhase}
+        incidentDist={incidentDist}
         currentUserId={currentUserId}
         onVoteIncident={async (id, vote) => {
           if (!currentUserId) return
-          setNearbyIncident(null)
-          await voteIncident(id, currentUserId, vote)
+          clearIncidentAlert()
+          try {
+            await voteIncident(id, currentUserId, vote)
+            toast.success(vote === 'confirm' ? 'Obrigado! Os outros riders vão ser avisados.' : 'Obrigado! Vamos tirar do mapa se mais riders confirmarem.')
+          } catch { toast.error('Sem ligação — o voto não foi enviado.') }
         }}
       />
+      </SafeBoundary>
 
       {/* Floating report button — outside navigation, right side */}
       {!isNavigating && onReport && (
@@ -2403,8 +2554,8 @@ export default function MapView({ groupMembers = [], currentUserId, groupId, onP
               mapRef.current?.fitBounds([[Math.min(...lngs), Math.min(...lats)], [Math.max(...lngs), Math.max(...lats)]], { padding: 40, maxZoom: 15 })
             }}
             className="rounded-xl px-3 py-2 shadow-lg transition-colors"
-            style={{ background: 'var(--surface)', border: `1px solid ${filteredIncidents.length > 0 ? '#2d6fe8' : 'var(--border)'}`, cursor: filteredIncidents.length > 0 ? 'pointer' : 'default' }}>
-            <span className="text-xs font-semibold" style={{ color: filteredIncidents.length > 0 ? '#4f8ef7' : 'var(--muted)' }}>
+            style={{ background: 'var(--surface)', border: `1px solid ${filteredIncidents.length > 0 ? '#d97706' : 'var(--border)'}`, cursor: filteredIncidents.length > 0 ? 'pointer' : 'default' }}>
+            <span className="text-xs font-semibold" style={{ color: filteredIncidents.length > 0 ? '#f59e0b' : 'var(--muted)' }}>
               {filteredIncidents.length} reports {filteredIncidents.length > 0 ? '→' : ''}
             </span>
           </button>
@@ -2435,6 +2586,7 @@ export default function MapView({ groupMembers = [], currentUserId, groupId, onP
         </div>
       )}
 
+      <SafeBoundary name="pagina-de-zonas">
       {/* Zones full-screen page */}
       {showZonesModal && (
         <div style={{
@@ -2467,9 +2619,9 @@ export default function MapView({ groupMembers = [], currentUserId, groupId, onP
               <button key={h} onClick={() => setTimeFilter(h)}
                 style={{
                   flexShrink: 0, padding: '7px 14px', borderRadius: 20, fontSize: 12, fontWeight: 700,
-                  background: timeFilter === h ? '#2d6fe8' : 'var(--card)',
+                  background: timeFilter === h ? '#d97706' : 'var(--card)',
                   color: timeFilter === h ? 'white' : 'var(--muted)',
-                  border: `1px solid ${timeFilter === h ? '#2d6fe8' : 'var(--border)'}`,
+                  border: `1px solid ${timeFilter === h ? '#d97706' : 'var(--border)'}`,
                   cursor: 'pointer',
                 }}>
                 {h}h
@@ -2478,9 +2630,9 @@ export default function MapView({ groupMembers = [], currentUserId, groupId, onP
             <button onClick={() => setShowHeatmap(!showHeatmap)}
               style={{
                 flexShrink: 0, padding: '7px 14px', borderRadius: 20, fontSize: 12, fontWeight: 700,
-                background: showHeatmap ? '#2d6fe8' : 'var(--card)',
+                background: showHeatmap ? '#d97706' : 'var(--card)',
                 color: showHeatmap ? 'white' : 'var(--muted)',
-                border: `1px solid ${showHeatmap ? '#2d6fe8' : 'var(--border)'}`,
+                border: `1px solid ${showHeatmap ? '#d97706' : 'var(--border)'}`,
                 cursor: 'pointer',
               }}>
               🔥 Calor
@@ -2592,6 +2744,8 @@ export default function MapView({ groupMembers = [], currentUserId, groupId, onP
         </div>
       )}
 
+      </SafeBoundary>
+
       {/* Selected permanent zone popup — shown both in nav and normal mode */}
       {selectedPermZone && (() => {
         const level = getRiskLevelActual(selectedPermZone, currentHour)
@@ -2624,50 +2778,21 @@ export default function MapView({ groupMembers = [], currentUserId, groupId, onP
             <p style={{ fontSize: 11, color: 'var(--muted)', margin: '6px 0 0', opacity: 0.7 }}>
               Zona de atenção · {selectedPermZone.zone} · Área monitorizada
             </p>
+            {!isNavigating && (
+              <button
+                onClick={() => {
+                  const p = zoneTapPointRef.current ?? { lat: selectedPermZone.lat, lng: selectedPermZone.lng }
+                  abrirPontoParaNavegar(p.lat, p.lng)
+                }}
+                style={{ marginTop: 12, width: '100%', padding: '10px 0', borderRadius: 10, border: 'none', background: '#f59e0b', color: '#0a0e1a', fontWeight: 800, fontSize: 14, cursor: 'pointer' }}>
+                🧭 Navegar até aqui
+              </button>
+            )}
           </div>
         )
       })()}
 
-      {/* Zone proximity alert — shown during navigation on fast route */}
-      {zoneAlert && isNavigating && (
-        <div style={{
-          position: 'fixed', top: 110, left: 12, right: 12, zIndex: 2000,
-          background: zoneAlert.zone.riskLevel === 'critical' ? '#4c1d95' :
-                      zoneAlert.zone.riskLevel === 'high' ? '#7f1d1d' : '#7c2d12',
-          color: 'white', borderRadius: 14,
-          padding: '12px 16px',
-          display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12,
-          boxShadow: '0 4px 20px rgba(0,0,0,0.5)',
-          animation: 'slideDown 0.2s ease-out',
-        }}>
-          <div style={{ flex: 1, minWidth: 0 }}>
-            <div style={{ fontWeight: 800, fontSize: 14, marginBottom: 2 }}>
-              ⚠️ Zona de atenção a {zoneAlert.dist}m
-            </div>
-            <div style={{ fontSize: 12, opacity: 0.9, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-              {zoneAlert.zone.name} · {zoneAlert.zone.zone}
-            </div>
-          </div>
-          <div style={{ display: 'flex', gap: 8, flexShrink: 0 }}>
-            <button
-              onClick={() => {
-                setZoneAlert(null)
-                if (navDest) startNavigation(navDest, routeProfile)
-              }}
-              style={{
-                background: 'white',
-                color: zoneAlert.zone.riskLevel === 'critical' ? '#4c1d95' :
-                       zoneAlert.zone.riskLevel === 'high' ? '#7f1d1d' : '#7c2d12',
-                border: 'none', borderRadius: 8,
-                padding: '7px 12px', fontSize: 12, fontWeight: 800, cursor: 'pointer',
-              }}>
-              Desviar
-            </button>
-            <button onClick={() => setZoneAlert(null)} style={{ background: 'rgba(255,255,255,0.2)', border: 'none', borderRadius: 8, padding: '7px 10px', color: 'white', cursor: 'pointer', fontSize: 14, lineHeight: 1 }}>✕</button>
-          </div>
-        </div>
-      )}
-
+      <SafeBoundary name="busca">
       {/* Search overlay — autocomplete */}
       {showSearch && (
         <div className="absolute z-[600]" style={{ top: 0, left: 0, right: 0 }}>
@@ -2742,6 +2867,9 @@ export default function MapView({ groupMembers = [], currentUserId, groupId, onP
         </div>
       )}
 
+      </SafeBoundary>
+
+      <SafeBoundary name="clima">
       {/* Weather banner */}
       {weather && !isNavigating && (
         <div onClick={() => window.open('https://weather.com', '_blank')} className="absolute z-[450] cursor-pointer"
@@ -2761,6 +2889,8 @@ export default function MapView({ groupMembers = [], currentUserId, groupId, onP
           <span style={{ fontSize: 11, color: 'var(--muted)', flexShrink: 0, whiteSpace: 'nowrap' }}>Toca para ver mais →</span>
         </div>
       )}
+
+      </SafeBoundary>
 
       {/* Traffic legend */}
       {showTraffic && showTrafficLegend && (
@@ -2790,6 +2920,7 @@ export default function MapView({ groupMembers = [], currentUserId, groupId, onP
         </div>
       )}
 
+      <SafeBoundary name="categorias-e-legenda">
       {/* Category results sheet */}
       {showCategorySheet && categoryPins.length > 0 && !isNavigating && !tappedLocation && (
         <div className="absolute z-[550]" style={{ bottom: '80px', left: '12px', right: '12px', animation: 'slideUp 0.22s ease-out' }}>
@@ -2815,7 +2946,7 @@ export default function MapView({ groupMembers = [], currentUserId, groupId, onP
                   </div>
                   <button
                     onClick={() => { setPendingNavDest({ lat: pin.lat, lng: pin.lng }); setTappedLocation(null); setShowModeSelector(true) }}
-                    style={{ background: '#2d6fe8', border: 'none', borderRadius: 10, padding: '7px 13px', color: 'white', fontWeight: 700, fontSize: 11, cursor: 'pointer', flexShrink: 0 }}>
+                    style={{ background: '#d97706', border: 'none', borderRadius: 10, padding: '7px 13px', color: 'white', fontWeight: 700, fontSize: 11, cursor: 'pointer', flexShrink: 0 }}>
                     Navegar
                   </button>
                 </div>
@@ -2860,6 +2991,8 @@ export default function MapView({ groupMembers = [], currentUserId, groupId, onP
         </div>
       )}
 
+      </SafeBoundary>
+
       {/* Zone info popup */}
       {selectedZone && !isNavigating && (
         <div className="absolute rounded-2xl shadow-2xl"
@@ -2889,7 +3022,7 @@ export default function MapView({ groupMembers = [], currentUserId, groupId, onP
                   setShowModeSelector(true)
                   onPanelChange?.(false)
                 }}
-                style={{ marginTop: 10, background: '#2d6fe8', border: 'none', borderRadius: 10, padding: '9px 18px', color: 'white', fontWeight: 700, fontSize: 13, cursor: 'pointer', width: '100%' }}>
+                style={{ marginTop: 10, background: '#d97706', border: 'none', borderRadius: 10, padding: '9px 18px', color: 'white', fontWeight: 700, fontSize: 13, cursor: 'pointer', width: '100%' }}>
                 🧭 Navegar até aqui
               </button>
             )}
@@ -2900,7 +3033,7 @@ export default function MapView({ groupMembers = [], currentUserId, groupId, onP
       {/* Auto-follow indicator */}
       {autoFollow && currentLocation && !isNavigating && (
         <div className="absolute z-[400] flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-semibold pointer-events-none"
-          style={{ bottom: '212px', right: '12px', background: 'rgba(45,111,232,0.88)', color: 'white', backdropFilter: 'blur(4px)' }}>
+          style={{ bottom: '212px', right: '12px', background: 'rgba(245,158,11,0.88)', color: 'white', backdropFilter: 'blur(4px)' }}>
           <div className="w-1.5 h-1.5 rounded-full bg-white animate-pulse flex-shrink-0" />
           A seguir
         </div>
@@ -2916,8 +3049,8 @@ export default function MapView({ groupMembers = [], currentUserId, groupId, onP
           className="absolute z-[400] w-11 h-11 rounded-full flex items-center justify-center text-xl shadow-lg transition-opacity"
           style={{
             bottom: '160px', right: '12px',
-            background: autoFollow ? '#2d6fe8' : 'var(--surface)',
-            border: `2px solid ${autoFollow ? '#2d6fe8' : 'var(--border)'}`,
+            background: autoFollow ? '#d97706' : 'var(--surface)',
+            border: `2px solid ${autoFollow ? '#d97706' : 'var(--border)'}`,
             opacity: currentLocation ? 1 : 0.4,
           }}>
           🎯
@@ -2938,10 +3071,10 @@ export default function MapView({ groupMembers = [], currentUserId, groupId, onP
             boxShadow: '0 2px 12px rgba(0,0,0,0.35)',
             display: 'flex', alignItems: 'center', gap: 8,
             fontSize: 14, fontWeight: 700,
-            color: '#1a56db', cursor: 'pointer',
+            color: '#d97706', cursor: 'pointer',
           }}
         >
-          <svg width="16" height="16" viewBox="0 0 24 24" fill="#1a56db">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="#d97706">
             <polygon points="12,2 22,22 12,17 2,22" />
           </svg>
           Re-center
@@ -2950,6 +3083,7 @@ export default function MapView({ groupMembers = [], currentUserId, groupId, onP
 
       {/* Quick report button removed — report accessible via NavigationScreen side panel */}
 
+      <SafeBoundary name="report-rapido">
       {/* Quick report sheet — 1-tap during navigation */}
       {showQuickReport && isNavigating && (
         <div className="absolute inset-0 z-[800] flex flex-col justify-end">
@@ -3034,6 +3168,8 @@ export default function MapView({ groupMembers = [], currentUserId, groupId, onP
         </div>
       )}
 
+      </SafeBoundary>
+
       {/* In-navigation toast — non-blocking, disappears in 2s */}
       {toastNav && (
         <div
@@ -3098,7 +3234,7 @@ export default function MapView({ groupMembers = [], currentUserId, groupId, onP
                   setShowModeSelector(true)
                   onPanelChange?.(false)
                 }}
-                style={{ marginTop: 10, background: '#2d6fe8', border: 'none', borderRadius: 10, padding: '9px 18px', color: 'white', fontWeight: 700, fontSize: 13, cursor: 'pointer', width: '100%' }}>
+                style={{ marginTop: 10, background: '#d97706', border: 'none', borderRadius: 10, padding: '9px 18px', color: 'white', fontWeight: 700, fontSize: 13, cursor: 'pointer', width: '100%' }}>
                 🧭 Navegar até aqui
               </button>
             )}

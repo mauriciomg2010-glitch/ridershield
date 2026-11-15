@@ -61,7 +61,7 @@ export async function triggerEmergencyAlert({
   // 2. Emergency message in group chat
   await push(ref(rtdb, `groupChats/${groupId}/messages`), {
     userId: 'system',
-    userName: 'RiderShield Alert',
+    userName: 'Alerta ZIVO',
     text: `🚨 EMERGENCY ALERT\n${userName} needs immediate help!\n📍 ${locationStr}\n⏰ ${timeStr}`,
     timestamp: Date.now(),
     emergency: true,

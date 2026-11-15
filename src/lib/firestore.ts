@@ -282,6 +282,16 @@ export async function voteIncident(
     [vote === 'confirm' ? 'confirmations' : 'denials']: increment(1),
     voters: arrayUnion(userId),
   })
+  // "Ainda está" de outro rider é a 2ª prova que a zona automática precisa
+  if (vote === 'confirm') {
+    getDoc(incRef).then(snap => {
+      const loc = snap.data()?.location
+      if (loc && Number.isFinite(loc.lat) && Number.isFinite(loc.lng)) {
+        import('./clustering').then(({ processarClustering }) =>
+          processarClustering(loc.lat, loc.lng).catch(e => console.warn('Clustering error:', e)))
+      }
+    }).catch(() => {})
+  }
 }
 
 // ─── GROUPS ───────────────────────────────────────────────────────────────────
@@ -560,6 +570,16 @@ async function indexReferralCode(code: string, uid: string): Promise<void> {
   }
 }
 
+/** Garante que o código do utilizador está no índice público (para quem se cadastra pelo link dele). */
+export async function ensureReferralIndexed(uid: string, code?: string | null): Promise<void> {
+  if (!uid || !code || !code.startsWith('ZIVO-')) return
+  try {
+    const snap = await getDoc(doc(db, 'referralCodes', code))
+    if (snap.exists() && (snap.data() as any)?.uid === uid) return
+  } catch { /* segue e tenta gravar */ }
+  await indexReferralCode(code, uid)
+}
+
 export async function validateReferralCode(code: string): Promise<string | null> {
   const normalized = code.trim().toUpperCase()
   const makeTimeout = () => new Promise<never>((_, reject) =>
@@ -727,6 +747,28 @@ export async function getDetailedReferrals(uid: string): Promise<{
     credits: userData.referralCredits ?? 0,
     creditsPaid: userData.referralCreditsPaid ?? 0,
   }
+}
+
+/**
+ * TESTE (só admin, até haver pagamentos reais pela Google Play):
+ * regista um mês pago do indicado. 1º toque = mês 1; 2º toque = mês 2 → indicação confirmada
+ * e a comissão entra nos créditos de quem indicou. As regras do Firestore só deixam admins fazer isto.
+ */
+export async function adminRegistarMesPago(referralId: string): Promise<'month1' | 'confirmed' | 'already'> {
+  const ref = doc(db, 'referrals', referralId)
+  const snap = await getDoc(ref)
+  if (!snap.exists()) throw new Error('Indicação não encontrada')
+  const d = snap.data() as any
+  if (d.status === 'confirmed' || d.status === 'paid') return 'already'
+  if (!d.month1PaidAt) {
+    await updateDoc(ref, { month1PaidAt: serverTimestamp(), status: 'pending' })
+    return 'month1'
+  }
+  const amount = Number(d.commissionAmount ?? 3) || 3
+  await updateDoc(ref, { month2PaidAt: serverTimestamp(), status: 'confirmed', commissionPaidAt: serverTimestamp() })
+  const referrer = await getUserDocByUid(d.referrerId)
+  if (referrer) await updateDoc(referrer.ref, { referralCredits: increment(amount) })
+  return 'confirmed'
 }
 
 // MVP: marks credits as claimed; real payout via Revolut is manual for now

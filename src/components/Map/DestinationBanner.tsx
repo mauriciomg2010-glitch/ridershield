@@ -142,7 +142,7 @@ export default function DestinationBanner({ address, onDismiss }: Props) {
               target="_blank"
               rel="noopener noreferrer"
               className="text-xs font-semibold px-2.5 py-1.5 rounded-lg"
-              style={{ background: 'rgba(45,111,232,0.2)', color: '#93c5fd', whiteSpace: 'nowrap' }}
+              style={{ background: 'rgba(245,158,11,0.2)', color: '#93c5fd', whiteSpace: 'nowrap' }}
             >
               🧭 Navegar
             </a>

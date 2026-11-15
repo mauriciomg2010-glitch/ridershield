@@ -27,7 +27,7 @@ export default function BetaBanner({ onFeedback }: Props) {
   return (
     <div
       className="flex items-center justify-between gap-2 px-4 py-2 flex-shrink-0 text-white text-xs font-semibold"
-      style={{ background: 'linear-gradient(135deg, #4f8ef7 0%, #1a5fd4 100%)' }}
+      style={{ background: 'linear-gradient(135deg, #f59e0b 0%, #b45309 100%)' }}
     >
       <span>🧪 Beta — Help us improve ZIVO</span>
       <div className="flex items-center gap-3 flex-shrink-0">

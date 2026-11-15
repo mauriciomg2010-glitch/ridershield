@@ -29,6 +29,8 @@ import ShiftBar from '@/components/Shift/ShiftBar'
 import { useShift } from '@/contexts/ShiftContext'
 import MapSearchBar from '@/components/Map/MapSearchBar'
 import dynamic from 'next/dynamic'
+import SafeBoundary from '@/components/SafeBoundary'
+import GroupSosListener from '@/components/Groups/GroupSosListener'
 
 const SHOW_DEMO_BANNER = false
 
@@ -45,7 +47,7 @@ const MapView = dynamic(() => import('@/components/Map/MapView'), {
   loading: () => (
     <div className="flex-1 flex items-center justify-center" style={{background:'var(--bg)'}}>
       <div className="text-center">
-        <div className="w-10 h-10 border-2 border-t-transparent rounded-full animate-spin mx-auto mb-3" style={{borderColor:'#2d6fe8',borderTopColor:'transparent'}} />
+        <div className="w-10 h-10 border-2 border-t-transparent rounded-full animate-spin mx-auto mb-3" style={{borderColor:'#d97706',borderTopColor:'transparent'}} />
         <p className="text-sm" style={{color:'var(--muted)'}}>Loading map…</p>
       </div>
     </div>
@@ -183,18 +185,7 @@ export default function Home() {
         {/* Shield logo with glow */}
         <div style={{ position: 'relative', marginBottom: 28 }}>
           <div style={{ position: 'absolute', inset: -20, borderRadius: '50%', background: 'radial-gradient(circle, rgba(245,158,11,0.22) 0%, transparent 70%)', filter: 'blur(14px)', pointerEvents: 'none' }} />
-          <svg width="120" height="120" viewBox="0 0 64 64" fill="none">
-            <defs>
-              <linearGradient id="splashG" x1="0" y1="0" x2="1" y2="1">
-                <stop offset="0%" stopColor="#f59e0b" stopOpacity="0.95"/>
-                <stop offset="100%" stopColor="#d97706" stopOpacity="0.75"/>
-              </linearGradient>
-            </defs>
-            <path d="M32 4L8 14v16c0 13.2 10.2 25.5 24 28.6C45.8 55.5 56 43.2 56 30V14L32 4z"
-              fill="url(#splashG)" stroke="#f59e0b" strokeWidth="1.5"/>
-            <path d="M30 16 L28 28 L33 32 L31 46" stroke="#0a0e1a" strokeWidth="2.5" strokeLinecap="round"/>
-            <text x="32" y="38" textAnchor="middle" fill="#0a0e1a" fontSize="18" fontWeight="900" fontFamily="system-ui,sans-serif">Z</text>
-          </svg>
+          <img src="/icons/icon-zivo.svg" alt="ZIVO" width={112} height={112} style={{ position: 'relative', borderRadius: 28 }} />
         </div>
         <h1 style={{ fontSize: 52, fontWeight: 900, color: 'white', letterSpacing: -2, margin: 0, lineHeight: 1 }}>ZIVO</h1>
         <p style={{ fontSize: 15, color: 'rgba(255,255,255,0.45)', marginTop: 10, letterSpacing: 1.5, textTransform: 'uppercase', fontWeight: 500 }}>Ride smart. Go home.</p>
@@ -213,7 +204,7 @@ export default function Home() {
       {/* Demo banner */}
       {SHOW_DEMO_BANNER && demoInfo.isDemo && (
         <div className="flex items-center justify-center gap-2 px-4 py-1.5 text-xs font-semibold flex-shrink-0"
-          style={{background:'rgba(45,111,232,0.15)',borderBottom:'1px solid rgba(45,111,232,0.2)',color:'#93c5fd'}}>
+          style={{background:'rgba(245,158,11,0.15)',borderBottom:'1px solid rgba(245,158,11,0.2)',color:'#93c5fd'}}>
           🎉 Demo Mode — All features unlocked · {demoInfo.daysLeft} days remaining
         </div>
       )}
@@ -221,6 +212,12 @@ export default function Home() {
       <div className="flex-1 overflow-hidden relative">
         {/* Map always fills the entire container — no z-index when on map tab so internal controls at z-[400] are above the search overlay at z-[200] */}
         <div className={`absolute inset-0 ${activeTab==='map'?'':'z-0 pointer-events-none'}`}>
+          <SafeBoundary name="mapa" fallback={(reset) => (
+            <div style={{ position: 'absolute', inset: 0, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 12, background: 'var(--bg, #0a0e1a)', color: 'var(--text, #fff)' }}>
+              <div style={{ fontSize: 15, fontWeight: 700 }}>O mapa encontrou um problema</div>
+              <button onClick={reset} style={{ background: '#d97706', color: 'white', border: 'none', borderRadius: 12, padding: '10px 20px', fontWeight: 700 }}>Recarregar mapa</button>
+            </div>
+          )}>
           <MapView
             requestNavTo={searchDest}
             onNavRequested={() => setSearchDest(null)}
@@ -231,10 +228,11 @@ export default function Home() {
             onSOS={() => setShowSOS(true)}
             workMode={isShiftActive}
             onReport={() => { setReportLocation(currentLocation ? { ...currentLocation, timestamp: Date.now() } : null); setShowReport(true) }}
-            controlsTopOffset={108}
+            controlsTopOffset={activeSearchCategory ? 104 : 66}
             externalReportOpen={showReport}
             isActive={activeTab === 'map'}
           />
+          </SafeBoundary>
         </div>
 
         {/* Floating search bar + category chips — z-[500] so the MapSearchBar full-screen overlay (fixed, z=2000 within this context) paints above MapView controls at z-[400] */}
@@ -246,47 +244,30 @@ export default function Home() {
                 userLocation={currentLocation ?? undefined}
               />
             </div>
-            {!isShiftActive && (
-              <div className="pointer-events-auto" style={{ display: 'flex', gap: 8, marginTop: 8, overflowX: 'auto', paddingBottom: 4, scrollbarWidth: 'none' } as React.CSSProperties}>
-                {CATEGORIES.map(cat => {
-                  const isActive = activeSearchCategory?.key === cat.key
-                  const isLoading = isActive && categoryLoading
-                  return (
-                    <button
-                      key={cat.key}
-                      onClick={() => setActiveSearchCategory(isActive ? null : cat)}
-                      disabled={isLoading}
-                      style={{
-                        flexShrink: 0, display: 'flex', alignItems: 'center', gap: 5,
-                        padding: '7px 13px', borderRadius: 20, fontSize: 12, fontWeight: 600,
-                        cursor: isLoading ? 'default' : 'pointer', whiteSpace: 'nowrap',
-                        background: isActive ? '#f59e0b' : 'var(--surface)',
-                        color: isActive ? '#0a0e1a' : 'var(--muted)',
-                        border: `1px solid ${isActive ? '#f59e0b' : 'var(--border)'}`,
-                        boxShadow: isActive ? '0 0 12px rgba(245,158,11,0.4)' : '0 2px 12px rgba(0,0,0,0.35)',
-                      }}
-                    >
-                      {isLoading ? (
-                        <span style={{ display: 'inline-block', width: 12, height: 12, borderRadius: '50%', border: '2px solid rgba(255,255,255,0.4)', borderTopColor: 'white', animation: 'spin 0.7s linear infinite' }} />
-                      ) : (
-                        <span>{cat.icon}</span>
-                      )}
-                      <span>{cat.label}</span>
-                    </button>
-                  )
-                })}
+            {/* Categorias agora ficam no menu lateral (☰) — aqui só aparece a busca ativa, para limpar */}
+            {activeSearchCategory && (
+              <div className="pointer-events-auto" style={{ marginTop: 8 }}>
+                <button
+                  onClick={() => setActiveSearchCategory(null)}
+                  style={{ display: 'inline-flex', alignItems: 'center', gap: 6, padding: '6px 12px', borderRadius: 20, fontSize: 12, fontWeight: 700, background: '#f59e0b', color: '#0a0e1a', border: 'none', boxShadow: '0 2px 10px rgba(0,0,0,0.35)' }}
+                >
+                  {categoryLoading
+                    ? <span style={{ display: 'inline-block', width: 12, height: 12, borderRadius: '50%', border: '2px solid rgba(0,0,0,0.3)', borderTopColor: '#0a0e1a', animation: 'spin 0.7s linear infinite' }} />
+                    : <span>{activeSearchCategory.icon}</span>}
+                  {activeSearchCategory.label} ✕
+                </button>
               </div>
             )}
           </div>
         )}
 
-        {activeTab==='groups' && <div className="absolute inset-0 z-10 overflow-y-auto"><GroupsScreen /></div>}
-        {activeTab==='services' && <div className="absolute inset-0 z-10 overflow-y-auto"><ServicesScreen /></div>}
-        {activeTab==='safety' && <div className="absolute inset-0 z-10 overflow-y-auto"><SafetyScreen /></div>}
-        {activeTab==='earnings' && <div className="absolute inset-0 z-10 overflow-y-auto"><EarningsScreen /></div>}
-        {activeTab==='partners' && <div className="absolute inset-0 z-10 overflow-y-auto"><PartnersScreen /></div>}
-        {activeTab==='service-requests' && <div className="absolute inset-0 z-10 overflow-y-auto"><ServiceRequestsScreen onBack={() => setActiveTab('map' as Tab)} /></div>}
-        {activeTab==='my-services' && <div className="absolute inset-0 z-10 overflow-y-auto"><MyServicesScreen onBack={() => setActiveTab('map' as Tab)} /></div>}
+        {activeTab==='groups' && <div className="absolute inset-0 z-10 overflow-y-auto"><SafeBoundary name="aba"><GroupsScreen /></SafeBoundary></div>}
+        {activeTab==='services' && <div className="absolute inset-0 z-10 overflow-y-auto"><SafeBoundary name="aba"><ServicesScreen /></SafeBoundary></div>}
+        {activeTab==='safety' && <div className="absolute inset-0 z-10 overflow-y-auto"><SafeBoundary name="aba"><SafetyScreen /></SafeBoundary></div>}
+        {activeTab==='earnings' && <div className="absolute inset-0 z-10 overflow-y-auto"><SafeBoundary name="aba"><EarningsScreen /></SafeBoundary></div>}
+        {activeTab==='partners' && <div className="absolute inset-0 z-10 overflow-y-auto"><SafeBoundary name="aba"><PartnersScreen /></SafeBoundary></div>}
+        {activeTab==='service-requests' && <div className="absolute inset-0 z-10 overflow-y-auto"><SafeBoundary name="aba"><ServiceRequestsScreen onBack={() => setActiveTab('map' as Tab)} /></SafeBoundary></div>}
+        {activeTab==='my-services' && <div className="absolute inset-0 z-10 overflow-y-auto"><SafeBoundary name="aba"><MyServicesScreen onBack={() => setActiveTab('map' as Tab)} /></SafeBoundary></div>}
       </div>
 
       {!isNavigating && !isModeSelector && (
@@ -295,14 +276,23 @@ export default function Home() {
           onMenuClick={()=>setShowSideMenu(true)}
           onSOSClick={()=>setShowSOS(true)} />
       )}
+      <SafeBoundary name="sobreposicoes">
       {showUpgradeScreen && <UpgradeScreen onClose={() => setShowUpgradeScreen(false)} />}
       {showReport && <ReportModal onClose={() => setShowReport(false)} initialLocation={reportLocation} />}
       {user && <MechanicAlertOverlay onNavigate={(tab) => setActiveTab(tab as Tab)} />}
+      {user && <GroupSosListener onOpenGroups={() => setActiveTab('groups' as Tab)} />}
+      </SafeBoundary>
       {showSOS && <SOSModal onClose={()=>setShowSOS(false)} />}
+      <SafeBoundary name="feedback-menu">
       <FeedbackButton open={showFeedback} onOpen={() => setShowFeedback(true)} onClose={() => setShowFeedback(false)} />
-      <SideMenu open={showSideMenu} onClose={() => setShowSideMenu(false)} onNavigate={(tab) => {
+      <SideMenu open={showSideMenu} onClose={() => setShowSideMenu(false)}
+        categories={CATEGORIES}
+        activeCategoryKey={activeSearchCategory?.key ?? null}
+        onCategory={(cat) => { setActiveTab('map' as Tab); setActiveSearchCategory(prev => prev?.key === cat.key ? null : (CATEGORIES.find(c => c.key === cat.key) ?? null)) }}
+        onNavigate={(tab) => {
         if (tab === 'upgrade') { setShowUpgradeScreen(true) } else { setActiveTab(tab as Tab) }
       }} />
+      </SafeBoundary>
       {showOnboarding && (
         <OnboardingScreen onComplete={() => {
           localStorage.setItem(`ridershield_onboarding_${firebaseUser.uid}`, '1')

@@ -42,7 +42,7 @@ export default function ShiftBar() {
   const progress = Math.min(earnings / dailyGoal, 1)
 
   return (
-    <div style={{ flexShrink: 0, background: 'linear-gradient(135deg, #0f172a 0%, #111827 100%)', borderBottom: '1px solid rgba(45,111,232,0.25)' }}>
+    <div style={{ flexShrink: 0, background: 'linear-gradient(135deg, #0f172a 0%, #111827 100%)', borderBottom: '1px solid rgba(245,158,11,0.25)' }}>
 
       {/* Main bar */}
       <div style={{ display: 'flex', alignItems: 'center', gap: '10px', padding: '7px 12px' }}>
@@ -71,7 +71,7 @@ export default function ShiftBar() {
               width: `${progress * 100}%`,
               background: progress >= 1
                 ? '#10b981'
-                : 'linear-gradient(90deg, #2d6fe8, #4f8ef7)',
+                : 'linear-gradient(90deg, #d97706, #f59e0b)',
               borderRadius: 3,
               transition: 'width 0.6s ease',
             }} />
@@ -83,8 +83,8 @@ export default function ShiftBar() {
           onClick={() => setShowAdd(v => !v)}
           style={{
             flexShrink: 0,
-            background: showAdd ? 'rgba(16,185,129,0.15)' : 'rgba(45,111,232,0.1)',
-            border: `1px solid ${showAdd ? 'rgba(16,185,129,0.35)' : 'rgba(45,111,232,0.2)'}`,
+            background: showAdd ? 'rgba(16,185,129,0.15)' : 'rgba(245,158,11,0.1)',
+            border: `1px solid ${showAdd ? 'rgba(16,185,129,0.35)' : 'rgba(245,158,11,0.2)'}`,
             borderRadius: 8,
             padding: '4px 9px',
             cursor: 'pointer',

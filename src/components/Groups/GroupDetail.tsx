@@ -1,6 +1,6 @@
 // src/components/Groups/GroupDetail.tsx
 'use client'
-import { useState, useEffect, useRef } from 'react'
+import { useState, useEffect, useRef, useMemo } from 'react'
 import { useStore } from '@/lib/store'
 import { useLang } from '@/contexts/LangContext'
 import {
@@ -14,7 +14,8 @@ import {
   ChatMessage,
 } from '@/lib/firestore'
 import { triggerEmergencyAlert } from '@/lib/emergencyAlert'
-import { playEmergencySound, stopEmergencySound, playEmergencyConfirmSound, vibrateEmergency, ensureAudioUnlocked } from '@/lib/emergencySound'
+import { stopEmergencySound, playEmergencyConfirmSound } from '@/lib/emergencySound'
+import { dismissedSosIds } from './GroupSosListener'
 import { collection, query, where, getDocs, updateDoc, serverTimestamp } from 'firebase/firestore'
 import { db, rtdb } from '@/lib/firebase'
 import { ref as rtdbRef, onValue, set as rtdbSet, remove as rtdbRemove } from 'firebase/database'
@@ -141,13 +142,10 @@ export default function GroupDetail({ group: initialGroup, onBack }: Props) {
       if (dismissedSosIdsRef.current.has(alertId)) return
       if (activeSosRef.current?.id === alertId) return
 
+      if (Date.now() - (data.timestamp ?? 0) > 30 * 60 * 1000) return  // SOS antigo esquecido ativo
       activeSosRef.current = sosEntry
       setActiveSos(sosEntry)
-      await ensureAudioUnlocked()
-      stopEmergencySound()  // stop any previous before starting fresh
-      soundPlayingRef.current = true
-      playEmergencySound()
-      vibrateEmergency()
+      // o som/vibração são tocados pelo GroupSosListener (funciona em qualquer tela do app)
     })
     return () => unsub()
   }, [group.id, user?.id])
@@ -198,20 +196,21 @@ export default function GroupDetail({ group: initialGroup, onBack }: Props) {
     if (emergencyLoading) return
     setEmergencyLoading(true)
     try {
-      await triggerEmergencyAlert({
+      // 1º o alarme dos membros (mais importante); depois pin, chat, histórico e push.
+      // Antes era o contrário: se qualquer etapa falhasse, o alarme nunca era enviado.
+      await rtdbSet(rtdbRef(rtdb, `groupAlerts/${group.id}/sos`), {
+        userId: user.id,
+        userName: user.name,
+        timestamp: Date.now(),
+        active: true,
+      })
+      triggerEmergencyAlert({
         userId: user.id,
         userName: user.name,
         groupId: group.id,
         groupName: group.name,
         location: currentLocation ?? null,
-      })
-      // Write to groupAlerts so other members' devices receive sound + toast (BUG 3)
-      rtdbSet(rtdbRef(rtdb, `groupAlerts/${group.id}/sos`), {
-        userId: user.id,
-        userName: user.name,
-        timestamp: Date.now(),
-        active: true,
-      }).catch(() => {})
+      }).catch(e => console.warn('[Emergency] etapa secundária falhou', e))
       playEmergencyConfirmSound()
       toast.error('🚨 Emergency alert sent to all members!', { duration: 5000 })
     } catch {
@@ -287,6 +286,7 @@ export default function GroupDetail({ group: initialGroup, onBack }: Props) {
       }
     }
     // Both sender and non-sender: stop locally
+    if (sos && !isSender) dismissedSosIds.add(`${group.id}_${sos.userId}_${sos.id.split('_').pop()}`)
     soundPlayingRef.current = false
     stopEmergencySound()
     setActiveSos(null)
@@ -295,14 +295,15 @@ export default function GroupDetail({ group: initialGroup, onBack }: Props) {
   }
 
   const FIVE_MIN = 5 * 60 * 1000
-  const membersOnMap = Object.entries(memberLocations)
+  // memo: um array novo a cada render reiniciava as assinaturas do mapa em loop
+  const membersOnMap = useMemo(() => Object.entries(memberLocations)
     .filter(([uid, loc]) => uid !== user?.id && Date.now() - loc.lastUpdated < FIVE_MIN)
     .map(([uid, loc]) => ({
       userId: uid,
       name: memberNames[uid] ?? uid.slice(0, 6),
       lat: loc.lat,
       lng: loc.lng,
-    }))
+    })), [memberLocations, memberNames, user?.id, FIVE_MIN])
 
   const activeMembers = Object.values(memberLocations)
     .filter(loc => Date.now() - loc.lastUpdated < FIVE_MIN).length
@@ -589,8 +590,8 @@ export default function GroupDetail({ group: initialGroup, onBack }: Props) {
                 width: '44px',
                 height: '44px',
                 borderRadius: '50%',
-                background: 'linear-gradient(135deg, #4f8ef7 0%, #1a5fd4 100%)',
-                boxShadow: '0 4px 15px rgba(45,111,232,0.45)',
+                background: 'linear-gradient(135deg, #f59e0b 0%, #b45309 100%)',
+                boxShadow: '0 4px 15px rgba(245,158,11,0.45)',
                 border: 'none',
                 cursor: 'pointer',
                 display: 'flex',
@@ -641,7 +642,7 @@ export default function GroupDetail({ group: initialGroup, onBack }: Props) {
             borderRadius: '16px', padding: '24px',
             width: 'min(320px, 90vw)',
             boxShadow: '0 20px 60px rgba(0,0,0,0.6)',
-            border: '1px solid rgba(45,111,232,0.3)',
+            border: '1px solid rgba(245,158,11,0.3)',
           }}>
             <h2 style={{ fontSize: '18px', fontWeight: '700', color: 'var(--text, white)', marginBottom: '12px' }}>A partilhar localização</h2>
             <p style={{ fontSize: '14px', color: 'var(--text-dim, #a0a0b0)', marginBottom: '24px', lineHeight: '1.5' }}>
@@ -656,7 +657,7 @@ export default function GroupDetail({ group: initialGroup, onBack }: Props) {
               </button>
               <button
                 onClick={confirmLeave}
-                style={{ flex: 1, padding: '10px', borderRadius: '10px', border: 'none', background: '#2d6fe8', color: 'white', fontSize: '14px', fontWeight: '700', cursor: 'pointer' }}
+                style={{ flex: 1, padding: '10px', borderRadius: '10px', border: 'none', background: '#d97706', color: 'white', fontSize: '14px', fontWeight: '700', cursor: 'pointer' }}
               >
                 Sair
               </button>

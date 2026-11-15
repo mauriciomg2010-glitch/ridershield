@@ -407,7 +407,7 @@ export default function PainelAdmin() {
           {/* Stats */}
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10, marginBottom: 16 }}>
             {[
-              { label: 'Total Riders',     value: stats.users,        color: '#1a56db' },
+              { label: 'Total Riders',     value: stats.users,        color: '#d97706' },
               { label: 'Zonas ativas',     value: stats.zones,        color: '#10b981' },
               { label: 'Emergências ativas', value: stats.emergencias, color: '#ef4444' },
               { label: 'Feedbacks',        value: stats.feedbacks,    color: '#8b5cf6' },
@@ -485,7 +485,7 @@ export default function PainelAdmin() {
           <div style={card}>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
               <p style={{ ...sTitle, marginBottom: 0 }}>👥 Gestão de Usuários</p>
-              <button onClick={carregarUsuarios} disabled={usersLoading} style={{ background: '#1a56db', border: 'none', color: '#fff', borderRadius: 10, padding: '8px 16px', fontSize: 13, fontWeight: 700, cursor: 'pointer' }}>
+              <button onClick={carregarUsuarios} disabled={usersLoading} style={{ background: '#d97706', border: 'none', color: '#fff', borderRadius: 10, padding: '8px 16px', fontSize: 13, fontWeight: 700, cursor: 'pointer' }}>
                 {usersLoading ? 'A carregar…' : `Carregar (${users.length > 0 ? users.length : 'todos'})`}
               </button>
             </div>
@@ -497,7 +497,7 @@ export default function PainelAdmin() {
                       <div style={{ display: 'flex', gap: 8, marginBottom: 4, flexWrap: 'wrap', alignItems: 'center' }}>
                         <span style={{ fontWeight: 600, fontSize: 14, color: '#e5e7eb', flex: 1 }}>{u.name ?? 'Sem nome'}</span>
                         {u.isSuperAdmin && <span style={{ fontSize: 10, background: '#7c3aed', color: '#fff', padding: '2px 7px', borderRadius: 20, fontWeight: 700 }}>SUPER</span>}
-                        {u.isAdmin && !u.isSuperAdmin && <span style={{ fontSize: 10, background: '#1a56db', color: '#fff', padding: '2px 7px', borderRadius: 20, fontWeight: 700 }}>EDITOR</span>}
+                        {u.isAdmin && !u.isSuperAdmin && <span style={{ fontSize: 10, background: '#d97706', color: '#fff', padding: '2px 7px', borderRadius: 20, fontWeight: 700 }}>EDITOR</span>}
                         {u.isPremium && <span style={{ fontSize: 10, background: '#f59e0b', color: '#0a0e1a', padding: '2px 7px', borderRadius: 20, fontWeight: 700 }}>PRO</span>}
                         {u.isDisabled && <span style={{ fontSize: 10, background: '#dc3545', color: '#fff', padding: '2px 7px', borderRadius: 20, fontWeight: 700 }}>OFF</span>}
                         {u.isTestData && <span style={{ fontSize: 10, background: '#374151', color: '#9ca3af', padding: '2px 7px', borderRadius: 20 }}>TESTE</span>}
@@ -660,7 +660,7 @@ export default function PainelAdmin() {
             <p style={sTitle}>🧹 Ações</p>
             {cleanMsg && <p style={{ fontSize: 13, color: '#10b981', marginBottom: 12, padding: '8px 12px', background: 'rgba(16,185,129,0.07)', borderRadius: 8 }}>{cleanMsg}</p>}
             <button onClick={limparZonasAuto}    disabled={cleanLoading} style={btn('rgba(220,53,69,0.7)')}>🗑️ Limpar zonas automáticas</button>
-            <button onClick={criarContasTeste}   disabled={cleanLoading} style={btn('#1a56db')}>👤 Criar 5 contas de teste</button>
+            <button onClick={criarContasTeste}   disabled={cleanLoading} style={btn('#d97706')}>👤 Criar 5 contas de teste</button>
             <button onClick={simularRelatorios}  disabled={cleanLoading} style={btn('rgba(245,158,11,0.7)', '#0a0e1a')}>📍 Simular 8 relatórios</button>
             <button onClick={apagarTeste}        disabled={cleanLoading} style={btn('rgba(107,114,128,0.4)')}>{cleanLoading ? 'A processar…' : '🧹 Apagar todos os dados de teste'}</button>
           </div>
