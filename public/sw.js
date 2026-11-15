@@ -137,7 +137,7 @@ self.addEventListener('message', (event) => {
 
 self.addEventListener('push', (event) => {
   const data = event.data ? event.data.json() : {}
-  const title = data.title || 'RiderShield'
+  const title = data.title || 'ZIVO'
   const options = {
     body: data.body || 'New notification',
     icon: '/icons/icon-192x192.png',

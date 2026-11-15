@@ -122,7 +122,7 @@ export default function GroupChat({ groupId, groupName, onClose, currentUserId, 
                     fontWeight: 'bold',
                   }}>
                     <div style={{ fontSize: '11px', color: '#fca5a5', marginBottom: '4px' }}>
-                      🚨 RiderShield Alert · {fmtTime(msg.timestamp)}
+                      🚨 Alerta ZIVO · {fmtTime(msg.timestamp)}
                     </div>
                     <div style={{ fontSize: '13px', lineHeight: 1.5, whiteSpace: 'pre-line', wordBreak: 'break-word' }}>
                       {msg.text}

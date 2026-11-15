@@ -4,7 +4,7 @@ import { useEffect, useRef, useCallback, useState } from 'react'
 import { getModeIcon } from '@/components/Map/TransportModeSelector'
 import { INCIDENT_TYPES } from '@/data/incidentTypes'
 import { Incident } from '@/types'
-import { VoiceGuide, instructionText, bannerText, formatDistance } from '@/lib/navigation/instructions'
+import { VoiceGuide, instructionText, bannerText, formatDistance, spokenDistance } from '@/lib/navigation/instructions'
 import type { ZoneAlertState } from '@/lib/navigation/zoneAlert'
 import ZoneAlertBanner from './ZoneAlertBanner'
 
@@ -56,6 +56,9 @@ interface Props {
   heading?: number
   hideControls?: boolean
   nearbyIncident?: Incident | null
+  /** 'ahead' = aviso antes de chegar; 'passed' = já passou, pergunta se ainda está */
+  incidentPhase?: 'ahead' | 'passed'
+  incidentDist?: number | null
   currentUserId?: string
   onVoteIncident?: (id: string, vote: 'confirm' | 'deny') => void
   zoneAlert?: ZoneAlertState | null
@@ -90,6 +93,8 @@ export default function NavigationScreen({
   heading = 0,
   hideControls = false,
   nearbyIncident = null,
+  incidentPhase = 'passed',
+  incidentDist = null,
   currentUserId,
   onVoteIncident,
   zoneAlert = null,
@@ -184,6 +189,17 @@ export default function NavigationScreen({
     }
     return () => { window.speechSynthesis?.cancel() }
   }, [isNavigating])
+
+  // Voz: avisa uma vez por report, antes de chegar
+  const spokenIncidentRef = useRef<string | null>(null)
+  useEffect(() => {
+    if (!isNavigating || muted || !nearbyIncident || incidentPhase !== 'ahead') return
+    if (spokenIncidentRef.current === nearbyIncident.id) return
+    spokenIncidentRef.current = nearbyIncident.id
+    const label = INCIDENT_TYPES.find(t => t.id === nearbyIncident.type)?.label ?? 'Incidente'
+    const d = incidentDist != null && incidentDist >= 30 ? ` a ${spokenDistance(incidentDist)}` : ' logo à frente'
+    speak(`Atenção: ${label} reportado${d}`)
+  }, [isNavigating, muted, nearbyIncident, incidentPhase, incidentDist, speak])
 
   // Reset voting state when incident panel closes
   useEffect(() => {
@@ -384,15 +400,22 @@ export default function NavigationScreen({
                     <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
                       <span style={{ fontSize: 18 }}>{incType?.emoji ?? '⚠️'}</span>
                       <span style={{ fontSize: 14, fontWeight: 700, color: 'var(--text)' }}>
-                        {incType?.label ?? 'Incidente'}
+                        {incidentPhase === 'passed' ? `${incType?.label ?? 'Incidente'} — ainda está aí?` : (incType?.label ?? 'Incidente')}
                       </span>
                     </div>
-                    <span style={{ fontSize: 11, color: 'var(--muted)' }}>
-                      {nearbyIncident ? timeAgo(nearbyIncident.timestamp) : ''}
+                    <span style={{ fontSize: 11, color: 'var(--muted)', whiteSpace: 'nowrap' }}>
+                      {nearbyIncident
+                        ? (incidentPhase === 'ahead' && incidentDist != null ? `a ${formatDistance(incidentDist)} · ` : '') + timeAgo(nearbyIncident.timestamp)
+                        : ''}
                     </span>
                   </div>
-                  {/* Vote buttons */}
-                  <div style={{ display: 'flex', gap: 8, marginBottom: 12 }}>
+                  {incidentPhase === 'ahead' && (
+                    <p style={{ fontSize: 12, color: 'var(--muted)', margin: '0 0 12px' }}>
+                      Reportado por outro rider. Vamos perguntar se ainda está lá depois de passares.
+                    </p>
+                  )}
+                  {/* Vote buttons — só depois de passar (não distrai na aproximação) */}
+                  <div style={{ display: incidentPhase === 'passed' ? 'flex' : 'none', gap: 8, marginBottom: 12 }}>
                     <button
                       disabled={voting}
                       onClick={async () => {

@@ -282,6 +282,16 @@ export async function voteIncident(
     [vote === 'confirm' ? 'confirmations' : 'denials']: increment(1),
     voters: arrayUnion(userId),
   })
+  // "Ainda está" de outro rider é a 2ª prova que a zona automática precisa
+  if (vote === 'confirm') {
+    getDoc(incRef).then(snap => {
+      const loc = snap.data()?.location
+      if (loc && Number.isFinite(loc.lat) && Number.isFinite(loc.lng)) {
+        import('./clustering').then(({ processarClustering }) =>
+          processarClustering(loc.lat, loc.lng).catch(e => console.warn('Clustering error:', e)))
+      }
+    }).catch(() => {})
+  }
 }
 
 // ─── GROUPS ───────────────────────────────────────────────────────────────────

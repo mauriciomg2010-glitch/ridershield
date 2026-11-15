@@ -11,6 +11,7 @@ import Map, { Source, Layer, Marker } from 'react-map-gl/mapbox'
 import type { MapRef } from 'react-map-gl/mapbox'
 import 'mapbox-gl/dist/mapbox-gl.css'
 import { useStore } from '@/lib/store'
+import { nextReportOnRoute } from '@/lib/navigation/reportAhead'
 import { subscribeToIncidents, subscribeToGlobalPresence, reportIncident, voteIncident } from '@/lib/firestore'
 import { INCIDENT_TYPES as QUICK_REPORT_TYPES } from '@/data/incidentTypes'
 import { useLang } from '@/contexts/LangContext'
@@ -425,6 +426,11 @@ export default function MapView({ groupMembers = EMPTY_MEMBERS, currentUserId, g
   const [safeRouteData, setSafeRouteData] = useState<any | null>(null)
   const [nearbyIncident, setNearbyIncident] = useState<Incident | null>(null)
   const alertedIncidentIdsRef = useRef<Set<string>>(new Set())
+  // 'ahead' = aviso antes de chegar (com distância); 'passed' = já passou, pergunta se ainda está
+  const [incidentPhase, setIncidentPhase] = useState<'ahead' | 'passed'>('ahead')
+  const [incidentDist, setIncidentDist] = useState<number | null>(null)
+  const incidentAlongRef = useRef<number | null>(null)
+  const incidentPassTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const prevExternalReportRef = useRef(false)
   const prevSelectedPermZoneRef = useRef<typeof selectedPermZone>(null)
 
@@ -1282,6 +1288,9 @@ export default function MapView({ groupMembers = EMPTY_MEMBERS, currentUserId, g
   useEffect(() => {
     if (!isNavigating) {
       alertedIncidentIdsRef.current = new Set()
+      if (incidentPassTimerRef.current) { clearTimeout(incidentPassTimerRef.current); incidentPassTimerRef.current = null }
+      incidentAlongRef.current = null
+      setIncidentDist(null)
       setNearbyIncident(null)
     }
   }, [isNavigating])
@@ -1300,38 +1309,96 @@ export default function MapView({ groupMembers = EMPTY_MEMBERS, currentUserId, g
     if (was && !selectedPermZone && navegandoRef.current) resumeFollow()
   }, [selectedPermZone, resumeFollow])
 
-  // Incident proximity alerts during navigation — only reports from other riders, only ahead
+  // Reports de outros riders durante a navegação (estilo Waze):
+  // avisa a até 300 m À FRENTE NA ROTA (não em linha reta — rua paralela não conta),
+  // e depois de passar pergunta "ainda está aí?" por 20 s.
+  const clearIncidentAlert = useCallback(() => {
+    if (incidentPassTimerRef.current) { clearTimeout(incidentPassTimerRef.current); incidentPassTimerRef.current = null }
+    incidentAlongRef.current = null
+    setIncidentDist(null)
+    setNearbyIncident(null)
+  }, [])
+
+  const askIncidentNow = useCallback(() => {
+    setIncidentPhase('passed')
+    setIncidentDist(null)
+    if (incidentPassTimerRef.current) clearTimeout(incidentPassTimerRef.current)
+    incidentPassTimerRef.current = setTimeout(() => {
+      incidentPassTimerRef.current = null
+      incidentAlongRef.current = null
+      setNearbyIncident(null)
+    }, 20_000)
+  }, [])
+
+  useEffect(() => () => { if (incidentPassTimerRef.current) clearTimeout(incidentPassTimerRef.current) }, [])
+
   useEffect(() => {
     if (!isNavigating || !currentLocation || !currentUserId) return
-    const pos = posAtualRef.current.lat !== 0 ? posAtualRef.current : currentLocation
-    const bearing = northLocked ? 0 : (compassActive ? heading : navBearing)
+    try {
+      const tr = trackerRef.current
+      const pr = progressRef.current
+      const pos = posAtualRef.current.lat !== 0 ? posAtualRef.current : currentLocation
 
-    // Dismiss current alert if rider has passed it
-    if (nearbyIncident) {
-      const dist = metersBetweenLocal(pos, nearbyIncident.location)
-      const brg = bearingBetween(pos, nearbyIncident.location)
-      const diff = Math.abs(((brg - bearing + 540) % 360) - 180)
-      if (dist > 250 || diff > 90) setNearbyIncident(null)
-      return
+      // 1) já há um aviso ativo
+      if (nearbyIncident) {
+        if (incidentPhase === 'passed') return            // o temporizador fecha sozinho
+        if (tr && pr && incidentAlongRef.current != null && !pr.offRoute) {
+          const ahead = incidentAlongRef.current - pr.along
+          if (ahead < -15) { askIncidentNow(); return }
+          const rounded = Math.max(0, Math.round(ahead / 10) * 10)
+          setIncidentDist(prev => (prev === rounded ? prev : rounded))
+          return
+        }
+        // sem rota (ou saiu dela): passou quando ficou para trás ou longe
+        const dist = metersBetweenLocal(pos, nearbyIncident.location)
+        const bearingNow = northLocked ? 0 : (compassActive ? heading : navBearing)
+        const diff = Math.abs(((bearingBetween(pos, nearbyIncident.location) - bearingNow + 540) % 360) - 180)
+        if (dist < 40 || diff > 100) askIncidentNow()
+        else if (dist > 400) clearIncidentAlert()
+        return
+      }
+
+      // 2) procura o próximo report à frente
+      const candidates = filteredIncidents.filter(inc =>
+        inc.userId !== currentUserId
+        && !alertedIncidentIdsRef.current.has(inc.id)
+        && !(inc.voters ?? []).includes(currentUserId))
+      if (!candidates.length) return
+
+      if (tr && pr && !pr.offRoute) {
+        const hit = nextReportOnRoute(
+          tr, pr.along, tr.currentSeg,
+          candidates.map(inc => ({ inc, id: inc.id, lat: inc.location.lat, lng: inc.location.lng })),
+          300, 35,
+        )
+        if (!hit) return
+        alertedIncidentIdsRef.current.add(hit.report.id)
+        incidentAlongRef.current = hit.reportAlong
+        setIncidentPhase('ahead')
+        setIncidentDist(Math.round(hit.distAhead / 10) * 10)
+        setNearbyIncident(hit.report.inc)
+        return
+      }
+
+      // 3) sem rota: regra antiga (150 m à frente em linha reta)
+      const bearingNow = northLocked ? 0 : (compassActive ? heading : navBearing)
+      for (const inc of candidates) {
+        const dist = metersBetweenLocal(pos, inc.location)
+        if (dist > 150) continue
+        const diff = Math.abs(((bearingBetween(pos, inc.location) - bearingNow + 540) % 360) - 180)
+        if (diff > 90) continue
+        alertedIncidentIdsRef.current.add(inc.id)
+        incidentAlongRef.current = null
+        setIncidentPhase('ahead')
+        setIncidentDist(Math.round(dist / 10) * 10)
+        setNearbyIncident(inc)
+        break
+      }
+    } catch (e) {
+      console.warn('[reports] aviso falhou (navegação segue):', e)
     }
-
-    for (const inc of filteredIncidents) {
-      if (inc.userId === currentUserId) continue
-      if (alertedIncidentIdsRef.current.has(inc.id)) continue
-      if ((inc.voters ?? []).includes(currentUserId)) continue
-
-      const dist = metersBetweenLocal(pos, inc.location)
-      if (dist > 150) continue
-
-      const brg = bearingBetween(pos, inc.location)
-      const diff = Math.abs(((brg - bearing + 540) % 360) - 180)
-      if (diff > 90) continue
-
-      setNearbyIncident(inc)
-      alertedIncidentIdsRef.current.add(inc.id)
-      break
-    }
-  }, [currentLocation, isNavigating, filteredIncidents, navBearing, heading, northLocked, compassActive, currentUserId, nearbyIncident])
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [currentLocation, isNavigating, filteredIncidents, currentUserId, nearbyIncident, incidentPhase])
 
 
   // Show category sheet when new pins arrive
@@ -2297,11 +2364,16 @@ export default function MapView({ groupMembers = EMPTY_MEMBERS, currentUserId, g
         heading={heading}
         hideControls={showQuickReport || externalReportOpen}
         nearbyIncident={nearbyIncident}
+        incidentPhase={incidentPhase}
+        incidentDist={incidentDist}
         currentUserId={currentUserId}
         onVoteIncident={async (id, vote) => {
           if (!currentUserId) return
-          setNearbyIncident(null)
-          await voteIncident(id, currentUserId, vote)
+          clearIncidentAlert()
+          try {
+            await voteIncident(id, currentUserId, vote)
+            toast.success(vote === 'confirm' ? 'Obrigado! Os outros riders vão ser avisados.' : 'Obrigado! Vamos tirar do mapa se mais riders confirmarem.')
+          } catch { toast.error('Sem ligação — o voto não foi enviado.') }
         }}
       />
       </SafeBoundary>

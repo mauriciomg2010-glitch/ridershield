@@ -307,3 +307,40 @@ test('código de indicação do link', () => {
   assert.equal(normalizeReferralCode(' zivo-ab12 '), 'ZIVO-AB12')
   assert.equal(normalizeReferralCode('<script>'), null)
 })
+
+// ── Reports à frente na rota ─────────────────────────────────────────
+test('report à frente na rota: avisa só se estiver na rota e à frente', async () => {
+  const { nextReportOnRoute } = await import('../src/lib/navigation/reportAhead')
+  const a: LngLat = [-6.30, 53.30]
+  const coords = line(a, destination(a, 1000, 90), 25)
+  const cum = [0]; for (let i = 1; i < coords.length; i++) cum.push(cum[i - 1] + distM(coords[i - 1], coords[i]))
+  const route = { coords, cum }
+  const onRoute = destination(a, 400, 90), side = destination(destination(a, 400, 90), 120, 0), behind = destination(a, 100, 90)
+  const reps = [
+    { id: 'rua-paralela', lng: side[0], lat: side[1] },
+    { id: 'atras', lng: behind[0], lat: behind[1] },
+    { id: 'na-rota', lng: onRoute[0], lat: onRoute[1] },
+  ]
+  assert.equal(nextReportOnRoute(route, 50, 0, reps)?.report.id, 'atras', 'o mais próximo à frente vem primeiro')
+  assert.equal(nextReportOnRoute(route, 50, 0, [reps[0], reps[2]]), null, 'a 350 m ainda não avisa; rua paralela nunca')
+  const hit = nextReportOnRoute(route, 150, 0, reps)
+  assert.equal(hit?.report.id, 'na-rota')
+  assert.ok(Math.abs((hit?.distAhead ?? 0) - 250) < 15)
+})
+
+// ── Zonas automáticas ────────────────────────────────────────────────
+test('zona automática precisa de mais de uma pessoa', async () => {
+  const { avaliarCluster } = await import('../src/lib/clusterRules')
+  const now = Date.now()
+  const r = (userId: string, dx = 0, extra: any = {}) => ({ lat: 53.33 + dx, lng: -6.27, userId, type: 'theft', hour: 21, timestampMs: now - 3600e3, ...extra })
+  assert.equal(avaliarCluster(53.33, -6.27, [r('a')], now), null, '1 report sozinho não cria zona')
+  assert.equal(avaliarCluster(53.33, -6.27, [r('a'), r('a', 0.0005)], now), null, 'o mesmo rider 2x não conta')
+  assert.ok(avaliarCluster(53.33, -6.27, [r('a'), r('b', 0.001)], now), '2 riders a ~110 m criam')
+  assert.ok(avaliarCluster(53.33, -6.27, [r('a', 0, { confirmations: 1 })], now), '1 report confirmado cria')
+  assert.equal(avaliarCluster(53.33, -6.27, [r('a'), r('b', 0.01)], now), null, 'a 1 km não junta')
+  assert.equal(avaliarCluster(53.33, -6.27, [r('a'), r('b', 0, { timestampMs: now - 9 * 86400e3 })], now), null, 'report velho não conta')
+  assert.equal(avaliarCluster(53.33, -6.27, [r('a'), r('b', 0, { denials: 3 })], now), null, 'desmentido não conta')
+  const many = avaliarCluster(53.33, -6.27, ['a', 'b', 'c', 'd', 'e'].map(u => r(u)), now)
+  assert.equal(many?.riskLevel, 'high')
+  assert.deepEqual(many?.peakHours, [21])
+})
