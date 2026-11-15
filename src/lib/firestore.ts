@@ -544,7 +544,7 @@ export async function getReferralCode(uid: string): Promise<string> {
   }
   // Migrate RS-* → ZIVO-* (or generate fresh if missing)
   const code = generateReferralCode(data.name ?? uid, uid)
-  await updateDoc(snap.docs[0].ref, { referralCode: code, referralCredits: data.referralCredits ?? 0, referralCreditsPaid: data.referralCreditsPaid ?? 0 })
+  await updateDoc(snap.docs[0].ref, { referralCode: code })
   await indexReferralCode(code, uid)
   return code
 }
@@ -694,7 +694,7 @@ export async function applyReferral(
     referredName,
     code,
     status: 'signed_up',
-    commissionAmount: 5.00,
+    commissionAmount: 3.00,
     createdAt: serverTimestamp(),
     month1PaidAt: null,
     month2PaidAt: null,
@@ -761,26 +761,29 @@ export async function adminRegistarMesPago(referralId: string): Promise<'month1'
   const d = snap.data() as any
   if (d.status === 'confirmed' || d.status === 'paid') return 'already'
   if (!d.month1PaidAt) {
-    await updateDoc(ref, { month1PaidAt: serverTimestamp(), status: 'pending' })
+    await updateDoc(ref, { month1PaidAt: serverTimestamp(), status: 'pending', bonusMonthGrantedAt: serverTimestamp() })
+    // recompensa rápida: 1 mês PRO grátis para quem indicou (soma ao que já tiver)
+    const referrer = await getUserDocByUid(d.referrerId)
+    if (referrer) {
+      const atual = referrer.data.premiumUntil?.toDate?.() as Date | undefined
+      const base = atual && atual.getTime() > Date.now() ? atual : new Date()
+      const ate = new Date(base.getTime() + 30 * 24 * 3600 * 1000)
+      await updateDoc(referrer.ref, { isPremium: true, premiumUntil: Timestamp.fromDate(ate), proBonusMonths: increment(1) })
+    }
     return 'month1'
   }
-  const amount = Number(d.commissionAmount ?? 3) || 3
+  const amount = 3   // valor fixo por indicação confirmada
   await updateDoc(ref, { month2PaidAt: serverTimestamp(), status: 'confirmed', commissionPaidAt: serverTimestamp() })
   const referrer = await getUserDocByUid(d.referrerId)
   if (referrer) await updateDoc(referrer.ref, { referralCredits: increment(amount) })
   return 'confirmed'
 }
 
-// MVP: marks credits as claimed; real payout via Revolut is manual for now
+// Pedido de levantamento: só regista o pedido. O admin paga (Revolut) e acerta os créditos —
+// o próprio utilizador já não pode mexer nos créditos (regras de segurança).
 export async function claimReferralCredits(uid: string, amount: number): Promise<void> {
-  const q = query(collection(db, 'users'), where('id', '==', uid))
-  const snap = await getDocs(q)
-  if (snap.empty) return
-  await updateDoc(snap.docs[0].ref, {
-    referralCredits: 0,
-    referralCreditsPaid: increment(amount),
-  })
-  // Log the claim request for manual processing
+  const aberto = await getDocs(query(collection(db, 'creditClaims'), where('uid', '==', uid), where('status', '==', 'pending')))
+  if (!aberto.empty) throw new Error('Já tens um pedido de levantamento em análise.')
   await addDoc(collection(db, 'creditClaims'), {
     uid,
     amount,

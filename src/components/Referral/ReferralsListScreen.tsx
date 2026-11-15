@@ -113,12 +113,12 @@ function ReferralCard({ r, isAdmin, onChanged }: { r: ReferralDetail; isAdmin?: 
           onClick={async () => {
             try {
               const res = await adminRegistarMesPago(r.id)
-              toast.success(res === 'month1' ? '🧪 Mês 1 marcado como pago' : res === 'confirmed' ? '🧪 Mês 2 pago — comissão creditada' : 'Já estava confirmada')
+              toast.success(res === 'month1' ? '🧪 Mês 1 pago — quem indicou ganhou 1 mês PRO' : res === 'confirmed' ? '🧪 Mês 2 pago — €3 creditados' : 'Já estava confirmada')
               onChanged?.()
             } catch (e: any) { toast.error(e?.message ?? 'Erro') }
           }}
           style={{ marginTop: 8, marginLeft: 46, padding: '6px 10px', borderRadius: 8, border: '1px dashed rgba(245,158,11,0.5)', background: 'transparent', color: '#f59e0b', fontSize: 11, fontWeight: 700, cursor: 'pointer' }}>
-          🧪 Teste admin: marcar {r.month1PaidAt ? '2º' : '1º'} mês pago
+          🧪 Teste admin: marcar {r.month1PaidAt ? '2º mês pago (+€3)' : '1º mês pago (+1 mês PRO)'}
         </button>
       )}
     </div>
@@ -149,7 +149,7 @@ export default function ReferralsListScreen({ uid, credits, onBack }: Props) {
   const confirmed = referrals.filter(r => r.status === 'confirmed')
   const pending = referrals.filter(r => r.status === 'pending')
   const inactive = referrals.filter(r => r.status === 'cancelled' || r.status === 'invalid')
-  const minWithdraw = 10
+  const minWithdraw = 5
 
   return (
     <div style={{ position: 'absolute', inset: 0, background: 'var(--surface)', zIndex: 20, overflowY: 'auto' }}>

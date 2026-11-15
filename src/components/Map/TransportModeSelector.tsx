@@ -1,6 +1,7 @@
 'use client'
 import { useEffect, useState, useRef } from 'react'
 import { fetchMapboxRoutes, findSafeRoute } from '@/lib/navigation/routing'
+import { habitualTrace, viasFromTrace, overlap } from '@/lib/navigation/habits'
 import { loadAvoidZones, toZoneHit } from '@/lib/navigation/zoneSource'
 import { zonesOnRoute as zonesHitByRoute, pointInZone } from '@/lib/navigation/zones'
 import { zoneSpansOnRoute } from '@/lib/navigation/zoneAlert'
@@ -46,8 +47,21 @@ async function fetchRoutes(
   profile: string
 ): Promise<any[]> {
   // pt-BR (antes vinha sem idioma → instruções em inglês no painel da navegação)
-  try { return await fetchMapboxRoutes(origin, dest, profile, { alternatives: true }) }
+  let routes: any[] = []
+  try { routes = await fetchMapboxRoutes(origin, dest, profile, { alternatives: true }) }
   catch { return [] }
+  // Caminho habitual do rider (aprendido no aparelho): vira a 1ª opção se não for muito mais lento
+  try {
+    const trace = habitualTrace([origin.lng, origin.lat], [dest.lng, dest.lat], profile)
+    if (trace && routes.length) {
+      const [hab] = await fetchMapboxRoutes(origin, dest, profile, { vias: viasFromTrace(trace) })
+      const fastest = Math.min(...routes.map(r => r.duration ?? Infinity))
+      if (hab && overlap(trace, hab.geometry.coordinates, 50) >= 0.75 && hab.duration <= fastest * 1.25) {
+        routes = [{ ...hab, _habitual: true }, ...routes]
+      }
+    }
+  } catch { /* sem caminho habitual: segue com as rotas normais */ }
+  return routes
 }
 
 function fmtEta(s: number) { return Math.ceil(s / 60) }
@@ -180,7 +194,8 @@ export default function TransportModeSelector({
       // Zonas que cada rota atravessa (verificação por segmento, inclui trechos de rua e polígonos)
       const avoidable = zones.filter(z => z !== destInZone && !pointInZone([org.lng, org.lat], z))
       const analysed = routes.map((r: any) => ({ route: r, zones: zonesHitByRoute(r.geometry.coordinates, avoidable) }))
-      const semZona = analysed.filter((a: any) => a.zones.length === 0).sort((a: any, b: any) => a.route.duration - b.route.duration)
+      const semZona = analysed.filter((a: any) => a.zones.length === 0)
+        .sort((a: any, b: any) => (b.route._habitual ? 1 : 0) - (a.route._habitual ? 1 : 0) || a.route.duration - b.route.duration)
       const comZona = analysed.filter((a: any) => a.zones.length > 0).sort((a: any, b: any) => a.route.duration - b.route.duration)
       const fastZones = (comZona[0]?.zones ?? []).map(toZoneHit) as ZoneHit[]
       setFastRiskMeters(comZona[0]
@@ -590,7 +605,11 @@ export default function TransportModeSelector({
                     <div style={{ fontSize: 13, color: 'var(--muted)' }}>
                       {fmtDist(route.distance)}{name ? ` · Via ${name}` : ''}
                     </div>
-                    {i === 0 && (
+                    {route._habitual ? (
+                      <span style={{ display: 'inline-block', marginTop: 5, background: 'rgba(245,158,11,0.14)', color: '#d97706', fontSize: 11, fontWeight: 700, padding: '2px 8px', borderRadius: 10 }}>
+                        ⭐ O teu caminho habitual
+                      </span>
+                    ) : route.duration === Math.min(...routes.map((r: any) => r.duration)) && (
                       <span style={{ display: 'inline-block', marginTop: 5, background: 'rgba(66,133,244,0.12)', color: '#4285f4', fontSize: 11, fontWeight: 700, padding: '2px 8px', borderRadius: 10 }}>
                         Mais rápido
                       </span>

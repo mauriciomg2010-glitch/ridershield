@@ -60,13 +60,13 @@ export default function ReferralPanel({ uid, onClose, onUpgrade }: Props) {
   }
 
   async function handleClaim() {
-    if (credits < 10) return
+    if (credits < 5) return
     setClaiming(true)
     try {
       await claimReferralCredits(uid, credits)
       setCreditsPaid(p => p + credits)
       setCredits(0)
-      toast.success(`€${credits.toFixed(2)} em crédito solicitado! Processamos em 3-5 dias úteis.`)
+      toast.success(`Pedido de €${credits.toFixed(2)} enviado! Processamos em 3-5 dias úteis.`)
     } catch {
       toast.error('Erro ao solicitar levantamento')
     } finally {
@@ -90,7 +90,7 @@ export default function ReferralPanel({ uid, onClose, onUpgrade }: Props) {
         </button>
         <div style={{ flex: 1 }}>
           <h2 className="text-lg font-bold" style={{ color: 'var(--text)' }}>Indicações</h2>
-          <p className="text-xs" style={{ color: 'var(--muted)' }}>Ganha €5 por cada rider que assinar Pro</p>
+          <p className="text-xs" style={{ color: 'var(--muted)' }}>1 mês PRO grátis quando o amigo assina · €3 no 2º mês</p>
         </div>
         {credits > 0 && (
           <span style={{
@@ -131,7 +131,7 @@ export default function ReferralPanel({ uid, onClose, onUpgrade }: Props) {
                   {creditsPaid > 0 && ` · €${creditsPaid.toFixed(2)} já levantado`}
                 </p>
               </div>
-              {credits >= 10 ? (
+              {credits >= 5 ? (
                 <button
                   onClick={handleClaim}
                   disabled={claiming}
@@ -153,7 +153,7 @@ export default function ReferralPanel({ uid, onClose, onUpgrade }: Props) {
                   fontSize: 12, color: 'var(--muted)',
                   background: 'rgba(16,185,129,0.04)',
                 }}>
-                  Faltam €{(10 - credits).toFixed(2)} para atingir o mínimo de €10
+                  Faltam €{(5 - credits).toFixed(2)} para atingir o mínimo de €5
                 </div>
               ) : (
                 <div style={{
@@ -161,7 +161,7 @@ export default function ReferralPanel({ uid, onClose, onUpgrade }: Props) {
                   borderTop: '1px solid var(--border)',
                   fontSize: 12, color: 'var(--muted)',
                 }}>
-                  Mínimo €10 para levantar · Método: crédito no app
+                  Mínimo €5 para levantar
                 </div>
               )}
             </div>
@@ -215,7 +215,8 @@ export default function ReferralPanel({ uid, onClose, onUpgrade }: Props) {
               {[
                 { n: '1', text: 'Partilha o teu código com outros riders' },
                 { n: '2', text: 'O amigo cria conta usando o teu código' },
-                { n: '3', text: 'Após 2 meses Pro pagos → recebes €5 em crédito' },
+                { n: '3', text: 'Quando ele paga o 1º mês PRO → ganhas 1 mês PRO grátis' },
+                { n: '4', text: 'Quando ele paga o 2º mês → recebes €3' },
               ].map(({ n, text }) => (
                 <div key={n} style={{ display: 'flex', alignItems: 'flex-start', gap: 10, marginBottom: 10 }}>
                   <div style={{
@@ -229,7 +230,7 @@ export default function ReferralPanel({ uid, onClose, onUpgrade }: Props) {
               ))}
               <div style={{ marginTop: 4, padding: '8px 10px', borderRadius: 8, background: 'rgba(245,158,11,0.06)', border: '1px solid rgba(245,158,11,0.15)' }}>
                 <p style={{ fontSize: 11, color: '#93c5fd' }}>
-                  ℹ️ Qualquer rider pode indicar · Crédito só após 2º mês Pro · Mínimo €10 para levantar
+                  ℹ️ Qualquer rider pode indicar · Só indicação direta (sem níveis) · Mínimo €5 para levantar
                 </p>
               </div>
             </div>
@@ -295,7 +296,7 @@ export default function ReferralPanel({ uid, onClose, onUpgrade }: Props) {
                 Precisas de ser PRO para indicar
               </h3>
               <p style={{ fontSize: 13, color: 'var(--muted)', lineHeight: 1.6 }}>
-                Só os riders PRO recebem €3 por cada amigo que trouxerem.
+                Por cada amigo que assinar ganhas 1 mês PRO grátis e €3 no 2º mês.
                 Assina o PRO, partilha o teu código e o primeiro amigo quase paga o teu mês.
               </p>
             </div>

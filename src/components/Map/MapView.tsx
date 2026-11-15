@@ -12,6 +12,7 @@ import type { MapRef } from 'react-map-gl/mapbox'
 import 'mapbox-gl/dist/mapbox-gl.css'
 import { useStore } from '@/lib/store'
 import { nextReportOnRoute } from '@/lib/navigation/reportAhead'
+import { frequentPlaces } from '@/lib/navigation/habits'
 import { subscribeToIncidents, subscribeToGlobalPresence, reportIncident, voteIncident } from '@/lib/firestore'
 import { INCIDENT_TYPES as QUICK_REPORT_TYPES } from '@/data/incidentTypes'
 import { useLang } from '@/contexts/LangContext'
@@ -387,6 +388,8 @@ export default function MapView({ groupMembers = EMPTY_MEMBERS, currentUserId, g
   const longPressRef = useRef<{ timer: ReturnType<typeof setTimeout> | null; x: number; y: number; fired: boolean }>({ timer: null, x: 0, y: 0, fired: false })
   const zoneTapPointRef = useRef<{ lat: number; lng: number } | null>(null)
   const tapHintShownRef = useRef(false)
+  // último lugar com nome escolhido (para o app aprender os destinos frequentes)
+  const lastPlaceRef = useRef<{ lat: number; lng: number; name: string } | null>(null)
   const [weather, setWeather] = useState<WeatherData | null>(null)
   const [weatherFading, setWeatherFading] = useState(false)
   const weatherFetchedRef = useRef(false)
@@ -953,7 +956,11 @@ export default function MapView({ groupMembers = EMPTY_MEMBERS, currentUserId, g
       // Dismiss any focused input to prevent iOS shake-to-undo dialog during navigation
       if (typeof document !== 'undefined') (document.activeElement as HTMLElement)?.blur()
       setNavDest(dest)
-      beginSession(dest, p)
+      const lp = lastPlaceRef.current
+      const tl = tappedLocation
+      const destName = lp && metersBetweenLocal(lp, dest) < 80 ? lp.name
+        : tl && (tl.name || tl.address) && metersBetweenLocal(tl, dest) < 80 ? (tl.name || tl.address) : undefined
+      beginSession(dest, p, destName)
       applyRoute(route)
       const b0 = Math.round(trackerRef.current?.bearingAt(0) ?? navBearing)
       setNavBearing(b0)
@@ -1137,6 +1144,8 @@ export default function MapView({ groupMembers = EMPTY_MEMBERS, currentUserId, g
       const feat = await retrievePlace(suggestion.mapbox_id)
       if (!feat) { setNavError('Não foi possível obter detalhes'); setSearchLoading(false); return }
       const [lng, lat] = feat.geometry.coordinates
+      const nm = feat.properties?.name ?? suggestion.name
+      if (nm) lastPlaceRef.current = { lat, lng, name: String(nm) }
       setShowSearch(false)
       setSearchText('')
       setSearchLoading(false)
@@ -1227,6 +1236,12 @@ export default function MapView({ groupMembers = EMPTY_MEMBERS, currentUserId, g
       }
     }
   }, [altRoutes])
+
+  useEffect(() => {
+    const tl = tappedLocation
+    const nm = tl?.name || tl?.address
+    if (tl && nm && !tl.loading) lastPlaceRef.current = { lat: tl.lat, lng: tl.lng, name: String(nm) }
+  }, [tappedLocation])
 
   const abrirPontoParaNavegar = useCallback((lat: number, lng: number) => {
     setSelectedIncident(null); setSelectedZone(null); setSelectedPermZone(null)
@@ -2828,6 +2843,34 @@ export default function MapView({ groupMembers = EMPTY_MEMBERS, currentUserId, g
               </button>
             </div>
 
+            {/* Destinos frequentes (aprendidos no aparelho) — com a caixa vazia */}
+            {!searchText.trim() && searchSuggestions.length === 0 && (() => {
+              const freq = frequentPlaces(5)
+              if (!freq.length) return null
+              return (
+                <div style={{ borderTop: '1px solid var(--border)', paddingBottom: 4 }}>
+                  <div style={{ padding: '8px 14px 2px', fontSize: 11, fontWeight: 700, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: 0.5 }}>⭐ Os teus destinos frequentes</div>
+                  {freq.map((f, i) => (
+                    <button key={i}
+                      onClick={() => {
+                        lastPlaceRef.current = { lat: f.lat, lng: f.lng, name: f.name }
+                        setShowSearch(false); setSearchText('')
+                        mapRef.current?.flyTo({ center: [f.lng, f.lat], zoom: 15, duration: 800 })
+                        setPendingNavDest({ lat: f.lat, lng: f.lng })
+                        setShowModeSelector(true)
+                      }}
+                      style={{ width: '100%', display: 'flex', alignItems: 'center', gap: 10, padding: '10px 14px', background: 'transparent', border: 'none', cursor: 'pointer', textAlign: 'left' }}>
+                      <span style={{ fontSize: 18, flexShrink: 0 }}>🔁</span>
+                      <div style={{ flex: 1, minWidth: 0 }}>
+                        <div style={{ fontSize: 13, fontWeight: 700, color: 'var(--text)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{f.name}</div>
+                        <div style={{ fontSize: 11, color: 'var(--muted)', marginTop: 1 }}>{f.count} viagens</div>
+                      </div>
+                    </button>
+                  ))}
+                </div>
+              )
+            })()}
+
             {/* Suggestions list */}
             {searchSuggestions.length > 0 && (
               <div style={{ borderTop: '1px solid var(--border)', paddingBottom: 4 }}>
@@ -2945,7 +2988,7 @@ export default function MapView({ groupMembers = EMPTY_MEMBERS, currentUserId, g
                     </div>
                   </div>
                   <button
-                    onClick={() => { setPendingNavDest({ lat: pin.lat, lng: pin.lng }); setTappedLocation(null); setShowModeSelector(true) }}
+                    onClick={() => { if (pin.name) lastPlaceRef.current = { lat: pin.lat, lng: pin.lng, name: String(pin.name) }; setPendingNavDest({ lat: pin.lat, lng: pin.lng }); setTappedLocation(null); setShowModeSelector(true) }}
                     style={{ background: '#d97706', border: 'none', borderRadius: 10, padding: '7px 13px', color: 'white', fontWeight: 700, fontSize: 11, cursor: 'pointer', flexShrink: 0 }}>
                     Navegar
                   </button>

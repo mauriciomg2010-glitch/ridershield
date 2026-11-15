@@ -344,3 +344,20 @@ test('zona automática precisa de mais de uma pessoa', async () => {
   assert.equal(many?.riskLevel, 'high')
   assert.deepEqual(many?.peakHours, [21])
 })
+
+// ── Caminhos habituais ───────────────────────────────────────────────
+test('aprende caminho habitual só depois de 2 viagens iguais pelo próprio caminho', async () => {
+  const { habitualTrace, frequentPlaces, viasFromTrace } = await import('../src/lib/navigation/habits')
+  const o: LngLat = [-6.42, 53.29], dst = destination(o, 2000, 90)
+  const meu = [...line(o, destination(o, 600, 0), 8), ...line(destination(o, 600, 0), destination(dst, 600, 0), 20), ...line(destination(dst, 600, 0), dst, 8)]
+  const trip = (t: number, followed: number, trace = meu) => ({ o, d: dst, t, dur: 600, dist: 3200, mode: 'cycling', trace, followed, name: 'Restaurante X' })
+  assert.equal(habitualTrace(o, dst, 'cycling', [trip(1, 0.2)]), null, '1 viagem não chega')
+  assert.equal(habitualTrace(o, dst, 'cycling', [trip(1, 0.9), trip(2, 0.95)]), null, 'seguiu a sugerida: nada a aprender')
+  assert.ok(habitualTrace(o, dst, 'cycling', [trip(1, 0.2), trip(2, 0.3)]), '2 viagens iguais pelo próprio caminho')
+  assert.equal(habitualTrace(o, dst, 'driving-traffic', [trip(1, 0.2), trip(2, 0.3)]), null, 'carro não usa caminho de bicicleta')
+  const reto = line(o, dst, 30)
+  assert.equal(habitualTrace(o, dst, 'cycling', [trip(1, 0.2), trip(2, 0.3, reto)]), null, 'caminhos diferentes não contam')
+  const fp = frequentPlaces(5, [trip(1, 1), trip(2, 1)])
+  assert.equal(fp.length, 1); assert.equal(fp[0].name, 'Restaurante X')
+  assert.equal(viasFromTrace(meu).length, 3)
+})

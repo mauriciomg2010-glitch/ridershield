@@ -13,7 +13,8 @@ import { fetchMapboxRoutes, findSafeRoute, flattenCongestion } from '@/lib/navig
 import { loadAvoidZones, toZoneHit } from '@/lib/navigation/zoneSource'
 import { zonesOnRoute, pointInZone, AvoidZone } from '@/lib/navigation/zones'
 import { ZoneAlertGuide, ZoneAlertState, zoneSpansOnRoute } from '@/lib/navigation/zoneAlert'
-import { bearing as geoBearing, distM } from '@/lib/navigation/geo'
+import { bearing as geoBearing, distM, LngLat } from '@/lib/navigation/geo'
+import { recordTrip, overlap, simplifyTrace } from '@/lib/navigation/habits'
 
 type LatLng = { lat: number; lng: number }
 export type LiveProgress = Progress & { time: number; speedMps: number; onRoute: boolean }
@@ -105,8 +106,37 @@ export function useNavigationCore({ isNavigating, currentFix, navDest, routeProf
       .catch(() => {})
   }, [])
 
+  // ── aprendizagem de caminhos (fica no aparelho) ──
+  const tripRef = useRef<{ start: number; origin: LngLat | null; trace: LngLat[]; firstRoute: LngLat[] | null; name?: string; recorded: boolean } | null>(null)
+
+  const finishTrip = useCallback((arrived: boolean) => {
+    guard('recordTrip', () => {
+      const t = tripRef.current
+      const dest = navDestRef.current
+      if (!t || t.recorded || !t.origin || !dest || t.trace.length < 3) return
+      const last = t.trace[t.trace.length - 1]
+      const d: LngLat = [dest.lng, dest.lat]
+      // só conta viagem concluída (chegou, ou cancelou já a < 200 m do destino)
+      if (!arrived && distM(last, d) > 200) return
+      t.recorded = true
+      const trace = simplifyTrace(t.trace, 25)
+      let dist = 0
+      for (let i = 1; i < trace.length; i++) dist += distM(trace[i - 1], trace[i])
+      recordTrip({
+        o: t.origin, d, name: t.name,
+        t: t.start, dur: Math.round((Date.now() - t.start) / 1000), dist: Math.round(dist),
+        mode: profileRef.current || 'driving-traffic',
+        trace,
+        followed: t.firstRoute ? overlap(trace, t.firstRoute, 40) : 1,
+      })
+    })
+  }, [])
+
   const applyRoute = useCallback((route: any) => {
     guard('applyRoute', () => {
+      if (tripRef.current && !tripRef.current.firstRoute && Array.isArray(route?.geometry?.coordinates)) {
+        tripRef.current.firstRoute = route.geometry.coordinates as LngLat[]
+      }
       const tr = new RouteTracker(route)
       trackerRef.current = tr
       progressRef.current = null
@@ -125,7 +155,8 @@ export function useNavigationCore({ isNavigating, currentFix, navDest, routeProf
   }, [updateRiskForRoute])
 
   /** Prepara uma sessão nova (chamar antes de applyRoute no início da navegação). */
-  const beginSession = useCallback((dest: LatLng, profile: string) => {
+  const beginSession = useCallback((dest: LatLng, profile: string, destName?: string) => {
+    tripRef.current = { start: Date.now(), origin: null, trace: [], firstRoute: null, name: destName, recorded: false }
     navDestRef.current = dest
     profileRef.current = profile
     prevFixRef.current = null
@@ -136,6 +167,8 @@ export function useNavigationCore({ isNavigating, currentFix, navDest, routeProf
 
   /** Limpa tudo ao cancelar a navegação. */
   const resetNav = useCallback(() => {
+    finishTrip(false)
+    tripRef.current = null
     trackerRef.current = null
     progressRef.current = null
     prevFixRef.current = null
@@ -151,7 +184,7 @@ export function useNavigationCore({ isNavigating, currentFix, navDest, routeProf
     zoneAlertRef.current = null
     setZoneAlert(null)
     setZoneSpeech(null)
-  }, [])
+  }, [finishTrip])
 
   /** Recalcula SEMPRE pela rota segura. */
   const reroute = useCallback(async (from: LatLng) => {
@@ -201,6 +234,14 @@ export function useNavigationCore({ isNavigating, currentFix, navDest, routeProf
         prevFixRef.current = { lat: currentFix.lat, lng: currentFix.lng, time: currentFix.time }
       }
       const v = speedMps ?? 0
+      // trajeto real (para aprender os caminhos do rider) — só leituras com boa precisão
+      const trip = tripRef.current
+      if (trip && (currentFix.accuracy == null || currentFix.accuracy <= 40)) {
+        const here: LngLat = [currentFix.lng, currentFix.lat]
+        if (!trip.origin) trip.origin = here
+        const lastPt = trip.trace[trip.trace.length - 1]
+        if (!lastPt || distM(lastPt, here) >= 25) { if (trip.trace.length < 2000) trip.trace.push(here) }
+      }
       const p = tr.update({ ...currentFix, speed: v, heading: headingGps })
       progressRef.current = { ...p, time: Date.now(), speedMps: v, onRoute: p.offRouteM < 40 }
 
@@ -232,6 +273,7 @@ export function useNavigationCore({ isNavigating, currentFix, navDest, routeProf
 
       if (p.arrived && !hasArrivedRef.current) {
         hasArrivedRef.current = true
+        finishTrip(true)
         setHasArrived(true)
         cbRef.current.onArrived?.()
         return
@@ -240,7 +282,7 @@ export function useNavigationCore({ isNavigating, currentFix, navDest, routeProf
         reroute({ lat: currentFix.lat, lng: currentFix.lng })
       }
     })
-  }, [currentFix, isNavigating, reroute])
+  }, [currentFix, isNavigating, reroute, finishTrip])
 
   useEffect(() => {
     if (!isNavigating) { setHasArrived(false); hasArrivedRef.current = false }

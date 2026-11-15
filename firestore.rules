@@ -17,10 +17,35 @@ service cloud.firestore {
     // Users: authenticated users can read all profiles
     // Write: create own doc, update own doc, OR update another's doc (for referral counter increments)
     match /users/{docId} {
+      // Campos que só admin muda (antes qualquer conta podia dar-se PRO, admin ou créditos)
+      function camposProtegidos() {
+        return ['id', 'isAdmin', 'isSuperAdmin', 'adminLevel', 'adminSince',
+                'isPremium', 'premiumUntil', 'proBonusMonths',
+                'referralCredits', 'referralCreditsPaid', 'referralEarnings',
+                'isDisabled', 'disabledAt'];
+      }
+      function ehDono() {
+        return request.auth != null
+          && (request.auth.uid == docId || resource.data.get('id', '') == request.auth.uid);
+      }
+      function mudou() {
+        return request.resource.data.diff(resource.data).affectedKeys();
+      }
       allow read: if request.auth != null;
-      allow create: if request.auth != null
-        && request.resource.data.id == request.auth.uid;
-      allow update: if request.auth != null;
+      allow create: if isAdmin() || (request.auth != null
+        && request.resource.data.id == request.auth.uid
+        && request.resource.data.get('isPremium', false) == false
+        && request.resource.data.get('isAdmin', false) == false
+        && request.resource.data.get('isSuperAdmin', false) == false
+        && request.resource.data.get('referralCredits', 0) == 0
+        && request.resource.data.get('referralCreditsPaid', 0) == 0);
+      allow update: if isAdmin() || (ehDono()
+        && !mudou().hasAny(camposProtegidos())
+        // quem me indicou: grava-se uma vez só
+        && (!mudou().hasAny(['referredBy', 'referredByCode']) || resource.data.get('referredBy', null) == null)
+        // pontuação de confiança: no máximo +3 por vez (+2/+3 por report)
+        && (!mudou().hasAny(['riderScore'])
+            || request.resource.data.riderScore <= resource.data.get('riderScore', 50) + 3));
       // apagar perfil: só o próprio usuário ou admin (antes qualquer um podia apagar qualquer perfil)
       allow delete: if request.auth != null && (request.auth.uid == docId || resource.data.id == request.auth.uid || isAdmin());
     }
@@ -145,7 +170,10 @@ service cloud.firestore {
 
     // Credit claims
     match /creditClaims/{claimId} {
-      allow read, create: if request.auth != null;
+      allow read: if request.auth != null && (resource.data.uid == request.auth.uid || isAdmin());
+      allow create: if request.auth != null && request.resource.data.uid == request.auth.uid
+        && request.resource.data.status == 'pending';
+      allow update, delete: if isAdmin();
     }
   }
 }
