@@ -1,20 +1,23 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512">
   <defs>
-    <linearGradient id="g" x1="0" y1="0" x2="0" y2="1">
-      <stop offset="0" stop-color="#fcd34d"/>
-      <stop offset="0.55" stop-color="#f59e0b"/>
-      <stop offset="1" stop-color="#b45309"/>
+    <linearGradient id="g" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#fde68a"/><stop offset="0.5" stop-color="#f59e0b"/><stop offset="1" stop-color="#c2410c"/>
     </linearGradient>
     <linearGradient id="bg" x1="0" y1="0" x2="0" y2="1">
-      <stop offset="0" stop-color="#111827"/>
-      <stop offset="1" stop-color="#05070d"/>
+      <stop offset="0" stop-color="#121a2b"/><stop offset="1" stop-color="#05070d"/>
     </linearGradient>
+    <radialGradient id="zone" cx="0.5" cy="0.5" r="0.5">
+      <stop offset="0" stop-color="#ef4444" stop-opacity="0.55"/><stop offset="1" stop-color="#ef4444" stop-opacity="0.08"/>
+    </radialGradient>
   </defs>
   <rect width="512" height="512" fill="url(#bg)"/>
-  <!-- escudo dourado (dentro da zona segura dos ícones adaptativos) -->
-  <path d="M256 70 L410 122 V244 C410 340 345 414 256 446 C167 414 102 340 102 244 V122 Z" fill="url(#g)"/>
-  <!-- brilho superior -->
-  <path d="M256 70 L410 122 V150 L256 98 L102 150 V122 Z" fill="#fff" fill-opacity="0.22"/>
-  <!-- Z (rota) recortado em preto -->
-  <path d="M184 184 H326 L188 324 H330" fill="none" stroke="#0a0e1a" stroke-width="46" stroke-linejoin="miter" stroke-miterlimit="4"/>
+  <path d="M256 74 L402 124 V242 C402 334 340 406 256 436 C172 406 110 334 110 242 V124 Z" fill="none" stroke="url(#g)" stroke-width="22" stroke-linejoin="round"/>
+  <!-- zona de risco -->
+  <circle cx="308" cy="300" r="44" fill="url(#zone)"/>
+  <circle cx="308" cy="300" r="44" fill="none" stroke="#ef4444" stroke-width="7"/>
+  <!-- rota que contorna a zona -->
+  <path d="M196 384 C180 300 196 240 238 208 C262 190 288 182 312 164" fill="none" stroke="url(#g)" stroke-width="30" stroke-linecap="round"/>
+  <path d="M354 128 L330 196 L294 152 Z" fill="#fcd34d" stroke="#fcd34d" stroke-width="10" stroke-linejoin="round"/>
+  <circle cx="196" cy="386" r="19" fill="#fcd34d"/>
+  <circle cx="196" cy="386" r="7" fill="#0a0e1a"/>
 </svg>

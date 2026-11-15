@@ -383,6 +383,10 @@ export default function MapView({ groupMembers = EMPTY_MEMBERS, currentUserId, g
   const autoFollowRef = useRef(true)
   const firstFixRef = useRef(false)
   const tapTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  // Toque longo (≈0,6 s) no mapa = "navegar até aqui". Toque curto só fecha painéis.
+  const longPressRef = useRef<{ timer: ReturnType<typeof setTimeout> | null; x: number; y: number; fired: boolean }>({ timer: null, x: 0, y: 0, fired: false })
+  const zoneTapPointRef = useRef<{ lat: number; lng: number } | null>(null)
+  const tapHintShownRef = useRef(false)
   const [weather, setWeather] = useState<WeatherData | null>(null)
   const [weatherFading, setWeatherFading] = useState(false)
   const weatherFetchedRef = useRef(false)
@@ -1224,6 +1228,41 @@ export default function MapView({ groupMembers = EMPTY_MEMBERS, currentUserId, g
     }
   }, [altRoutes])
 
+  const abrirPontoParaNavegar = useCallback((lat: number, lng: number) => {
+    setSelectedIncident(null); setSelectedZone(null); setSelectedPermZone(null)
+    setTappedLocation({ lat, lng, loading: true })
+    reverseGeocode(lat, lng)
+      .then(result => setTappedLocation(prev => prev ? { ...prev, ...result, loading: false } : null))
+      .catch(() => setTappedLocation(prev => prev ? { ...prev, loading: false } : null))
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
+
+  const cancelarToqueLongo = () => {
+    const lp = longPressRef.current
+    if (lp.timer) { clearTimeout(lp.timer); lp.timer = null }
+  }
+  const iniciarToqueLongo = (e: any) => {
+    cancelarToqueLongo()
+    if (navegandoRef.current || showModeSelector) return
+    const pts = e.points ?? (e.point ? [e.point] : [])
+    if (pts.length !== 1 || !e.lngLat) return               // pinça com 2 dedos não conta
+    const lp = longPressRef.current
+    lp.x = pts[0].x; lp.y = pts[0].y; lp.fired = false
+    const { lat, lng } = e.lngLat
+    lp.timer = setTimeout(() => {
+      lp.timer = null
+      lp.fired = true
+      try { navigator.vibrate?.(20) } catch {}
+      abrirPontoParaNavegar(lat, lng)
+    }, 600)
+  }
+  const moverToqueLongo = (e: any) => {
+    const lp = longPressRef.current
+    if (!lp.timer) return
+    const p = e.points?.[0] ?? e.point
+    if (!p || (e.points && e.points.length > 1) || Math.hypot(p.x - lp.x, p.y - lp.y) > 12) cancelarToqueLongo()
+  }
+
   const handleMapClick = useCallback((e: any) => {
     const features: any[] = e.features ?? []
     // toque numa zona (área ou ponto) — funciona também durante a navegação
@@ -1231,6 +1270,7 @@ export default function MapView({ groupMembers = EMPTY_MEMBERS, currentUserId, g
     if (zf && !showModeSelector) {
       const z = firestoreZones.find(x => x.id === zf.properties?.id)
       if (z) {
+        zoneTapPointRef.current = { lat: e.lngLat.lat, lng: e.lngLat.lng }
         const level = z.riskLevel ?? 'medium'
         const lat = Number.isFinite(Number(z.lat)) && Number(z.lat) !== 0 ? Number(z.lat) : e.lngLat.lat
         const lng = Number.isFinite(Number(z.lng)) && Number(z.lng) !== 0 ? Number(z.lng) : e.lngLat.lng
@@ -1244,16 +1284,12 @@ export default function MapView({ groupMembers = EMPTY_MEMBERS, currentUserId, g
       setSelectedIncident(null)
       setSelectedZone(null)
       onPanelChange?.(false)
-      if (!showModeSelector) {
-        if (tapTimerRef.current) clearTimeout(tapTimerRef.current)
-        const { lat, lng } = e.lngLat
-        tapTimerRef.current = setTimeout(() => {
-          tapTimerRef.current = null
-          setTappedLocation({ lat, lng, loading: true })
-          reverseGeocode(lat, lng)
-            .then(result => setTappedLocation(prev => prev ? { ...prev, ...result, loading: false } : null))
-            .catch(() => setTappedLocation(prev => prev ? { ...prev, loading: false } : null))
-        }, 450)
+      // toque curto não abre mais "navegar até aqui" (era fácil abrir sem querer)
+      if (longPressRef.current.fired) { longPressRef.current.fired = false; return }
+      if (tappedLocation) { setTappedLocation(null); return }
+      if (!tapHintShownRef.current) {
+        tapHintShownRef.current = true
+        toast('Mantém o dedo no mapa para navegar até esse ponto', { icon: '👆', duration: 2500 })
       }
       return
     }
@@ -1744,7 +1780,14 @@ export default function MapView({ groupMembers = EMPTY_MEMBERS, currentUserId, g
         mapStyle={mapStyle}
         mapboxAccessToken={process.env.NEXT_PUBLIC_MAPBOX_TOKEN}
         onClick={handleMapClick}
-        onTouchStart={() => {
+        onTouchMove={moverToqueLongo}
+        onTouchEnd={cancelarToqueLongo}
+        onTouchCancel={cancelarToqueLongo}
+        onMouseDown={iniciarToqueLongo}
+        onMouseMove={moverToqueLongo}
+        onMouseUp={cancelarToqueLongo}
+        onTouchStart={(e: any) => {
+          iniciarToqueLongo(e)
           if (snapTimerRef.current !== null) {
             // Re-center button tap bubbles here — don't cancel the snap we just started
             if (snapFromResumeRef.current) return
@@ -1767,7 +1810,8 @@ export default function MapView({ groupMembers = EMPTY_MEMBERS, currentUserId, g
           if (!isNavigating) { autoFollowRef.current = false; setAutoFollow(false) }
           if (isNavigating) { navMapFreeRef.current = true; setNavMapFree(true); setShowReCenter(true) }
           if (tapTimerRef.current) { clearTimeout(tapTimerRef.current); tapTimerRef.current = null }
-          setTappedLocation(null)
+          cancelarToqueLongo()
+          if (!longPressRef.current.fired) setTappedLocation(null)
         }}
         onZoomStart={(e: any) => {
           // Cancel only user-initiated zooms; never cancel a resumeFollow snap
@@ -2734,6 +2778,16 @@ export default function MapView({ groupMembers = EMPTY_MEMBERS, currentUserId, g
             <p style={{ fontSize: 11, color: 'var(--muted)', margin: '6px 0 0', opacity: 0.7 }}>
               Zona de atenção · {selectedPermZone.zone} · Área monitorizada
             </p>
+            {!isNavigating && (
+              <button
+                onClick={() => {
+                  const p = zoneTapPointRef.current ?? { lat: selectedPermZone.lat, lng: selectedPermZone.lng }
+                  abrirPontoParaNavegar(p.lat, p.lng)
+                }}
+                style={{ marginTop: 12, width: '100%', padding: '10px 0', borderRadius: 10, border: 'none', background: '#f59e0b', color: '#0a0e1a', fontWeight: 800, fontSize: 14, cursor: 'pointer' }}>
+                🧭 Navegar até aqui
+              </button>
+            )}
           </div>
         )
       })()}

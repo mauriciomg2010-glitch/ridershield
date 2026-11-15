@@ -108,21 +108,7 @@ function Screen0({ onNext }: { onNext: () => void }) {
 
       {/* Logo */}
       <div style={{ marginBottom: 32, position: 'relative' }}>
-        <svg width="96" height="96" viewBox="0 0 64 64" fill="none">
-          <defs>
-            <linearGradient id="g0a" x1="0" y1="0" x2="1" y2="1">
-              <stop offset="0%" stopColor={AMBER} stopOpacity="0.9" />
-              <stop offset="100%" stopColor="#d97706" stopOpacity="0.7" />
-            </linearGradient>
-          </defs>
-          {/* Shield */}
-          <path d="M32 4L8 14v16c0 13.2 10.2 25.5 24 28.6C45.8 55.5 56 43.2 56 30V14L32 4z"
-            fill="url(#g0a)" stroke={AMBER} strokeWidth="1.5" />
-          {/* Crack line */}
-          <path d="M30 16 L28 28 L33 32 L31 46" stroke="#0a0e1a" strokeWidth="2.5" strokeLinecap="round" />
-          {/* Z */}
-          <text x="32" y="38" textAnchor="middle" fill={DARK} fontSize="18" fontWeight="900" fontFamily="system-ui, sans-serif">Z</text>
-        </svg>
+        <img src="/icons/icon-zivo.svg" alt="ZIVO" width={104} height={104} style={{ borderRadius: 26, boxShadow: '0 8px 32px rgba(245,158,11,0.25)' }} />
         {/* Glow */}
         <div style={{
           position: 'absolute', inset: -8, borderRadius: '50%',
@@ -369,9 +355,9 @@ function Screen4({ userName, onComplete }: { userName: string; onComplete: () =>
         width: 88, height: 88, borderRadius: '50%',
         background: `${AMBER}15`, border: `2px solid ${AMBER}55`,
         display: 'flex', alignItems: 'center', justifyContent: 'center',
-        fontSize: 44, marginBottom: 24,
+        fontSize: 44, marginBottom: 24, overflow: 'hidden',
         boxShadow: `0 0 0 14px ${AMBER}08`,
-      }}>🛡️</div>
+      }}><img src="/icons/icon-zivo.svg" alt="" width={88} height={88} /></div>
 
       <h2 style={{ fontSize: 28, fontWeight: 900, color: 'white', textAlign: 'center', margin: '0 0 10px' }}>
         Estás protegido,<br />{userName}!

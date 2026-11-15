@@ -749,6 +749,28 @@ export async function getDetailedReferrals(uid: string): Promise<{
   }
 }
 
+/**
+ * TESTE (só admin, até haver pagamentos reais pela Google Play):
+ * regista um mês pago do indicado. 1º toque = mês 1; 2º toque = mês 2 → indicação confirmada
+ * e a comissão entra nos créditos de quem indicou. As regras do Firestore só deixam admins fazer isto.
+ */
+export async function adminRegistarMesPago(referralId: string): Promise<'month1' | 'confirmed' | 'already'> {
+  const ref = doc(db, 'referrals', referralId)
+  const snap = await getDoc(ref)
+  if (!snap.exists()) throw new Error('Indicação não encontrada')
+  const d = snap.data() as any
+  if (d.status === 'confirmed' || d.status === 'paid') return 'already'
+  if (!d.month1PaidAt) {
+    await updateDoc(ref, { month1PaidAt: serverTimestamp(), status: 'pending' })
+    return 'month1'
+  }
+  const amount = Number(d.commissionAmount ?? 3) || 3
+  await updateDoc(ref, { month2PaidAt: serverTimestamp(), status: 'confirmed', commissionPaidAt: serverTimestamp() })
+  const referrer = await getUserDocByUid(d.referrerId)
+  if (referrer) await updateDoc(referrer.ref, { referralCredits: increment(amount) })
+  return 'confirmed'
+}
+
 // MVP: marks credits as claimed; real payout via Revolut is manual for now
 export async function claimReferralCredits(uid: string, amount: number): Promise<void> {
   const q = query(collection(db, 'users'), where('id', '==', uid))
