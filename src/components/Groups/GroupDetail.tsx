@@ -1,6 +1,6 @@
 // src/components/Groups/GroupDetail.tsx
 'use client'
-import { useState, useEffect, useRef } from 'react'
+import { useState, useEffect, useRef, useMemo } from 'react'
 import { useStore } from '@/lib/store'
 import { useLang } from '@/contexts/LangContext'
 import {
@@ -295,14 +295,15 @@ export default function GroupDetail({ group: initialGroup, onBack }: Props) {
   }
 
   const FIVE_MIN = 5 * 60 * 1000
-  const membersOnMap = Object.entries(memberLocations)
+  // memo: um array novo a cada render reiniciava as assinaturas do mapa em loop
+  const membersOnMap = useMemo(() => Object.entries(memberLocations)
     .filter(([uid, loc]) => uid !== user?.id && Date.now() - loc.lastUpdated < FIVE_MIN)
     .map(([uid, loc]) => ({
       userId: uid,
       name: memberNames[uid] ?? uid.slice(0, 6),
       lat: loc.lat,
       lng: loc.lng,
-    }))
+    })), [memberLocations, memberNames, user?.id, FIVE_MIN])
 
   const activeMembers = Object.values(memberLocations)
     .filter(loc => Date.now() - loc.lastUpdated < FIVE_MIN).length

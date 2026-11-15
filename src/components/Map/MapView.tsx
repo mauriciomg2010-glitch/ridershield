@@ -25,6 +25,11 @@ import TransportModeSelector, { ModeKey, getSavedMode, getProfileForMode, ZoneHi
 import NavigationScreen from '@/components/Navigation/NavigationScreen'
 import { ALL_ZONES, getRiskLevelActual, circleToPolygon, PERM_ZONE_COLORS, COUNTRY_FLAG, CITY_LABEL, PermanentZone } from '@/lib/permanentZones'
 import toast from 'react-hot-toast'
+import { RouteTracker, Progress } from '@/lib/navigation/routeTracker'
+import { fetchMapboxRoutes, findSafeRoute, flattenCongestion } from '@/lib/navigation/routing'
+import { loadAvoidZones, toZoneHit, primeZoneCache } from '@/lib/navigation/zoneSource'
+import { zonesOnRoute } from '@/lib/navigation/zones'
+import { lerpAngle, bearing as geoBearing, distM } from '@/lib/navigation/geo'
 
 const DUBLIN_LNG = -6.2603
 const DUBLIN_LAT = 53.3498
@@ -201,46 +206,11 @@ function pointInPolygon(lat: number, lng: number, polygon: [number, number][]): 
   return inside
 }
 
-function routeCrossesHighRiskZone(coords: [number, number][], hour = new Date().getHours()): boolean {
-  for (const [lng, lat] of coords) {
-    for (const zone of RISK_ZONES)
-      if (zone.level === 'high' && pointInPolygon(lat, lng, zone.polygon)) return true
-    for (const pz of ALL_ZONES) {
-      const level = getRiskLevelActual(pz, hour)
-      if ((level === 'high' || level === 'critical') && distMeters({ lat, lng }, { lat: pz.lat, lng: pz.lng }) < pz.radius) return true
-    }
-  }
-  return false
-}
-
 function polygonCentroid(polygon: [number, number][]): { lat: number; lng: number } {
   return {
     lat: polygon.reduce((s, p) => s + p[0], 0) / polygon.length,
     lng: polygon.reduce((s, p) => s + p[1], 0) / polygon.length,
   }
-}
-
-async function fetchRoute(
-  origin: { lat: number; lng: number },
-  dest: { lat: number; lng: number },
-  profile: string
-): Promise<any> {
-  const token = process.env.NEXT_PUBLIC_MAPBOX_TOKEN
-  const params = [
-    'steps=true', 'voice_instructions=true', 'banner_instructions=true',
-    'geometries=geojson', 'overview=full', 'language=pt',
-    'annotations=congestion,duration,distance',
-    'alternatives=true',
-    'exclude=ferry',
-    profile === 'cycling' ? 'continue_straight=false' : null,
-    `access_token=${token}`,
-  ].filter(Boolean).join('&')
-  const url =
-    `https://api.mapbox.com/directions/v5/mapbox/${profile}` +
-    `/${origin.lng},${origin.lat};${dest.lng},${dest.lat}?${params}`
-  const res = await fetch(url)
-  const data = await res.json()
-  return data.routes?.[0] ?? null
 }
 
 function parseCoordinates(text: string): { lat: number; lng: number } | null {
@@ -319,6 +289,10 @@ interface Props {
   isActive?: boolean
 }
 
+// Lista vazia ESTÁVEL: um `= []` no parâmetro cria um array novo a cada render, o que fazia o
+// efeito dos "riders próximos" rodar em loop infinito (aviso "Maximum update depth exceeded").
+const EMPTY_MEMBERS: GroupMemberLocation[] = []
+
 function RiderPin({ name, isEmergency = false }: { name: string; isEmergency?: boolean }) {
   const ring = isEmergency ? '#dc3545' : '#f59e0b'
   return (
@@ -361,7 +335,7 @@ function RiderPin({ name, isEmergency = false }: { name: string; isEmergency?: b
   )
 }
 
-export default function MapView({ groupMembers = [], currentUserId, groupId, onPanelChange, followUserId, onFollowChange, requestNavTo, onNavRequested, onNavigationChange, searchCategory = null, onSOS, onModeSelectorChange, workMode = false, onReport, onCategorySearching, controlsTopOffset = 12, externalReportOpen = false, isActive = true }: Props) {
+export default function MapView({ groupMembers = EMPTY_MEMBERS, currentUserId, groupId, onPanelChange, followUserId, onFollowChange, requestNavTo, onNavRequested, onNavigationChange, searchCategory = null, onSOS, onModeSelectorChange, workMode = false, onReport, onCategorySearching, controlsTopOffset = 12, externalReportOpen = false, isActive = true }: Props) {
   const { t } = useLang()
   const { theme } = useTheme()
   const mapUser = useStore((s) => s.user)
@@ -483,6 +457,20 @@ export default function MapView({ groupMembers = [], currentUserId, groupId, onP
   // from bubbling to the map and accidentally cancelling the snap timer it just started.
   const snapFromResumeRef = useRef(false)
 
+  // ── Núcleo de navegação (estilo Google Maps) ──
+  const trackerRef = useRef<RouteTracker | null>(null)
+  const progressRef = useRef<(Progress & { time: number; speedMps: number; onRoute: boolean }) | null>(null)
+  const prevFixRef = useRef<{ lat: number; lng: number; time: number } | null>(null)
+  const lastRerouteRef = useRef(0)
+  const rerouteBusyRef = useRef(false)
+  const riskReqRef = useRef(0)
+  const zoomAtualRef = useRef(NAV_ZOOM)
+  const navDestRef = useRef<{ lat: number; lng: number } | null>(null)
+  const routeProfileRef = useRef('')
+  const hasArrivedRef = useRef(false)
+  const [routeTrim, setRouteTrim] = useState<{ seg: number; point: [number, number] } | null>(null)
+  const [remainingSec, setRemainingSec] = useState(0)
+
   // Search
   const [showSearch, setShowSearch] = useState(false)
   const [searchText, setSearchText] = useState('')
@@ -497,11 +485,15 @@ export default function MapView({ groupMembers = [], currentUserId, groupId, onP
   // Keep rafNavStateRef current so the RAF loop reads live values without stale closures
   rafNavStateRef.current = { isNavigating, navMapFree, navBearing, northLocked, compassActive, heading, navSpeed }
   navegandoRef.current = isNavigating
+  navDestRef.current = navDest
+  routeProfileRef.current = routeProfile
+  hasArrivedRef.current = hasArrived
   selectedAltIdxRef.current = selectedAltIdx
 
   const incidents = useStore((s) => s.incidents)
   const setIncidents = useStore((s) => s.setIncidents)
   const currentLocation = useStore((s) => s.currentLocation)
+  const currentFix = useStore((s) => s.currentFix)
 
   const mapStyle = 'mapbox://styles/mapbox/streets-v12'
 
@@ -525,7 +517,13 @@ export default function MapView({ groupMembers = [], currentUserId, groupId, onP
     if ((!showZones && !showZonesModal) || isNavigating) return
     const unsub = onSnapshot(
       query(collection(db, 'risk_zones'), orderBy('createdAt', 'desc')),
-      snap => setFirestoreZones(snap.docs.map(d => ({ id: d.id, ...d.data() })))
+      snap => {
+        const zs = snap.docs.map(d => ({ id: d.id, ...d.data() }))
+        setFirestoreZones(zs)
+        // rota segura usa as zonas mais recentes sem nova leitura — só dados confirmados pelo
+        // servidor (o 1º evento pode vir do cache local, vazio ou desatualizado)
+        if (!snap.metadata.fromCache) primeZoneCache(zs)
+      }
     )
     return unsub
   }, [showZones, showZonesModal, isNavigating])
@@ -580,10 +578,16 @@ export default function MapView({ groupMembers = [], currentUserId, groupId, onP
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }), [firestoreZones])
 
+  // Durante a navegação desenha só o trecho que falta (como o Google Maps)
   const routeCongestionGeoJSON = useMemo(() => {
     if (!routeGeoJSON?.coordinates) return null
-    return buildCongestionGeoJSON(routeGeoJSON.coordinates, routeCongestion)
-  }, [routeGeoJSON, routeCongestion])
+    const coords: [number, number][] = routeGeoJSON.coordinates
+    if (isNavigating && routeTrim && routeTrim.seg < coords.length - 1) {
+      const rest: [number, number][] = [routeTrim.point, ...coords.slice(routeTrim.seg + 1)]
+      return buildCongestionGeoJSON(rest, routeCongestion.slice(routeTrim.seg))
+    }
+    return buildCongestionGeoJSON(coords, routeCongestion)
+  }, [routeGeoJSON, routeCongestion, routeTrim, isNavigating])
 
   // Keep currentHour in sync (updates at the top of each hour)
   useEffect(() => {
@@ -639,36 +643,46 @@ export default function MapView({ groupMembers = [], currentUserId, groupId, onP
     }
   }, [currentLocation, isNavigating])
 
-  // RAF loop — 60fps during navigation, stopped completely when idle
-  // Restarts when isNavigating changes to true
+  // RAF loop — 60fps durante a navegação, parado fora dela.
+  // A seta fica ENCAIXADA na rota e é projetada pelo tempo desde o último GPS (velocidade × tempo),
+  // então anda de forma contínua, sem atraso e sem "pulos". A câmera usa jumpTo a cada quadro
+  // (o código antigo chamava easeTo 60 vezes por segundo, reiniciando a animação o tempo todo).
   useEffect(() => {
     if (!isNavigating) {
-      // Stop RAF when not navigating — saves significant CPU/battery
       if (rafIdRef.current) { cancelAnimationFrame(rafIdRef.current); rafIdRef.current = null }
       return
     }
-    // Start/restart RAF when navigation begins
     lastRafTsRef.current = 0
+    zoomAtualRef.current = mapRef.current?.getZoom() ?? NAV_ZOOM
     const animar = (ts: number) => {
-      const delta = lastRafTsRef.current ? Math.min(ts - lastRafTsRef.current, 100) : 16
+      const dt = lastRafTsRef.current ? Math.min(ts - lastRafTsRef.current, 100) : 16
       lastRafTsRef.current = ts
       const nav = rafNavStateRef.current
-      {}
+      const tr = trackerRef.current
+      const pr = progressRef.current
 
-      // Lerp position toward GPS target (0.08 = smooth & responsive)
-      const fator = (delta / 100) * 0.08
-      const newLat = posAtualRef.current.lat + (posAlvoRef.current.lat - posAtualRef.current.lat) * fator
-      const newLng = posAtualRef.current.lng + (posAlvoRef.current.lng - posAtualRef.current.lng) * fator
+      let target = posAlvoRef.current
+      let routeBrg: number | null = null
+      if (tr && pr && pr.onRoute) {
+        const elapsed = Math.min(1.5, Math.max(0, (Date.now() - pr.time) / 1000))
+        const ahead = Math.min(tr.length, pr.along + (pr.speedMps > 1 ? pr.speedMps * elapsed : 0))
+        const pt = tr.pointAt(ahead)
+        target = { lat: pt[1], lng: pt[0] }
+        routeBrg = tr.bearingAt(ahead)
+      }
+      if (posAtualRef.current.lat === 0) posAtualRef.current = { ...target }
+      const k = 1 - Math.exp(-dt / 180)
+      const newLat = posAtualRef.current.lat + (target.lat - posAtualRef.current.lat) * k
+      const newLng = posAtualRef.current.lng + (target.lng - posAtualRef.current.lng) * k
       posAtualRef.current = { lat: newLat, lng: newLng }
 
-      // Lerp heading (circular shortest-path interpolation)
-      const targetH = nav.northLocked ? 0 : (nav.compassActive ? nav.heading : nav.navBearing)
-      let diffH = targetH - headingAtualRef.current
-      if (diffH > 180) diffH -= 360
-      if (diffH < -180) diffH += 360
-      headingAtualRef.current = (headingAtualRef.current + diffH * fator * 2 + 360) % 360
+      // Direção: em movimento segue a rua (ou o rumo do GPS); parado usa a bússola
+      const moving = nav.navSpeed > 7
+      const targetH = nav.northLocked ? 0
+        : moving ? (routeBrg ?? nav.navBearing)
+        : (nav.compassActive ? nav.heading : (routeBrg ?? nav.navBearing))
+      headingAtualRef.current = lerpAngle(headingAtualRef.current, targetH, 1 - Math.exp(-dt / 350))
 
-      // Update React state only when position has actually moved (avoids 60fps renders while stationary)
       const moved =
         Math.abs(newLat - lastSetPosRef.current.lat) > 1e-6 ||
         Math.abs(newLng - lastSetPosRef.current.lng) > 1e-6
@@ -676,7 +690,6 @@ export default function MapView({ groupMembers = [], currentUserId, groupId, onP
         lastSetPosRef.current = { lat: newLat, lng: newLng }
         setSmoothedPos({ lat: newLat, lng: newLng })
       }
-      // Only update heading state when it changed > 1° — prevents 60fps re-renders
       if (nav.isNavigating) {
         setSmoothedHeading(prev => {
           let diff = Math.abs(headingAtualRef.current - prev)
@@ -685,88 +698,121 @@ export default function MapView({ groupMembers = [], currentUserId, groupId, onP
         })
       }
 
-      // Update navigation camera — heading-up 3D view (Google Maps / Waze style).
-      // bearing = rider heading (road ahead always at top); pitch = 45 for depth perspective.
-      // duration=300ms: fast enough to track without lag, smooth enough to not jitter.
-      if (nav.isNavigating && !navMapFreeRef.current) {
-        const zoom = calcularZoomPorVelocidade(nav.navSpeed)
+      if (nav.isNavigating && !navMapFreeRef.current && posAtualRef.current.lat !== 0) {
+        const zAlvo = calcularZoomPorVelocidade(nav.navSpeed)
+        zoomAtualRef.current += (zAlvo - zoomAtualRef.current) * (1 - Math.exp(-dt / 1500))
+        const zoom = zoomAtualRef.current
         const heading = headingAtualRef.current
         const { lat: cLat, lng: cLng } = calcularCentroDeslocado(newLat, newLng, heading, zoom)
-        mapRef.current?.easeTo({
-          center: [cLng, cLat],
-          bearing: heading,
-          pitch: NAV_PITCH,
-          zoom,
-          duration: 300,
-        })
+        mapRef.current?.getMap()?.jumpTo({ center: [cLng, cLat], bearing: heading, pitch: NAV_PITCH, zoom })
       }
 
       rafIdRef.current = requestAnimationFrame(animar)
     }
     rafIdRef.current = requestAnimationFrame(animar)
     return () => { if (rafIdRef.current) { cancelAnimationFrame(rafIdRef.current); rafIdRef.current = null } }
-  }, [isNavigating])  // restart loop when navigation state changes
+  }, [isNavigating])
 
-  // Step advancement + bearing + auto-recalculate
-  useEffect(() => {
-    if (!isNavigating || !currentLocation || navSteps.length === 0) return
-    const step = navSteps[currentStepIdx]
-    if (!step) return
-    const [sLng, sLat] = step.maneuver.location
-    const dist = distMeters(currentLocation, { lat: sLat, lng: sLng })
-    setDistToNext(Math.round(dist))
-    if (dist < 25 && currentStepIdx < navSteps.length - 1) {
-      const nextStep = navSteps[currentStepIdx + 1]
-      const bearingBefore = nextStep?.maneuver?.bearing_before
-      const riderHeading = northLocked ? heading : navBearing
-      if (bearingBefore !== undefined && navSpeed > 3) {
-        let bearingDiff = Math.abs(bearingBefore - riderHeading)
-        if (bearingDiff > 180) bearingDiff = 360 - bearingDiff
-        if (bearingDiff <= 150) setCurrentStepIdx(i => i + 1)
-        // else: instruction would send rider wrong way — skip until heading aligns
-      } else {
-        setCurrentStepIdx(i => i + 1)
-      }
-    }
-    const remaining = navSteps.slice(currentStepIdx).reduce((s: number, st: any) => s + (st.distance ?? 0), 0)
-    setRemainingDist(remaining)
-    setNavEta(Math.round(navSteps.slice(currentStepIdx).reduce((s: number, st: any) => s + (st.duration ?? 0), 0) / 60))
-    if (!northLocked && typeof step.maneuver?.bearing_after === 'number') setNavBearing(step.maneuver.bearing_after)
-    // Auto-recalculate >50m off-route
-    if (routeGeoJSON?.coordinates && navDest && !isRecalculating) {
-      const offDist = distToRouteMeters(currentLocation, routeGeoJSON.coordinates)
-      if (offDist > 40) {
-        setIsRecalculating(true)
-        fetchRoute(currentLocation, navDest, routeProfile)
-          .then(route => {
-            if (route) {
-              setRouteGeoJSON(route.geometry)
-              setRouteCongestion(route.legs?.[0]?.annotation?.congestion ?? [])
-              setNavSteps(route.legs?.[0]?.steps ?? [])
-              setCurrentStepIdx(0)
-              setRemainingDist(route.distance)
-              setNavEta(Math.round(route.duration / 60))
-              setRiskOnRoute(routeCrossesHighRiskZone(route.geometry.coordinates))
-            }
-          })
-          .catch(() => {})
-          .finally(() => setIsRecalculating(false))
-      }
-    }
-  }, [currentLocation, isNavigating, navSteps, currentStepIdx, routeGeoJSON, navDest, routeProfile, isRecalculating, northLocked])
+  // Zonas que a rota realmente atravessa → aviso "zona de risco à frente" + alertas de proximidade.
+  // (Antes isto olhava listas estáticas vazias, então o aviso nunca aparecia.)
+  const updateRiskForRoute = useCallback((coords: [number, number][]) => {
+    const id = ++riskReqRef.current
+    loadAvoidZones()
+      .then(zs => {
+        if (id !== riskReqRef.current) return
+        const hits = zonesOnRoute(coords, zs)
+        setRiskOnRoute(hits.length > 0)
+        setActiveRouteZones(hits.map(toZoneHit))
+      })
+      .catch(() => {})
+  }, [])
 
-  // Arrived detection — triggers when < 20m remaining and last step reached
+  const applyRoute = useCallback((route: any) => {
+    const tr = new RouteTracker(route)
+    trackerRef.current = tr
+    progressRef.current = null
+    alertedZonesRef.current = new Set()
+    setRouteGeoJSON(route.geometry)
+    setRouteCongestion(flattenCongestion(route))
+    setNavSteps(tr.steps)
+    setCurrentStepIdx(tr.steps.length > 1 ? 1 : 0)
+    setDistToNext(Math.round(tr.maneuverAt[1] ?? route.distance ?? 0))
+    setRemainingDist(route.distance)
+    setRemainingSec(route.duration ?? 0)
+    setNavEta(Math.round(route.duration / 60))
+    setRouteTrim(null)
+    updateRiskForRoute(route.geometry.coordinates)
+  }, [updateRiskForRoute])
+
+  // Recalcula SEMPRE pela rota segura (o código antigo recalculava pela rota mais rápida,
+  // podendo mandar o entregador para dentro de uma zona de risco).
+  const reroute = useCallback(async (from: { lat: number; lng: number }) => {
+    const dest = navDestRef.current
+    if (!dest || rerouteBusyRef.current) return
+    rerouteBusyRef.current = true
+    lastRerouteRef.current = Date.now()
+    setIsRecalculating(true)
+    try {
+      const zones = await loadAvoidZones()
+      const res = await findSafeRoute(from, dest, routeProfileRef.current || 'driving-traffic', zones)
+      const route = res.route ?? res.candidates
+        .slice().sort((a: any, b: any) => (a._hits?.length ?? 0) - (b._hits?.length ?? 0) || a.duration - b.duration)[0]
+      if (route && navegandoRef.current) {
+        applyRoute(route)
+        if (!res.route && zones.length) toast('⚠️ Nova rota passa por zona de risco — atenção', { duration: 5000 })
+      }
+    } catch {
+      // sem rede: mantém a rota atual e tenta de novo no próximo desvio
+    } finally {
+      rerouteBusyRef.current = false
+      trackerRef.current?.resetOffRoute()
+      setIsRecalculating(false)
+    }
+  }, [applyRoute])
+
+  // A cada leitura do GPS: progresso na rota, próxima manobra, direção, chegada e saída da rota
   useEffect(() => {
-    if (!isNavigating || hasArrived) return
-    if (remainingDist > 0 && remainingDist < 20) {
+    const tr = trackerRef.current
+    if (!isNavigating || !tr || !currentFix) return
+    // velocidade e rumo: usa os do GPS; se o aparelho não informar, calcula pela posição anterior
+    const prev = prevFixRef.current
+    let speedMps = currentFix.speed
+    let headingGps = currentFix.heading
+    if (prev) {
+      const dt = (currentFix.time - prev.time) / 1000
+      const d = distM([prev.lng, prev.lat], [currentFix.lng, currentFix.lat])
+      if (speedMps == null && dt > 0.5 && dt < 30) speedMps = d / dt
+      if ((headingGps == null || (speedMps ?? 0) < 1) && d > 5) headingGps = geoBearing([prev.lng, prev.lat], [currentFix.lng, currentFix.lat])
+    }
+    if (!prev || distM([prev.lng, prev.lat], [currentFix.lng, currentFix.lat]) > 3 || currentFix.time - prev.time > 3000) {
+      prevFixRef.current = { lat: currentFix.lat, lng: currentFix.lng, time: currentFix.time }
+    }
+    const v = speedMps ?? 0
+    const p = tr.update({ ...currentFix, speed: v, heading: headingGps })
+    progressRef.current = { ...p, time: Date.now(), speedMps: v, onRoute: p.offRouteM < 40 }
+
+    setCurrentStepIdx(p.stepIdx)
+    setDistToNext(Math.round(p.distToManeuver))
+    setRemainingDist(p.remainingM)
+    setRemainingSec(p.remainingS)
+    setNavEta(Math.max(0, Math.round(p.remainingS / 60)))
+    setRouteTrim(prevTrim => (prevTrim && prevTrim.seg === tr.currentSeg && Math.abs(prevTrim.point[0] - p.snapped[0]) < 1e-6 && Math.abs(prevTrim.point[1] - p.snapped[1]) < 1e-6) ? prevTrim : { seg: tr.currentSeg, point: p.snapped })
+    if (v > 2) setNavBearing(Math.round(p.offRouteM < 40 ? p.routeBearing : (headingGps ?? p.routeBearing)))
+
+    if (p.arrived && !hasArrivedRef.current) {
+      hasArrivedRef.current = true
       setHasArrived(true)
       mapRef.current?.easeTo({ pitch: 0, bearing: 0, duration: 600, easing: (t: number) => t })
+      return
     }
-  }, [remainingDist, isNavigating, hasArrived])
+    if (p.offRoute && !rerouteBusyRef.current && Date.now() - lastRerouteRef.current > 8000) {
+      reroute({ lat: currentFix.lat, lng: currentFix.lng })
+    }
+  }, [currentFix, isNavigating, reroute])
 
   // Reset arrived state when navigation starts or is cancelled
   useEffect(() => {
-    if (!isNavigating) setHasArrived(false)
+    if (!isNavigating) { setHasArrived(false); hasArrivedRef.current = false }
   }, [isNavigating])
 
   // Emergency markers from RTDB
@@ -816,7 +862,7 @@ export default function MapView({ groupMembers = [], currentUserId, groupId, onP
   // During navigation: subscribe to nearby riders and render them as small dots (Waze style).
   // Runs only while navigating; cleans up on cancel. Filters by 2.5 km radius, max 20 riders.
   useEffect(() => {
-    if (!isNavigating) { setNearbyNavRiders([]); return }
+    if (!isNavigating) { setNearbyNavRiders(prev => (prev.length ? [] : prev)); return }
 
     const FIVE_MIN = 5 * 60 * 1000
     const MAX_DIST = 2500  // metres — 2.5 km radius
@@ -851,7 +897,7 @@ export default function MapView({ groupMembers = [], currentUserId, groupId, onP
       if (pos && haversineDist(pos, lastFilterPos) > MIN_MOVE) doFilter()
     }, 5000)
 
-    return () => { unsub(); clearInterval(interval); setNearbyNavRiders([]) }
+    return () => { unsub(); clearInterval(interval); setNearbyNavRiders(prev => (prev.length ? [] : prev)) }
   }, [isNavigating, currentUserId, groupMembers])
 
   useEffect(() => {
@@ -863,16 +909,6 @@ export default function MapView({ groupMembers = [], currentUserId, groupId, onP
     prevFollowPosRef.current = { lat: m.lat, lng: m.lng }
     mapRef.current?.flyTo({ center: [m.lng, m.lat], zoom: 16, duration: 600 })
   }, [followUserId, groupMembers])
-
-  const applyRoute = useCallback((route: any) => {
-    setRouteGeoJSON(route.geometry)
-    setRouteCongestion(route.legs?.[0]?.annotation?.congestion ?? [])
-    setNavSteps(route.legs?.[0]?.steps ?? [])
-    setCurrentStepIdx(0)
-    setRemainingDist(route.distance)
-    setNavEta(Math.round(route.duration / 60))
-    setRiskOnRoute(routeCrossesHighRiskZone(route.geometry.coordinates))
-  }, [])
 
   const startCompass = useCallback(async () => {
     if (handleOrientationRef.current) {
@@ -934,12 +970,26 @@ export default function MapView({ groupMembers = [], currentUserId, groupId, onP
     const p = profile ?? routeProfile
     setNavError(null)
     try {
-      const route = preloadedRoute ?? await fetchRoute(currentLocation, dest, p)
+      let route = preloadedRoute
+      if (!route) {
+        // Sem rota escolhida no seletor: calcula já a rota segura
+        const zones = await loadAvoidZones()
+        const res = await findSafeRoute(currentLocation, dest, p, zones)
+        route = res.route ?? res.candidates
+          .slice().sort((a: any, b: any) => (a._hits?.length ?? 0) - (b._hits?.length ?? 0) || a.duration - b.duration)[0]
+      }
       if (!route) { setNavError('Rota não encontrada'); return }
       // Dismiss any focused input to prevent iOS shake-to-undo dialog during navigation
       if (typeof document !== 'undefined') (document.activeElement as HTMLElement)?.blur()
       setNavDest(dest)
+      navDestRef.current = dest
+      routeProfileRef.current = p
       applyRoute(route)
+      prevFixRef.current = null
+      lastRerouteRef.current = Date.now()
+      const b0 = Math.round(trackerRef.current?.bearingAt(0) ?? navBearing)
+      setNavBearing(b0)
+      headingAtualRef.current = b0
       setNavTotalDist(route.distance)
       setIsNavigating(true)
       navMapFreeRef.current = true  // pause RAF so the flyTo intro plays uninterrupted
@@ -961,16 +1011,17 @@ export default function MapView({ groupMembers = [], currentUserId, groupId, onP
       setSelectedIncident(null)
       setSelectedZone(null)
       onPanelChange?.(false)
-      const { lat: cLat, lng: cLng } = calcularCentroDeslocado(currentLocation.lat, currentLocation.lng, navBearing, NAV_ZOOM)
+      const { lat: cLat, lng: cLng } = calcularCentroDeslocado(currentLocation.lat, currentLocation.lng, b0, NAV_ZOOM)
       mapRef.current?.flyTo({
         center: [cLng, cLat],
-        pitch: NAV_PITCH, zoom: NAV_ZOOM, bearing: navBearing, duration: 800,
+        pitch: NAV_PITCH, zoom: NAV_ZOOM, bearing: b0, duration: 800,
       })
       if (snapTimerRef.current !== null) clearTimeout(snapTimerRef.current)
       snapTimerRef.current = setTimeout(() => {
         snapTimerRef.current = null
         const s = rafNavStateRef.current
-        headingAtualRef.current = s.northLocked ? 0 : (s.compassActive ? s.heading : s.navBearing)
+        headingAtualRef.current = s.northLocked ? 0 : s.navBearing
+        zoomAtualRef.current = NAV_ZOOM
         navMapFreeRef.current = false
       }, 800)
     } catch {
@@ -985,6 +1036,9 @@ export default function MapView({ groupMembers = [], currentUserId, groupId, onP
     const restoreRouteIdx = navRouteIdx
 
     stopCompass()
+    trackerRef.current = null
+    progressRef.current = null
+    setRouteTrim(null)
     setIsNavigating(false)
     setNavTotalDist(0)
     setNavSpeed(0)
@@ -1039,7 +1093,7 @@ export default function MapView({ groupMembers = [], currentUserId, groupId, onP
   const resumeFollow = useCallback(() => {
     if (snapTimerRef.current !== null) { clearTimeout(snapTimerRef.current); snapTimerRef.current = null }
     const s = rafNavStateRef.current
-    const liveHeading = s.northLocked ? 0 : (s.compassActive ? s.heading : s.navBearing)
+    const liveHeading = s.northLocked ? 0 : (s.navSpeed > 7 || !s.compassActive ? s.navBearing : s.heading)
     headingAtualRef.current = liveHeading
     const zoom = calcularZoomPorVelocidade(s.navSpeed)
     const pos = posAtualRef.current.lat !== 0 ? posAtualRef.current : currentLocation
@@ -1055,7 +1109,8 @@ export default function MapView({ groupMembers = [], currentUserId, groupId, onP
       snapTimerRef.current = null
       snapFromResumeRef.current = false
       const s2 = rafNavStateRef.current
-      headingAtualRef.current = s2.northLocked ? 0 : (s2.compassActive ? s2.heading : s2.navBearing)
+      headingAtualRef.current = s2.northLocked ? 0 : (s2.navSpeed > 7 || !s2.compassActive ? s2.navBearing : s2.heading)
+      zoomAtualRef.current = zoom
       navMapFreeRef.current = false
     }, 160)
   }, [currentLocation])
@@ -1170,9 +1225,7 @@ export default function MapView({ groupMembers = [], currentUserId, groupId, onP
     setAltRoutes(routes)
     setSelectedAltIdx(0)
     // Re-evaluate risk any time routes change (catches mode switches: moto→bike→walk)
-    if (routes.length > 0) {
-      setRiskOnRoute(routeCrossesHighRiskZone(routes[0].geometry.coordinates))
-    }
+    if (routes.length > 0) updateRiskForRoute(routes[0].geometry.coordinates)
     if (routes.length === 0 || !mapRef.current) return
     const allCoords = routes.flatMap((r: any) => r.geometry.coordinates as [number, number][])
     const lngs = allCoords.map((c: number[]) => c[0])
@@ -1181,7 +1234,7 @@ export default function MapView({ groupMembers = [], currentUserId, groupId, onP
       [[Math.min(...lngs), Math.min(...lats)], [Math.max(...lngs), Math.max(...lats)]],
       { padding: { top: 80, bottom: 420, left: 40, right: 40 }, duration: 800, maxZoom: 15 }
     )
-  }, [])
+  }, [updateRiskForRoute])
 
   const handleRouteSelected = useCallback((idx: number) => {
     setSelectedAltIdx(idx)
@@ -1256,12 +1309,13 @@ export default function MapView({ groupMembers = [], currentUserId, groupId, onP
     return c
   }, [])
 
-  // GPS speed estimation from position deltas
+  // Velocidade: usa a do GPS quando o aparelho informa; senão estima pela variação de posição
   useEffect(() => {
     if (!isNavigating || !currentLocation) {
       if (!isNavigating) { speedPrevRef.current = null; setNavSpeed(0) }
       return
     }
+    if (currentFix?.speed != null) { setNavSpeed(Math.round(currentFix.speed * 3.6)); return }
     const now = Date.now()
     const prev = speedPrevRef.current
     if (prev) {
@@ -1273,15 +1327,16 @@ export default function MapView({ groupMembers = [], currentUserId, groupId, onP
     } else {
       speedPrevRef.current = { ...currentLocation, time: now }
     }
-  }, [currentLocation, isNavigating])
+  }, [currentLocation, currentFix, isNavigating])
 
   // Zone proximity alerts during navigation (fast route with zones)
   useEffect(() => {
     if (!isNavigating || !riskOnRoute || !currentLocation || activeRouteZones.length === 0) return
     for (const zona of activeRouteZones) {
       if (alertedZonesRef.current.has(zona.id)) continue
-      const dist = distMeters(currentLocation, { lat: zona.lat, lng: zona.lng })
-      if (dist < 400) {
+      // distância até a BORDA da zona (zonas grandes: o aviso vinha só depois de entrar)
+      const dist = Math.max(0, distMeters(currentLocation, { lat: zona.lat, lng: zona.lng }) - (zona.radius ?? 0))
+      if (dist < 300) {
         alertedZonesRef.current.add(zona.id)
         setZoneAlert({ zone: zona, dist: Math.round(dist) })
         if (zoneAlertTimerRef.current) clearTimeout(zoneAlertTimerRef.current)
@@ -1347,23 +1402,34 @@ export default function MapView({ groupMembers = [], currentUserId, groupId, onP
     }
   }, [currentLocation, isNavigating, filteredIncidents, navBearing, heading, northLocked, compassActive, currentUserId, nearbyIncident])
 
-  // Refresh congestion data every 60s during navigation
+  // A cada 2 min procura uma rota SEGURA mais rápida (trânsito mudou), como o Google Maps.
+  // O código antigo trocava a linha da rota pela mais rápida a cada 60 s — mesmo que ela passasse
+  // por zona de risco — e sem atualizar as instruções (linha e instruções ficavam diferentes).
   navRefreshRef.current = { dest: navDest, profile: routeProfile, loc: currentLocation }
   useEffect(() => {
     if (!isNavigating) return
     const interval = setInterval(async () => {
-      const { dest, profile, loc } = navRefreshRef.current
-      if (!dest || !loc) return
+      const { dest, profile } = navRefreshRef.current
+      const fix = useStore.getState().currentFix
+      const pr = progressRef.current
+      if (!dest || !fix || !pr || !pr.onRoute || rerouteBusyRef.current || pr.remainingM < 1500) return
       try {
-        const route = await fetchRoute(loc, dest, profile)
-        if (route) {
-          setRouteCongestion(route.legs?.[0]?.annotation?.congestion ?? [])
-          setRouteGeoJSON(route.geometry)
+        const [routes, zones] = await Promise.all([
+          fetchMapboxRoutes(fix, dest, profile, { alternatives: true }),
+          loadAvoidZones(),
+        ])
+        const best = routes
+          .filter((r: any) => zonesOnRoute(r.geometry.coordinates, zones).length === 0)
+          .sort((a: any, b: any) => a.duration - b.duration)[0]
+        const cur = progressRef.current
+        if (best && cur && navegandoRef.current && !rerouteBusyRef.current && best.duration < cur.remainingS - 120) {
+          applyRoute(best)
+          toast('🛡️ Rota segura mais rápida encontrada', { duration: 4000 })
         }
       } catch {}
-    }, 60000)
+    }, 120000)
     return () => clearInterval(interval)
-  }, [isNavigating])
+  }, [isNavigating, applyRoute])
 
   // Show category sheet when new pins arrive
   useEffect(() => {
@@ -2301,8 +2367,14 @@ export default function MapView({ groupMembers = [], currentUserId, groupId, onP
         isNavigating={isNavigating}
         currentStep={currentStep}
         nextStep={navSteps[currentStepIdx + 1]}
+        steps={navSteps}
+        stepIdx={currentStepIdx}
+        nextGap={trackerRef.current ? Math.max(0, (trackerRef.current.maneuverAt[currentStepIdx + 1] ?? Infinity) - (trackerRef.current.maneuverAt[currentStepIdx] ?? 0)) : undefined}
+        speedMps={navSpeed / 3.6}
+        hasArrived={hasArrived}
         distToNext={distToNext}
         remainingDist={remainingDist}
+        remainingSec={remainingSec}
         navEta={navEta}
         riskOnRoute={riskOnRoute}
         navModeKey={navModeKey}

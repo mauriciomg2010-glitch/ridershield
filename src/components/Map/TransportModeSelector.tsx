@@ -1,8 +1,8 @@
 'use client'
 import { useEffect, useState, useRef } from 'react'
-import { ALL_ZONES, getRiskLevelActual } from '@/lib/permanentZones'
-import { collection, getDocs } from 'firebase/firestore'
-import { db } from '@/lib/firebase'
+import { fetchMapboxRoutes, findSafeRoute } from '@/lib/navigation/routing'
+import { loadAvoidZones, toZoneHit } from '@/lib/navigation/zoneSource'
+import { zonesOnRoute as zonesHitByRoute, pointInZone } from '@/lib/navigation/zones'
 
 export const TRANSPORT_MODES = [
   { key: 'car',     label: 'Carro/Moto', icon: '🚗', profile: 'driving-traffic' },
@@ -26,17 +26,8 @@ export function getProfileForMode(key: string): string {
   return TRANSPORT_MODES.find(m => m.key === key)?.profile ?? 'driving-traffic'
 }
 
-// ── Geo utils ────────────────────────────────────────────────────────────────
-
-function haversineM(lat1: number, lng1: number, lat2: number, lng2: number): number {
-  const R = 6371000
-  const dLat = (lat2 - lat1) * Math.PI / 180
-  const dLng = (lng2 - lng1) * Math.PI / 180
-  const a = Math.sin(dLat / 2) ** 2 + Math.cos(lat1 * Math.PI / 180) * Math.cos(lat2 * Math.PI / 180) * Math.sin(dLng / 2) ** 2
-  return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a))
-}
-
 // ── Zone checking ─────────────────────────────────────────────────────────────
+// Verificação de zonas e rota segura agora ficam em src/lib/navigation (zones.ts / routing.ts)
 
 export interface ZoneHit {
   id: string; name: string; zone: string; city: string; country: string
@@ -46,173 +37,6 @@ export interface ZoneHit {
   isPicoAgora: boolean
 }
 
-function pointInPolygon(lat: number, lng: number, rawCoords: any[]): boolean {
-  // Normalise — handles [{lng,lat}] objects and [[lng,lat]] arrays
-  const pts = rawCoords.map((c: any) => Array.isArray(c) ? { lng: c[0], lat: c[1] } : c)
-  let inside = false
-  const n = pts.length
-  let j = n - 1
-  for (let i = 0; i < n; i++) {
-    const xi = pts[i].lng, yi = pts[i].lat
-    const xj = pts[j].lng, yj = pts[j].lat
-    if ((yi > lat) !== (yj > lat) && lng < ((xj - xi) * (lat - yi)) / (yj - yi) + xi) inside = !inside
-    j = i
-  }
-  return inside
-}
-
-function checkRouteZones(coords: [number, number][], hour: number): ZoneHit[] {
-  const hits: ZoneHit[] = []
-  for (let i = 0; i < coords.length; i += 5) {
-    const [lng, lat] = coords[i]
-    for (const zone of ALL_ZONES) {
-      if (zone.riskLevel !== 'high' && zone.riskLevel !== 'critical') continue
-      const actualLevel = getRiskLevelActual(zone, hour)
-      if (actualLevel !== 'high' && actualLevel !== 'critical') continue
-      const dist = haversineM(lat, lng, zone.lat, zone.lng)
-      const isPeak = zone.peakHours?.includes(hour) ?? false
-      const effectiveRadius = isPeak ? zone.radius * 1.2 : zone.radius
-      if (dist < effectiveRadius && !hits.find(h => h.id === zone.id)) {
-        hits.push({ ...zone, actualLevel, isPicoAgora: isPeak })
-      }
-    }
-  }
-  return hits
-}
-
-// Checks Firestore manual zones (polygon + radius) against route coords
-async function checkFirestoreZones(coords: [number, number][]): Promise<ZoneHit[]> {
-  try {
-    const snap = await getDocs(collection(db, 'risk_zones'))
-    const zonas = snap.docs.map(d => ({ id: d.id, ...d.data() })) as any[]
-    const hits: ZoneHit[] = []
-    for (let i = 0; i < coords.length; i += 3) {
-      const [lng, lat] = coords[i]
-      for (const zona of zonas) {
-        if (hits.find(h => h.id === zona.id)) continue
-        let inside = false
-        if (zona.polygon && zona.polygon.length >= 3) {
-          inside = pointInPolygon(lat, lng, zona.polygon)
-        } else if (zona.lat && zona.lng && zona.radius) {
-          inside = haversineM(lat, lng, zona.lat, zona.lng) < zona.radius
-        }
-        if (inside) {
-          const level: 'low' | 'medium' | 'high' | 'critical' = zona.riskLevel ?? 'medium'
-          hits.push({
-            id: zona.id,
-            name: zona.areaName ?? zona.id,
-            zone: zona.areaName ?? '',
-            city: zona.city ?? 'dublin',
-            country: 'ie',
-            lat: zona.lat ?? 0,
-            lng: zona.lng ?? 0,
-            radius: zona.radius ?? 200,
-            riskLevel: level,
-            actualLevel: level,
-            isPicoAgora: (zona.peakHours ?? []).includes(new Date().getHours()),
-          })
-        }
-      }
-    }
-    return hits
-  } catch {
-    return []
-  }
-}
-
-// ── Firestore zone helpers ────────────────────────────────────────────────────
-
-async function fetchAllFirestoreZonas(): Promise<any[]> {
-  try {
-    const snap = await getDocs(collection(db, 'risk_zones'))
-    return snap.docs.map(d => ({ id: d.id, ...d.data() }))
-  } catch { return [] }
-}
-
-function verificarPontoEmZonas(lat: number, lng: number, zonas: any[]): any | null {
-  for (const zona of zonas) {
-    if (zona.polygon?.length >= 3 && pointInPolygon(lat, lng, zona.polygon)) return zona
-    if (zona.lat && zona.lng && zona.radius && haversineM(lat, lng, zona.lat, zona.lng) < zona.radius) return zona
-  }
-  return null
-}
-
-function checkZonasNaRota(coords: [number, number][], zonas: any[], hour: number): ZoneHit[] {
-  const hits: ZoneHit[] = []
-  // Combine static ALL_ZONES check + Firestore zones
-  for (let i = 0; i < coords.length; i += 3) {
-    const [lng, lat] = coords[i]
-    for (const zona of zonas) {
-      if (hits.find(h => h.id === zona.id)) continue
-      let inside = false
-      if (zona.polygon?.length >= 3) inside = pointInPolygon(lat, lng, zona.polygon)
-      else if (zona.lat && zona.lng && zona.radius) inside = haversineM(lat, lng, zona.lat, zona.lng) < zona.radius
-      if (inside) {
-        const level: ZoneHit['riskLevel'] = zona.riskLevel ?? 'medium'
-        hits.push({
-          id: zona.id, name: zona.areaName ?? zona.id, zone: zona.areaName ?? '',
-          city: zona.city ?? 'dublin', country: 'ie',
-          lat: zona.lat ?? 0, lng: zona.lng ?? 0, radius: zona.radius ?? 200,
-          riskLevel: level, actualLevel: level,
-          isPicoAgora: (zona.peakHours ?? []).includes(hour),
-        })
-      }
-    }
-    // Also check static ALL_ZONES
-    for (const zone of ALL_ZONES) {
-      if (hits.find(h => h.id === zone.id)) continue
-      const actualLevel = getRiskLevelActual(zone, hour)
-      if (actualLevel !== 'high' && actualLevel !== 'critical') continue
-      const isPeak = zone.peakHours?.includes(hour) ?? false
-      if (haversineM(lat, lng, zone.lat, zone.lng) < (isPeak ? zone.radius * 1.2 : zone.radius)) {
-        hits.push({ ...zone, actualLevel, isPicoAgora: isPeak })
-      }
-    }
-  }
-  return hits
-}
-
-// ── Safe route calculation ────────────────────────────────────────────────────
-
-async function fetchSafeRoute(
-  origin: { lat: number; lng: number },
-  dest: { lat: number; lng: number },
-  zones: ZoneHit[],
-  profile: string
-): Promise<any | null> {
-  const token = process.env.NEXT_PUBLIC_MAPBOX_TOKEN
-  const dLat = dest.lat - origin.lat
-  const dLng = dest.lng - origin.lng
-  const bearingRota = Math.atan2(dLng, dLat) * 180 / Math.PI
-
-  const waypoints = zones.slice(0, 5).map(zona => {
-    const desvioDist = (zona.radius * 1.6) / 111320
-    const bearing = ((bearingRota + 90) * Math.PI) / 180
-    const wpLat = zona.lat + desvioDist * Math.cos(bearing)
-    const wpLng = zona.lng + desvioDist * Math.sin(bearing)
-    return `${wpLng},${wpLat}`
-  })
-
-  const coordsStr = [
-    `${origin.lng},${origin.lat}`,
-    ...waypoints,
-    `${dest.lng},${dest.lat}`,
-  ].join(';')
-
-  try {
-    const url =
-      `https://api.mapbox.com/directions/v5/mapbox/${profile}/${coordsStr}` +
-      `?alternatives=false&steps=true&geometries=geojson&overview=full` +
-      `&voice_instructions=true&banner_instructions=true` +
-      `&annotations=congestion,duration,distance&access_token=${token}`
-    const res = await fetch(url)
-    const data = await res.json()
-    return data.routes?.[0] ?? null
-  } catch {
-    return null
-  }
-}
-
 // ── Route utils ──────────────────────────────────────────────────────────────
 
 async function fetchRoutes(
@@ -220,17 +44,9 @@ async function fetchRoutes(
   dest: { lat: number; lng: number },
   profile: string
 ): Promise<any[]> {
-  const token = process.env.NEXT_PUBLIC_MAPBOX_TOKEN
-  const url =
-    `https://api.mapbox.com/directions/v5/mapbox/${profile}` +
-    `/${origin.lng},${origin.lat};${dest.lng},${dest.lat}` +
-    `?alternatives=true&steps=true&geometries=geojson&overview=full` +
-    `&voice_instructions=true&banner_instructions=true&annotations=congestion,duration,distance&access_token=${token}`
-  try {
-    const res = await fetch(url)
-    const data = await res.json()
-    return data.routes ?? []
-  } catch { return [] }
+  // pt-BR (antes vinha sem idioma → instruções em inglês no painel da navegação)
+  try { return await fetchMapboxRoutes(origin, dest, profile, { alternatives: true }) }
+  catch { return [] }
 }
 
 function fmtEta(s: number) { return Math.ceil(s / 60) }
@@ -351,86 +167,63 @@ export default function TransportModeSelector({
     setTipoAnalise('loading')
     setSafeRouteLoading(true)
 
-    fetchAllFirestoreZonas().then(async fsZonas => {
-      // ── Case 1: Is the destination itself inside a zone?
-      const zonaDestino = verificarPontoEmZonas(dest.lat, dest.lng, fsZonas)
-      if (zonaDestino) {
-        setDestZonaInfo(zonaDestino)
-        setTipoAnalise('destino_em_zona')
-        setZonesOnRoute([])
-        setSafeRoute(null)
-        setSafeRouteLoading(false)
-        onSafeRouteReadyRef.current?.(null, [])
-        return
+    // descarta o resultado se o usuário trocou de modo enquanto calculava
+    const stale = () => zoneCheckedModeRef.current !== modeKey
+    loadAvoidZones().then(async zones => {
+      if (stale()) return
+      const profile = getProfileForMode(selectedMode)
+      const destInZone = zones.find(z => pointInZone([dest.lng, dest.lat], z)) ?? null
+
+      // Zonas que cada rota atravessa (verificação por segmento, inclui trechos de rua e polígonos)
+      const avoidable = zones.filter(z => z !== destInZone && !pointInZone([org.lng, org.lat], z))
+      const analysed = routes.map((r: any) => ({ route: r, zones: zonesHitByRoute(r.geometry.coordinates, avoidable) }))
+      const semZona = analysed.filter((a: any) => a.zones.length === 0).sort((a: any, b: any) => a.route.duration - b.route.duration)
+      const comZona = analysed.filter((a: any) => a.zones.length > 0).sort((a: any, b: any) => a.route.duration - b.route.duration)
+      const fastZones = (comZona[0]?.zones ?? []).map(toZoneHit) as ZoneHit[]
+
+      let safe: any | null = semZona[0]?.route ?? null
+      if (!safe && comZona.length) {
+        try {
+          // Valhalla (exclui as zonas no servidor) → reserva: contorno pela borda
+          const res = await findSafeRoute(org, dest, profile, zones, { baseRoutes: routes })
+          safe = res.route
+        } catch { safe = null }
       }
+      if (stale()) return
 
-      // ── Check zones in EVERY returned route
-      const routesAnalysed = routes.map((r: any) => ({
-        route: r,
-        zones: checkZonasNaRota(r.geometry.coordinates, fsZonas, hour),
-      }))
-
-      const routesSemZona = routesAnalysed.filter((r: any) => r.zones.length === 0)
-      const routesComZona = routesAnalysed.filter((r: any) => r.zones.length > 0)
-
-      // ── Case 3: No route has zones
-      if (routesComZona.length === 0) {
+      if (destInZone) {
+        // ── Caso 1: destino dentro de zona — avisa, mas continua evitando as OUTRAS zonas do caminho
+        setDestZonaInfo({ areaName: destInZone.name, riskLevel: destInZone.level })
+        setTipoAnalise('destino_em_zona')
+        setZonesOnRoute(fastZones)
+        setSafeRoute(fastZones.length ? safe : null)
+        setRouteChoice('safe')
+        onSafeRouteReadyRef.current?.(fastZones.length ? safe : null, fastZones)
+      } else if (!comZona.length) {
+        // ── Caso 2: nenhuma rota passa por zona
         setTipoAnalise('sem_zonas')
         setZonesOnRoute([])
         setSafeRoute(null)
-        setSafeRouteLoading(false)
         onSafeRouteReadyRef.current?.(null, [])
-        return
-      }
-
-      // ── Case 2: At least one returned route is already zone-free
-      if (routesSemZona.length > 0) {
-        // Sort safe routes by duration — pick fastest
-        const bestSafe = routesSemZona.sort((a: any, b: any) => a.route.duration - b.route.duration)[0].route
-        // Pick fastest route with zones as the "fast" option
-        const fastWithZone = routesComZona.sort((a: any, b: any) => a.route.duration - b.route.duration)[0]
-        const allZones = fastWithZone.zones as ZoneHit[]
-        setZonesOnRoute(allZones)
-        setSafeRoute(bestSafe)
+      } else if (safe) {
+        // ── Caso 3: existe rota segura
+        setZonesOnRoute(fastZones)
+        setSafeRoute(safe)
         setRouteChoice('safe')
         setTipoAnalise('tem_rota_segura')
-        setSafeRouteLoading(false)
-        onSafeRouteReadyRef.current?.(bestSafe, allZones)
-        return
-      }
-
-      // ── All returned routes have zones — try fetchSafeRoute with waypoints
-      const allZones = routesComZona[0].zones as ZoneHit[]
-      setZonesOnRoute(allZones)
-
-      try {
-        const safe = await fetchSafeRoute(org, dest, allZones, getProfileForMode(selectedMode))
-        if (safe) {
-          // Verify that the waypoint-detoured route is ACTUALLY zone-free
-          const safeZones = checkZonasNaRota(safe.geometry.coordinates, fsZonas, hour)
-          if (safeZones.length === 0) {
-            setSafeRoute(safe)
-            setRouteChoice('safe')
-            setTipoAnalise('tem_rota_segura')
-            onSafeRouteReadyRef.current?.(safe, allZones)
-          } else {
-            // Even the detour has zones → Case 4
-            setSafeRoute(null)
-            setTipoAnalise('todas_passam_por_zona')
-            onSafeRouteReadyRef.current?.(null, allZones)
-          }
-        } else {
-          setSafeRoute(null)
-          setTipoAnalise('todas_passam_por_zona')
-          onSafeRouteReadyRef.current?.(null, allZones)
-        }
-      } catch {
+        onSafeRouteReadyRef.current?.(safe, fastZones)
+      } else {
+        // ── Caso 4: impossível evitar
+        setZonesOnRoute(fastZones)
         setSafeRoute(null)
         setTipoAnalise('todas_passam_por_zona')
-        onSafeRouteReadyRef.current?.(null, allZones)
-      } finally {
-        setSafeRouteLoading(false)
+        onSafeRouteReadyRef.current?.(null, fastZones)
       }
+      setSafeRouteLoading(false)
+    }).catch(() => {
+      if (stale()) return
+      setTipoAnalise('sem_zonas')
+      setSafeRouteLoading(false)
     })
   }, [routesByMode, selectedMode])
 
@@ -593,10 +386,11 @@ export default function TransportModeSelector({
               background: 'var(--card)',
             }}>
               <div style={{ fontSize: 14, fontWeight: 800, color: 'var(--text)', marginBottom: 8 }}>
-                {fastRoute && `${fmtEta(fastRoute.duration)} min · ${fmtDist(fastRoute.distance)}`}
+                {(safeRoute ?? fastRoute) && `${fmtEta((safeRoute ?? fastRoute).duration)} min · ${fmtDist((safeRoute ?? fastRoute).distance)}`}
               </div>
               <div style={{ fontSize: 12, color: 'var(--muted)' }}>
-                O teu destino está localizado numa zona de atenção. Procede com cuidado.
+                O teu destino está localizado numa zona de atenção{destZonaInfo?.areaName ? ` (${destZonaInfo.areaName})` : ''}. Procede com cuidado.
+                {safeRoute && zonesOnRoute.length > 0 && ` 🛡️ A rota evita ${zonesOnRoute.length} zona${zonesOnRoute.length !== 1 ? 's' : ''} no caminho.`}
               </div>
             </div>
           </>

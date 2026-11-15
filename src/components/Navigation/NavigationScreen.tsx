@@ -4,6 +4,7 @@ import { useEffect, useRef, useCallback, useState } from 'react'
 import { getModeIcon } from '@/components/Map/TransportModeSelector'
 import { INCIDENT_TYPES } from '@/data/incidentTypes'
 import { Incident } from '@/types'
+import { VoiceGuide, instructionText, formatDistance } from '@/lib/navigation/instructions'
 
 function timeAgo(d: Date): string {
   const mins = Math.floor((Date.now() - d.getTime()) / 60000)
@@ -14,44 +15,13 @@ function timeAgo(d: Date): string {
   return h === 1 ? 'há 1h' : `há ${h}h`
 }
 
-function traduzirInstrucao(type: string, modifier: string | undefined, street: string | undefined, distMetros: number): string {
-  const dist = distMetros >= 1000
-    ? `em ${(distMetros / 1000).toFixed(1)} quilômetros`
-    : distMetros > 60
-    ? `em ${Math.round(distMetros / 10) * 10} metros`
-    : ''
-  const rua = street || ''
-  const key = `${type}${modifier ? ' ' + modifier : ''}`
-  const map: Record<string, string> = {
-    'turn right':        `${dist}, vire à direita`,
-    'turn left':         `${dist}, vire à esquerda`,
-    'turn sharp right':  `${dist}, vire acentuadamente à direita`,
-    'turn sharp left':   `${dist}, vire acentuadamente à esquerda`,
-    'turn slight right': `${dist}, mantenha-se à direita`,
-    'turn slight left':  `${dist}, mantenha-se à esquerda`,
-    'turn uturn':        `${dist}, faça inversão de marcha`,
-    'continue straight': `siga em frente${rua ? ' por ' + rua : ''}`,
-    'straight':          `siga em frente${rua ? ' por ' + rua : ''}`,
-    'arrive':            'chegou ao destino',
-    'depart':            `siga em frente${rua ? ' por ' + rua : ''}`,
-    'roundabout':        `${dist}, entre na rotunda`,
-    'rotary':            `${dist}, entre na rotunda`,
-    'exit roundabout':   `saia da rotunda${rua ? ' em direção a ' + rua : ''}`,
-    'merge':             `${dist}, incorpore-se à via`,
-    'fork right':        `${dist}, mantenha-se à direita na bifurcação`,
-    'fork left':         `${dist}, mantenha-se à esquerda na bifurcação`,
-    'on ramp':           `${dist}, entre na via`,
-    'off ramp':          `${dist}, saia da via${rua ? ' em direção a ' + rua : ''}`,
-  }
-  const base = map[key] ?? map[type] ?? `${dist} ${key}`.trim()
-  return rua && !base.includes(rua) && type !== 'arrive' ? `${base}, em direção a ${rua}` : base
-}
-
 function getManeuverIcon(type: string, modifier?: string): string {
   if (type === 'arrive') return '🏁'
   if (type === 'depart') return '🧭'
   if (type === 'roundabout' || type === 'rotary') return '↻'
-  if (type === 'uturn') return '↩'
+  if (modifier === 'uturn') return '↩'
+  if (modifier === 'slight left') return '↖'
+  if (modifier === 'slight right') return '↗'
   if (modifier?.includes('left')) return '↰'
   if (modifier?.includes('right')) return '↱'
   return '↑'
@@ -61,8 +31,14 @@ interface Props {
   isNavigating: boolean
   currentStep: any
   nextStep?: any
+  steps?: any[]
+  stepIdx?: number
+  nextGap?: number          // metros entre a próxima manobra e a seguinte
+  speedMps?: number
+  hasArrived?: boolean
   distToNext: number
   remainingDist: number
+  remainingSec?: number
   navEta: number
   riskOnRoute: boolean
   navModeKey: string
@@ -86,8 +62,14 @@ export default function NavigationScreen({
   isNavigating,
   currentStep,
   nextStep,
+  steps = [],
+  stepIdx = 0,
+  nextGap,
+  speedMps = 0,
+  hasArrived = false,
   distToNext,
   remainingDist,
+  remainingSec,
   navEta,
   riskOnRoute,
   navModeKey,
@@ -106,9 +88,6 @@ export default function NavigationScreen({
   currentUserId,
   onVoteIncident,
 }: Props) {
-  const prevInstructionRef = useRef<string | null>(null)
-  const distToNextRef = useRef(0)
-  distToNextRef.current = distToNext
   const [muted, setMuted] = useState(false)
   const [voting, setVoting] = useState(false)
   // Cache voices — on mobile they load asynchronously after mount
@@ -157,31 +136,34 @@ export default function NavigationScreen({
     window.speechSynthesis.speak(utterance)
   }, [getVoice, muted])
 
-  // Speak when step changes — use PT-BR natural instruction
+  // Guia de voz estilo Google Maps: aviso antecipado ("Em 300 metros, vire à direita"),
+  // aviso na hora da manobra e "Siga em frente por 2 km" quando a próxima está longe.
+  // (Antes falava uma única vez, logo depois da manobra anterior, e às vezes em inglês.)
+  const guideRef = useRef(new VoiceGuide())
+  const guideStepsRef = useRef<any[] | null>(null)
   useEffect(() => {
-    if (!isNavigating || !currentStep || muted) return
-    const instruction = currentStep.maneuver?.instruction ?? ''
-    if (!instruction || instruction === prevInstructionRef.current) return
-    prevInstructionRef.current = instruction
-    const texto = traduzirInstrucao(
-      currentStep.maneuver?.type ?? '',
-      currentStep.maneuver?.modifier,
-      currentStep.name,
-      distToNextRef.current,
-    )
-    speak(texto)
-  }, [isNavigating, currentStep, speak, muted])
+    if (!isNavigating || muted || !steps.length || hasArrived) return
+    // Rota nova (recálculo / troca de rota) → recomeça os avisos
+    if (guideStepsRef.current !== steps) { guideStepsRef.current = steps; guideRef.current.reset() }
+    const text = guideRef.current.next(steps, stepIdx, distToNext, speedMps, nextGap)
+    if (text) speak(text)
+  }, [isNavigating, steps, stepIdx, distToNext, speedMps, nextGap, muted, hasArrived, speak])
+
+  useEffect(() => {
+    if (hasArrived && isNavigating && !muted) speak('Você chegou ao destino')
+  }, [hasArrived, isNavigating, muted, speak])
 
   // Announce recalculation
   useEffect(() => {
-    if (isRecalculating && !muted) speak('A recalcular rota')
+    if (isRecalculating && !muted) speak('Recalculando rota')
   }, [isRecalculating, speak, muted])
 
   // Cancel speech on nav end
   useEffect(() => {
     if (!isNavigating) {
       window.speechSynthesis?.cancel()
-      prevInstructionRef.current = null
+      guideRef.current.reset()
+      guideStepsRef.current = null
     }
     return () => { window.speechSynthesis?.cancel() }
   }, [isNavigating])
@@ -194,7 +176,7 @@ export default function NavigationScreen({
   if (!isNavigating) return null
 
   const progressPct = totalDist > 0 ? Math.min(100, ((totalDist - remainingDist) / totalDist) * 100) : 0
-  const arrivalTime = new Date(Date.now() + navEta * 60 * 1000)
+  const arrivalTime = new Date(Date.now() + (remainingSec ?? navEta * 60) * 1000)
   const arrivalStr = arrivalTime.toLocaleTimeString('pt-PT', { hour: '2-digit', minute: '2-digit' })
 
   return (
@@ -251,11 +233,11 @@ export default function NavigationScreen({
                   color: 'white', fontSize: 17, fontWeight: 700, lineHeight: 1.25,
                   overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
                 }}>
-                  {currentStep.maneuver?.instruction ?? ''}
+                  {instructionText(currentStep)}
                 </div>
                 <div style={{ color: '#93c5fd', fontSize: 13, marginTop: 3 }}>
                   {currentStep.name ? `${currentStep.name} · ` : ''}
-                  {distToNext > 999 ? `${(distToNext / 1000).toFixed(1)}km` : `${distToNext}m`}
+                  {formatDistance(distToNext)}
                 </div>
               </div>
               {/* Mode icon — static display */}
@@ -263,7 +245,7 @@ export default function NavigationScreen({
             </div>
 
             {/* Next step preview */}
-            {nextStep?.maneuver?.instruction && (
+            {nextStep?.maneuver && nextStep.maneuver.type !== 'arrive' && (
               <div style={{
                 marginTop: 8, paddingTop: 8,
                 borderTop: '1px solid rgba(255,255,255,0.1)',
@@ -276,7 +258,7 @@ export default function NavigationScreen({
                   color: '#64748b', fontSize: 11,
                   overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
                 }}>
-                  A seguir: {nextStep.maneuver.instruction}
+                  A seguir: {instructionText(nextStep)}
                 </span>
               </div>
             )}
@@ -437,9 +419,7 @@ export default function NavigationScreen({
           <div style={{ padding: '12px 16px', display: 'flex', alignItems: 'center', gap: 12 }}>
             <div>
               <div style={{ fontSize: 20, fontWeight: 700, color: 'var(--text)', lineHeight: 1 }}>
-                {remainingDist > 1000
-                  ? `${(remainingDist / 1000).toFixed(1)}km`
-                  : `${Math.round(remainingDist)}m`}
+                {formatDistance(remainingDist)}
               </div>
               <div style={{ fontSize: 12, color: 'var(--muted)', marginTop: 2 }}>{navEta} min · Chega às {arrivalStr}</div>
             </div>

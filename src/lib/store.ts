@@ -2,6 +2,16 @@
 import { create } from 'zustand'
 import { User, Incident, Group, Alert, EmergencyContacts } from '@/types'
 
+/** Leitura completa do GPS (a navegação usa precisão, direção e velocidade). */
+export interface GpsFix {
+  lat: number
+  lng: number
+  accuracy: number | null  // metros
+  heading: number | null   // graus
+  speed: number | null     // m/s
+  time: number             // ms
+}
+
 interface AppState {
   user: User | null
   incidents: Incident[]
@@ -10,6 +20,7 @@ interface AppState {
   alerts: Alert[]
   isSharingLocation: boolean
   currentLocation: { lat: number; lng: number } | null
+  currentFix: GpsFix | null
   emergencyContacts: EmergencyContacts | null
   activeGroupId: string | null
 
@@ -23,6 +34,7 @@ interface AppState {
   toggleLocationSharing: () => void
   setIsSharingLocation: (v: boolean) => void
   setCurrentLocation: (loc: { lat: number; lng: number } | null) => void
+  setCurrentFix: (fix: GpsFix | null) => void
   setEmergencyContacts: (c: EmergencyContacts | null) => void
   setActiveGroupId: (id: string | null) => void
 }
@@ -35,6 +47,7 @@ export const useStore = create<AppState>((set) => ({
   alerts: [],
   isSharingLocation: false,
   currentLocation: null,
+  currentFix: null,
   emergencyContacts: null,
   activeGroupId: null,
 
@@ -51,6 +64,7 @@ export const useStore = create<AppState>((set) => ({
     set((state) => ({ isSharingLocation: !state.isSharingLocation })),
   setIsSharingLocation: (isSharingLocation: boolean) => set({ isSharingLocation }),
   setCurrentLocation: (currentLocation) => set({ currentLocation }),
+  setCurrentFix: (currentFix) => set({ currentFix, currentLocation: currentFix ? { lat: currentFix.lat, lng: currentFix.lng } : null }),
   setEmergencyContacts: (emergencyContacts) => set({ emergencyContacts }),
   setActiveGroupId: (activeGroupId) => set({ activeGroupId }),
 }))
