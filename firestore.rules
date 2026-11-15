@@ -3,6 +3,17 @@ rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
 
+    // Administradores — manter igual a src/lib/admin.ts
+    function isAdmin() {
+      return request.auth != null && (
+        request.auth.uid == 'kXNpNTLYe5P55PhI8K4VrZSahOC2'
+        || request.auth.token.email in [
+          'mauriciomg_2010@hotmail.com',
+          'daianeschlichting83@gmail.com'
+        ]
+      );
+    }
+
     // Users: authenticated users can read all profiles
     // Write: create own doc, update own doc, OR update another's doc (for referral counter increments)
     match /users/{docId} {
@@ -10,7 +21,8 @@ service cloud.firestore {
       allow create: if request.auth != null
         && request.resource.data.id == request.auth.uid;
       allow update: if request.auth != null;
-      allow delete: if request.auth != null;
+      // apagar perfil: só o próprio usuário ou admin (antes qualquer um podia apagar qualquer perfil)
+      allow delete: if request.auth != null && (request.auth.uid == docId || resource.data.id == request.auth.uid || isAdmin());
     }
 
     // Incidents: authenticated users can read and create their own
@@ -25,7 +37,8 @@ service cloud.firestore {
           || !('voters' in resource.data)
           || !(request.auth.uid in resource.data.voters)
         );
-      allow delete: if request.auth != null;
+      // apagar report: só o autor ou admin (os reports são a base de dados do projeto)
+      allow delete: if request.auth != null && (resource.data.userId == request.auth.uid || isAdmin());
     }
 
     // Groups
@@ -74,16 +87,21 @@ service cloud.firestore {
       allow read, write: if request.auth != null && request.auth.uid == userId;
     }
 
-    // Risk zones: any authenticated user can create/read/delete
-    // Update: creator can always update; auto-clustering zones can be updated by anyone (no createdBy)
+    // Risk zones
+    // • Zonas desenhadas (manuais / permanentes): só administradores criam, editam ou apagam.
+    // • Zonas automáticas (geradas pelos reports, id AUTO-...): o app de qualquer usuário pode
+    //   criar/atualizar/remover, mas NUNCA transformá-las em manuais ou permanentes.
     match /risk_zones/{zoneId} {
+      function isAutoData(d) {
+        return d.source == 'auto_clustering' && d.isPermanent == false;
+      }
       allow read: if request.auth != null;
-      allow create: if request.auth != null;
-      allow delete: if request.auth != null;
-      allow update: if request.auth != null
-        && (resource.data.createdBy == request.auth.uid
-            || resource.data.source == 'auto_clustering'
-            || !('createdBy' in resource.data));
+      allow create: if isAdmin()
+        || (request.auth != null && zoneId.matches('AUTO-.*') && isAutoData(request.resource.data));
+      allow update: if isAdmin()
+        || (request.auth != null && isAutoData(resource.data) && isAutoData(request.resource.data));
+      allow delete: if isAdmin()
+        || (request.auth != null && isAutoData(resource.data));
     }
 
     // Referral codes — public read (unauthenticated signup flow)
