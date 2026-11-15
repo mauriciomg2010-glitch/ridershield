@@ -105,20 +105,30 @@ const zonesGeoJSON = {
 }
 
 // ─── Camera constants — tune here if rider position needs adjustment ──────────
-const NAV_ZOOM    = 16.8  // zoom level during nav — lower = further back, more road ahead visible
-const NAV_PITCH   = 62    // 3D tilt — Google Maps-style; try 65 for even more horizon
-const NAV_RIDER_Y = 0.78  // screen Y of rider (0=top, 1=bottom); tune here — with pitchCorrection=1.0 this gives ~76% of screen height at pitch=62°
+const NAV_ZOOM    = 16.2  // zoom inicial da navegação (parado) — igual ao Google: vê as ruas à volta
+const NAV_PITCH   = 60    // inclinação 3D estilo Google Maps (visão de quem dirige)
+const NAV_RIDER_Y = 0.80  // seta no terço de baixo do ecrã (0=topo, 1=base) — mais rua à frente
+const NAV_ZOOM_BIAS_KEY = 'zivo_nav_zoom_bias'
 
 // ---- Navigation helpers ----
 
-// Zoom adapts to speed — low speed: close view; high speed: wide view ahead
+// Zoom conforme a velocidade (estilo Google Maps): parado/devagar mostra o quarteirão e as
+// ruas vizinhas; mais rápido afasta para ver mais estrada à frente.
 function calcularZoomPorVelocidade(speedKmh: number): number {
-  if (!speedKmh || speedKmh < 1) return 17.5   // stationary / very slow
-  if (speedKmh < 5)              return 17.2   // walking
-  if (speedKmh < 12)             return 17.0   // cycling
-  if (speedKmh < 25)             return 16.5   // e-bike / slow scooter
-  if (speedKmh < 50)             return 16.0   // scooter / motorcycle
-  return 15.5                                  // fast — maximum road-ahead view
+  if (!speedKmh || speedKmh < 5) return 16.2   // parado / a pé
+  if (speedKmh < 15)             return 16.0   // bicicleta / trânsito lento
+  if (speedKmh < 30)             return 15.8   // cidade
+  if (speedKmh < 50)             return 15.5   // avenidas
+  if (speedKmh < 80)             return 15.1
+  return 14.7                                  // via rápida
+}
+
+// Ajuste de zoom escolhido pelo rider (pinça + "re-centralizar") — fica guardado no aparelho
+function lerZoomBias(): number {
+  try { const v = Number(localStorage.getItem(NAV_ZOOM_BIAS_KEY)); return Number.isFinite(v) ? Math.max(-2, Math.min(1.5, v)) : 0 } catch { return 0 }
+}
+function gravarZoomBias(v: number) {
+  try { localStorage.setItem(NAV_ZOOM_BIAS_KEY, String(Math.round(v * 100) / 100)) } catch {}
 }
 
 // Moves camera center AHEAD of rider (+ sign) so rider appears in lower third.
@@ -463,6 +473,8 @@ export default function MapView({ groupMembers = EMPTY_MEMBERS, currentUserId, g
   const snapFromResumeRef = useRef(false)
 
   const zoomAtualRef = useRef(NAV_ZOOM)
+  const zoomBiasRef = useRef(0)
+  useEffect(() => { zoomBiasRef.current = lerZoomBias() }, [])
 
   // Search
   const [showSearch, setShowSearch] = useState(false)
@@ -504,6 +516,7 @@ export default function MapView({ groupMembers = EMPTY_MEMBERS, currentUserId, g
     localStorage.setItem('showZones', JSON.stringify(showZones))
   }, [showZones])
 
+  const incidentsLoadedRef = useRef(false)
   // 24h cutoff — stable reference so the effect doesn't restart on every render
   const incidentCutoff = useMemo(() => new Date(Date.now() - 24 * 3600 * 1000), [])
 
@@ -511,7 +524,7 @@ export default function MapView({ groupMembers = EMPTY_MEMBERS, currentUserId, g
   useEffect(() => {
     if (!isActive) return
     setIncidents([])
-    return subscribeToIncidents(setIncidents, incidentCutoff)
+    return subscribeToIncidents(list => { incidentsLoadedRef.current = true; setIncidents(list) }, incidentCutoff)
   }, [isActive, setIncidents, incidentCutoff])
 
   // Subscribe to Firestore risk_zones — when shield is on OR zones modal is open, and not navigating
@@ -744,7 +757,9 @@ export default function MapView({ groupMembers = EMPTY_MEMBERS, currentUserId, g
       // (a seta é desenhada pelo UserPuck com animação própria — sem redesenhar o mapa inteiro)
 
       if (nav.isNavigating && !navMapFreeRef.current && posAtualRef.current.lat !== 0) {
-        const zAlvo = calcularZoomPorVelocidade(nav.navSpeed)
+        // perto de uma curva aproxima um pouco (como o Google) para mostrar a manobra
+        const pertoDaCurva = !!pr && pr.distToManeuver < 120 && nav.navSpeed < 45
+        const zAlvo = calcularZoomPorVelocidade(nav.navSpeed) + zoomBiasRef.current + (pertoDaCurva ? 0.35 : 0)
         zoomAtualRef.current += (zAlvo - zoomAtualRef.current) * (1 - Math.exp(-dt / 1500))
         const zoom = zoomAtualRef.current
         const heading = headingAtualRef.current
@@ -960,17 +975,18 @@ export default function MapView({ groupMembers = EMPTY_MEMBERS, currentUserId, g
       setSelectedIncident(null)
       setSelectedZone(null)
       onPanelChange?.(false)
-      const { lat: cLat, lng: cLng } = calcularCentroDeslocado(currentLocation.lat, currentLocation.lng, b0, NAV_ZOOM)
+      const z0 = NAV_ZOOM + zoomBiasRef.current
+      const { lat: cLat, lng: cLng } = calcularCentroDeslocado(currentLocation.lat, currentLocation.lng, b0, z0)
       mapRef.current?.flyTo({
         center: [cLng, cLat],
-        pitch: NAV_PITCH, zoom: NAV_ZOOM, bearing: b0, duration: 800,
+        pitch: NAV_PITCH, zoom: z0, bearing: b0, duration: 800,
       })
       if (snapTimerRef.current !== null) clearTimeout(snapTimerRef.current)
       snapTimerRef.current = setTimeout(() => {
         snapTimerRef.current = null
         const s = rafNavStateRef.current
         headingAtualRef.current = s.northLocked ? 0 : s.navBearing
-        zoomAtualRef.current = NAV_ZOOM
+        zoomAtualRef.current = NAV_ZOOM + zoomBiasRef.current
         navMapFreeRef.current = false
       }, 800)
     } catch {
@@ -1036,7 +1052,14 @@ export default function MapView({ groupMembers = EMPTY_MEMBERS, currentUserId, g
     const s = rafNavStateRef.current
     const liveHeading = s.northLocked ? 0 : (s.navSpeed > 7 || !s.compassActive ? s.navBearing : s.heading)
     headingAtualRef.current = liveHeading
-    const zoom = calcularZoomPorVelocidade(s.navSpeed)
+    const auto = calcularZoomPorVelocidade(s.navSpeed)
+    // Se o rider afastou/aproximou com a pinça antes de re-centralizar, guarda essa preferência
+    const zNow = mapRef.current?.getZoom()
+    if (navMapFreeRef.current && typeof zNow === 'number' && Number.isFinite(zNow)) {
+      const bias = Math.max(-2, Math.min(1.5, zNow - auto))
+      if (Math.abs(bias - zoomBiasRef.current) > 0.15) { zoomBiasRef.current = bias; gravarZoomBias(bias) }
+    }
+    const zoom = auto + zoomBiasRef.current
     const pos = posAtualRef.current.lat !== 0 ? posAtualRef.current : currentLocation
     if (!pos || pos.lat === 0) return
     const { lat: rcLat, lng: rcLng } = calcularCentroDeslocado(pos.lat, pos.lng, liveHeading, zoom)
@@ -1308,6 +1331,34 @@ export default function MapView({ groupMembers = EMPTY_MEMBERS, currentUserId, g
     prevSelectedPermZoneRef.current = selectedPermZone
     if (was && !selectedPermZone && navegandoRef.current) resumeFollow()
   }, [selectedPermZone, resumeFollow])
+
+  // Report novo de OUTRO rider por perto (até 1,5 km): aviso imediato em todos os aparelhos.
+  // Ignora a 1ª carga (reports antigos) e os próprios reports.
+  const seenIncidentIdsRef = useRef<Set<string> | null>(null)
+  useEffect(() => {
+    if (!incidentsLoadedRef.current) return
+    if (seenIncidentIdsRef.current === null) {
+      seenIncidentIdsRef.current = new Set(incidents.map(i => i?.id).filter(Boolean))
+      return
+    }
+    const seen = seenIncidentIdsRef.current
+    for (const inc of incidents) {
+      if (!inc?.id || seen.has(inc.id)) continue
+      seen.add(inc.id)
+      try {
+        if (!currentUserId || inc.userId === currentUserId) continue
+        if (!(inc.timestamp instanceof Date) || Date.now() - inc.timestamp.getTime() > 5 * 60_000) continue
+        const pos = posAtualRef.current.lat !== 0 ? posAtualRef.current : currentLocation
+        if (!pos || !inc.location) continue
+        const d = metersBetweenLocal(pos, inc.location)
+        if (d > 1500) continue
+        const label = QUICK_REPORT_TYPES.find(t => t.id === inc.type)?.label ?? 'Incidente'
+        const emoji = QUICK_REPORT_TYPES.find(t => t.id === inc.type)?.emoji ?? '⚠️'
+        toast(`${emoji} Novo report perto: ${label} a ${d < 1000 ? `${Math.round(d / 10) * 10} m` : `${(d / 1000).toFixed(1).replace('.', ',')} km`}`, { duration: 5000 })
+      } catch { /* aviso é opcional */ }
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [incidents])
 
   // Reports de outros riders durante a navegação (estilo Waze):
   // avisa a até 300 m À FRENTE NA ROTA (não em linha reta — rua paralela não conta),
@@ -2071,13 +2122,17 @@ export default function MapView({ groupMembers = EMPTY_MEMBERS, currentUserId, g
             }} />
           ) : (
             <Layer id="incidents-circle" type="circle" paint={{
+              // cor por tipo (lista atual + tipos antigos)
               'circle-color': ['match', ['get', 'type'],
-                'robbery', '#ef4444', 'attempted_robbery', '#f97316',
-                'aggression', '#eab308', 'suspicious_activity', '#93c5fd',
-                'accident', '#60a5fa', 'road_hazard', '#34d399', '#6b7280'],
-              'circle-radius': 8, 'circle-stroke-width': 2,
-              'circle-stroke-color': 'white', 'circle-opacity': 0.9,
-            }} />
+                ...QUICK_REPORT_TYPES.flatMap(t => [t.id, t.color]),
+                'robbery', '#ef4444', 'aggression', '#eab308', 'accident', '#60a5fa',
+                '#6b7280'],
+              // maior e visível também com o mapa afastado (antes 8 px fixos)
+              'circle-radius': ['interpolate', ['linear'], ['zoom'], 11, 6, 14, 9, 16, 12, 18, 15],
+              'circle-stroke-width': 3,
+              'circle-stroke-color': 'white', 'circle-opacity': 0.95,
+              'circle-pitch-alignment': 'viewport',
+            } as any} />
           )}
         </Source>
 
