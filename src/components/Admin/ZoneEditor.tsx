@@ -3,10 +3,11 @@ import { useState, useRef, useCallback, useEffect } from 'react'
 import Map, { Source, Layer, Marker } from 'react-map-gl/mapbox'
 import 'mapbox-gl/dist/mapbox-gl.css'
 import {
-  collection, getDocs, setDoc, deleteDoc, doc,
+  collection, getDocs, setDoc, deleteDoc, doc, updateDoc,
   serverTimestamp, query, orderBy, onSnapshot,
 } from 'firebase/firestore'
 import { db, auth } from '@/lib/firebase'
+import { hoursLabel } from '@/lib/navigation/zones'
 
 type EditorMode = null | 'point' | 'polygon' | 'segment'
 type RiskLevel = 'low' | 'medium' | 'high' | 'critical'
@@ -18,6 +19,8 @@ interface PendingZone {
   name: string
   riskLevel: RiskLevel
   peakHours: number[]
+  /** true = só desviar nas horas marcadas (fora delas a zona não bloqueia a rota) */
+  onlyPeak?: boolean
   notes: string
   coordinates?: number[][]
   geometry?: any
@@ -31,6 +34,8 @@ interface SavedZone {
   zoneType: string; createdAt?: Date; createdBy?: string
   polygon?: any[] | null
   geometry?: { type: string; coordinates: any[] } | null
+  peakHours: number[]
+  blockOnlyInPeakHours: boolean
 }
 
 const LEVEL_COLOR: Record<RiskLevel, string> = {
@@ -107,6 +112,8 @@ export default function ZoneEditor({ onToast, isSuperAdmin = false, currentUid =
         createdBy: d.data().createdBy ?? '',
         polygon: d.data().polygon ?? null,
         geometry: d.data().geometry ?? null,
+        peakHours: Array.isArray(d.data().peakHours) ? d.data().peakHours : [],
+        blockOnlyInPeakHours: d.data().blockOnlyInPeakHours === true,
       })))
     )
     return unsub
@@ -207,6 +214,7 @@ export default function ZoneEditor({ onToast, isSuperAdmin = false, currentUid =
         riskLevel: pendingState.riskLevel,
         riskScore: pendingState.riskLevel === 'critical' ? 90 : pendingState.riskLevel === 'high' ? 70 : pendingState.riskLevel === 'medium' ? 45 : 20,
         peakHours: pendingState.peakHours,
+        blockOnlyInPeakHours: !!pendingState.onlyPeak && pendingState.peakHours.length > 0,
         notes: pendingState.notes,
         isPermanent: true,
         canBeRemovedByReports: false,
@@ -223,6 +231,16 @@ export default function ZoneEditor({ onToast, isSuperAdmin = false, currentUid =
       onToast(`❌ Erro: ${e.message}`)
     }
     setLoadingSave(false)
+  }
+
+  const toggleOnlyPeak = async (z: SavedZone) => {
+    if (!z.peakHours.length) { onToast('Esta zona não tem horas marcadas'); return }
+    try {
+      await updateDoc(z.docRef, { blockOnlyInPeakHours: !z.blockOnlyInPeakHours, updatedAt: serverTimestamp() })
+      onToast(z.blockOnlyInPeakHours ? '🛡️ Agora bloqueia o dia todo' : `🕗 Só bloqueia ${hoursLabel(z.peakHours)}`)
+    } catch (e: any) {
+      onToast(`❌ Erro: ${e.message}`)
+    }
   }
 
   const deleteZone = async (z: SavedZone) => {
@@ -489,6 +507,20 @@ export default function ZoneEditor({ onToast, isSuperAdmin = false, currentUid =
             ))}
           </div>
 
+          <label style={{ display: 'flex', alignItems: 'flex-start', gap: 8, marginBottom: 12, cursor: 'pointer' }}>
+            <input type="checkbox" checked={!!pendingState.onlyPeak}
+              onChange={e => setPendingState({ ...pendingState, onlyPeak: e.target.checked })}
+              style={{ marginTop: 2, accentColor: '#f59e0b' }} />
+            <span style={{ fontSize: 12, color: '#d1d5db', lineHeight: 1.35 }}>
+              🕗 Só desviar nestas horas
+              <span style={{ display: 'block', fontSize: 11, color: '#9ca3af' }}>
+                {pendingState.onlyPeak
+                  ? (pendingState.peakHours.length ? `A rota só evita esta zona ${hoursLabel(pendingState.peakHours)}.` : 'Marca pelo menos uma hora acima.')
+                  : 'Desligado: a zona é evitada o dia todo (recomendado).'}
+              </span>
+            </span>
+          </label>
+
           <label style={{ fontSize: 11, color: '#9ca3af', fontWeight: 700 }}>NOTAS (opcional)</label>
           <textarea
             value={pendingState.notes}
@@ -525,6 +557,15 @@ export default function ZoneEditor({ onToast, isSuperAdmin = false, currentUid =
                 <div style={{ width: 8, height: 8, borderRadius: '50%', background: LEVEL_COLOR[z.riskLevel], flexShrink: 0 }} />
                 <span style={{ flex: 1, fontSize: 13, color: '#d1d5db' }}>{z.areaName}</span>
                 <span style={{ fontSize: 10, color: '#9ca3af', background: '#1a1035', padding: '2px 6px', borderRadius: 6 }}>{z.zoneType}</span>
+                {(isSuperAdmin || canEditZone(z, currentUid, isSuperAdmin)) && z.peakHours.length > 0 ? (
+                  <button onClick={() => toggleOnlyPeak(z)}
+                    title={z.blockOnlyInPeakHours ? `Só bloqueia ${hoursLabel(z.peakHours)} — toca para bloquear o dia todo` : 'Bloqueia o dia todo — toca para bloquear só nas horas de pico'}
+                    style={{ background: z.blockOnlyInPeakHours ? 'rgba(245,158,11,0.15)' : 'transparent', border: `1px solid ${z.blockOnlyInPeakHours ? 'rgba(245,158,11,0.4)' : 'rgba(255,255,255,0.1)'}`, borderRadius: 6, padding: '2px 6px', color: z.blockOnlyInPeakHours ? '#fbbf24' : '#6b7280', fontSize: 10, fontWeight: 700, cursor: 'pointer' }}>
+                    {z.blockOnlyInPeakHours ? `🕗 ${hoursLabel(z.peakHours)}` : '24h'}
+                  </button>
+                ) : z.blockOnlyInPeakHours ? (
+                  <span style={{ fontSize: 10, color: '#fbbf24' }}>🕗 {hoursLabel(z.peakHours)}</span>
+                ) : null}
                 <span style={{ fontSize: 10, fontWeight: 700, color: LEVEL_COLOR[z.riskLevel] }}>{z.riskLevel}</span>
                 {(isSuperAdmin || canEditZone(z, currentUid, isSuperAdmin)) ? (
                   <button onClick={() => deleteZone(z)}

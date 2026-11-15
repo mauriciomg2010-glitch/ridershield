@@ -2,7 +2,8 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { distM, destination, decodePolyline6, LngLat, bearing } from '../src/lib/navigation/geo'
-import { fromFirestoreZone, zonesOnRoute, pointInZone, AvoidZone } from '../src/lib/navigation/zones'
+import { fromFirestoreZone, zonesOnRoute, pointInZone, AvoidZone, hoursLabel } from '../src/lib/navigation/zones'
+import { normalizeReferralCode } from '../src/lib/referralLink'
 import { flattenSteps, findSafeRoute, valhallaTripToRoute } from '../src/lib/navigation/routing'
 import { RouteTracker } from '../src/lib/navigation/routeTracker'
 import { VoiceGuide, formatDistance, spokenDistance, instructionText, buildInstruction, bannerText } from '../src/lib/navigation/instructions'
@@ -286,4 +287,23 @@ test('servidor público do Valhalla: no máximo 1 consulta por segundo', async (
   await Promise.all([fetchValhallaRoutes(o, d, 'driving', []), fetchValhallaRoutes(o, d, 'driving', []), fetchValhallaRoutes(o, d, 'driving', [])])
   assert.equal(times.length, 3)
   assert.ok(times[1] - times[0] >= 1000 && times[2] - times[1] >= 1000, JSON.stringify(times))
+})
+
+// ── Zonas só por horário ─────────────────────────────────────────────
+test('zona só nas horas de pico (canal à noite)', () => {
+  const base = { id: 'canal', areaName: 'Canal', riskLevel: 'high', lat: 53.33, lng: -6.27, radius: 150, peakHours: [20, 21, 22, 23, 0, 1, 2, 3, 4, 5] }
+  const at = (h: number) => new Date(2026, 10, 15, h, 10)
+  assert.ok(fromFirestoreZone(base, at(14)), 'zona normal bloqueia de dia')
+  assert.equal(fromFirestoreZone({ ...base, blockOnlyInPeakHours: true }, at(14)), null)
+  assert.ok(fromFirestoreZone({ ...base, blockOnlyInPeakHours: true }, at(22)))
+  assert.ok(fromFirestoreZone({ ...base, blockOnlyInPeakHours: true }, at(3)))
+  assert.ok(fromFirestoreZone({ ...base, peakHours: [], blockOnlyInPeakHours: true }, at(14)), 'sem horas marcadas bloqueia sempre')
+  assert.equal(hoursLabel(base.peakHours), '20h–6h')
+  assert.equal(hoursLabel([7, 8, 17, 18]), '7h–9h, 17h–19h')
+})
+
+// ── Link de indicação ────────────────────────────────────────────────
+test('código de indicação do link', () => {
+  assert.equal(normalizeReferralCode(' zivo-ab12 '), 'ZIVO-AB12')
+  assert.equal(normalizeReferralCode('<script>'), null)
 })

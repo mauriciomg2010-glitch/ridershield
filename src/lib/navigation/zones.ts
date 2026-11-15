@@ -25,6 +25,19 @@ export interface AvoidZone {
   source: 'firestore' | 'permanent'
 }
 
+/** [20,21,22,23,0,1] → "20h–2h" (blocos contínuos, inclusive passando da meia-noite). */
+export function hoursLabel(hours: number[]): string {
+  const set = new Set(hours.map(h => ((Number(h) % 24) + 24) % 24))
+  if (set.size === 0) return ''
+  if (set.size === 24) return '24h'
+  const starts = [...set].filter(h => !set.has((h + 23) % 24)).sort((a, b) => a - b)
+  return starts.map(s => {
+    let e = s
+    while (set.has((e + 1) % 24)) e = (e + 1) % 24
+    return `${s}h–${(e + 1) % 24}h`
+  }).join(', ')
+}
+
 const toPt = (c: any): LngLat | null => {
   if (Array.isArray(c) && c.length >= 2 && isFinite(c[0]) && isFinite(c[1])) return [Number(c[0]), Number(c[1])]
   if (c && isFinite(c.lng) && isFinite(c.lat)) return [Number(c.lng), Number(c.lat)]
@@ -70,12 +83,15 @@ export function fromFirestoreZone(raw: any, now = new Date()): AvoidZone | null 
   if (expMs && expMs < now.getTime()) return null
 
   const hour = now.getHours()
+  // Zona só por horário (ex.: canal à noite): fora das horas marcadas não é evitada.
+  const peaks: number[] = Array.isArray(raw.peakHours) ? raw.peakHours.map(Number) : []
+  if (raw.blockOnlyInPeakHours === true && peaks.length > 0 && !peaks.includes(hour)) return null
   const base = {
     id: String(raw.id ?? raw.zoneId ?? ''),
     name: String(raw.areaName ?? raw.segmentName ?? raw.name ?? raw.id ?? 'Zona'),
     level: (['low', 'medium', 'high', 'critical'].includes(raw.riskLevel) ? raw.riskLevel : 'medium') as ZoneLevel,
     city: String(raw.city ?? 'dublin'),
-    peak: Array.isArray(raw.peakHours) && raw.peakHours.includes(hour),
+    peak: peaks.includes(hour),
     source: 'firestore' as const,
   }
 

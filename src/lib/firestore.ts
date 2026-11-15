@@ -560,6 +560,16 @@ async function indexReferralCode(code: string, uid: string): Promise<void> {
   }
 }
 
+/** Garante que o código do utilizador está no índice público (para quem se cadastra pelo link dele). */
+export async function ensureReferralIndexed(uid: string, code?: string | null): Promise<void> {
+  if (!uid || !code || !code.startsWith('ZIVO-')) return
+  try {
+    const snap = await getDoc(doc(db, 'referralCodes', code))
+    if (snap.exists() && (snap.data() as any)?.uid === uid) return
+  } catch { /* segue e tenta gravar */ }
+  await indexReferralCode(code, uid)
+}
+
 export async function validateReferralCode(code: string): Promise<string | null> {
   const normalized = code.trim().toUpperCase()
   const makeTimeout = () => new Promise<never>((_, reject) =>

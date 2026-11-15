@@ -9,7 +9,7 @@ import {
   User as FirebaseUser,
 } from 'firebase/auth'
 import { auth } from '@/lib/firebase'
-import { createUserProfile, getUserProfile, applyReferral } from '@/lib/firestore'
+import { createUserProfile, getUserProfile, applyReferral, ensureReferralIndexed } from '@/lib/firestore'
 import { collection, getDocs, query, where } from 'firebase/firestore'
 import { db } from '@/lib/firebase'
 import { useStore } from '@/lib/store'
@@ -51,6 +51,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         } catch { /* non-blocking */ }
         const profile = await getUserProfile(fbUser.uid)
         setUser(profile)
+        // Contas antigas: indexa o código para o link de indicação funcionar (não bloqueia)
+        ensureReferralIndexed(fbUser.uid, (profile as any)?.referralCode).catch(() => {})
       } else {
         setUser(null)
       }

@@ -1,11 +1,12 @@
 // src/components/Auth/AuthScreen.tsx
 'use client'
-import { useState, useRef } from 'react'
+import { useState, useRef, useEffect } from 'react'
 import { sendPasswordResetEmail } from 'firebase/auth'
 import { useAuth } from '@/contexts/AuthContext'
 import { useLang } from '@/contexts/LangContext'
 import { validateReferralCode } from '@/lib/firestore'
 import { auth } from '@/lib/firebase'
+import { captureReferralFromUrl, clearPendingReferral } from '@/lib/referralLink'
 import toast from 'react-hot-toast'
 
 export default function AuthScreen() {
@@ -22,6 +23,16 @@ export default function AuthScreen() {
   const [showResetInput, setShowResetInput] = useState(false)
   const [resetEmail, setResetEmail] = useState('')
   const [resetLoading, setResetLoading] = useState(false)
+
+  // Link de indicação (?ref=ZIVO-XXXX): abre já no cadastro com o código preenchido e validado
+  useEffect(() => {
+    const code = captureReferralFromUrl()
+    if (!code) return
+    setMode('signup')
+    setReferralCode(code)
+    checkReferralCode(code)
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
 
   async function checkReferralCode(code: string) {
     const trimmed = code.trim().toUpperCase()
@@ -101,6 +112,7 @@ export default function AuthScreen() {
           referrerIdRef.current ?? undefined,
           codeTyped ? codeTyped.toUpperCase() : undefined
         )
+        clearPendingReferral()
         toast.success('Conta criada!')
       }
     } catch (err: any) {

@@ -570,6 +570,19 @@ export default function MapView({ groupMembers = EMPTY_MEMBERS, currentUserId, g
       .filter(c => Number.isFinite(c[0]) && Number.isFinite(c[1]))
   }
 
+  // Hora atual (muda 1x por hora) — zonas "só nas horas de pico" ficam apagadas fora do horário
+  const [hourNow, setHourNow] = useState(() => new Date().getHours())
+  useEffect(() => {
+    const t = setInterval(() => {
+      const h = new Date().getHours()
+      setHourNow(prev => (prev === h ? prev : h))
+    }, 60_000)
+    return () => clearInterval(t)
+  }, [])
+  const zoneOffNow = (z: any) =>
+    z?.blockOnlyInPeakHours === true && Array.isArray(z.peakHours) && z.peakHours.length > 0
+    && !z.peakHours.map(Number).includes(hourNow)
+
   // GeoJSON from Firestore risk_zones (manual zones saved via ZoneEditor)
   const firestoreZonesGeoJSON = useMemo(() => ({
     type: 'FeatureCollection' as const,
@@ -581,7 +594,7 @@ export default function MapView({ groupMembers = EMPTY_MEMBERS, currentUserId, g
         if (coords.length < 3) return []
         return [{
           type: 'Feature' as const,
-          properties: { id: z.id, level, name: z.areaName ?? z.id },
+          properties: { id: z.id, level, name: z.areaName ?? z.id, off: zoneOffNow(z) },
           geometry: { type: 'Polygon' as const, coordinates: [coords] },
         }]
       }
@@ -590,14 +603,14 @@ export default function MapView({ groupMembers = EMPTY_MEMBERS, currentUserId, g
         const poly = circleToPolygon(z.lat, z.lng, z.radius ?? 200)
         return [{
           type: 'Feature' as const,
-          properties: { id: z.id, level, name: z.areaName ?? z.id },
+          properties: { id: z.id, level, name: z.areaName ?? z.id, off: zoneOffNow(z) },
           geometry: { type: 'Polygon' as const, coordinates: [poly.map((p: number[]) => [p[1], p[0]])] },
         }]
       }
       return []
     }),
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }), [firestoreZones])
+  }), [firestoreZones, hourNow])
 
   // Durante a navegação desenha só o trecho que falta (como o Google Maps)
   // Um ponto por zona (centro), usado quando o mapa está afastado
@@ -611,10 +624,10 @@ export default function MapView({ groupMembers = EMPTY_MEMBERS, currentUserId, g
         lng = pts.reduce((a, p) => a + p[0], 0) / pts.length
         lat = pts.reduce((a, p) => a + p[1], 0) / pts.length
       }
-      return [{ type: 'Feature' as const, properties: { id: z.id, level: z.riskLevel ?? 'medium' }, geometry: { type: 'Point' as const, coordinates: [lng, lat] } }]
+      return [{ type: 'Feature' as const, properties: { id: z.id, level: z.riskLevel ?? 'medium', off: zoneOffNow(z) }, geometry: { type: 'Point' as const, coordinates: [lng, lat] } }]
     }),
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }), [firestoreZones])
+  }), [firestoreZones, hourNow])
 
   const routeCongestionGeoJSON = useMemo(() => {
     if (!routeGeoJSON?.coordinates) return null
@@ -1777,13 +1790,15 @@ export default function MapView({ groupMembers = EMPTY_MEMBERS, currentUserId, g
             <Layer id="fs-zones-fill" type="fill" minzoom={ZONE_AREA_MIN_ZOOM} paint={{
               'fill-color': ['match', ['get', 'level'],
                 'critical', '#ef4444', 'high', '#ef4444', 'medium', '#f97316', '#eab308'],
-              'fill-opacity': ['interpolate', ['linear'], ['zoom'], ZONE_AREA_MIN_ZOOM, 0.14, 14, 0.22],
+              'fill-opacity': ['interpolate', ['linear'], ['zoom'],
+                ZONE_AREA_MIN_ZOOM, ['case', ['==', ['get', 'off'], true], 0.04, 0.14],
+                14, ['case', ['==', ['get', 'off'], true], 0.06, 0.22]],
             } as any} />
             <Layer id="fs-zones-line" type="line" minzoom={ZONE_AREA_MIN_ZOOM} paint={{
               'line-color': ['match', ['get', 'level'],
                 'critical', '#dc2626', 'high', '#dc2626', 'medium', '#ea580c', '#ca8a04'],
               'line-width': ['interpolate', ['linear'], ['zoom'], ZONE_AREA_MIN_ZOOM, 1, 15, 2],
-              'line-opacity': 0.6,
+              'line-opacity': ['case', ['==', ['get', 'off'], true], 0.25, 0.6],
             } as any} />
           </Source>
         )}
@@ -1794,6 +1809,8 @@ export default function MapView({ groupMembers = EMPTY_MEMBERS, currentUserId, g
               'circle-color': ['match', ['get', 'level'],
                 'critical', '#ef4444', 'high', '#ef4444', 'medium', '#f97316', '#eab308'],
               'circle-stroke-width': 2, 'circle-stroke-color': '#ffffff',
+              'circle-opacity': ['case', ['==', ['get', 'off'], true], 0.35, 1],
+              'circle-stroke-opacity': ['case', ['==', ['get', 'off'], true], 0.35, 1],
             } as any} />
           </Source>
         )}

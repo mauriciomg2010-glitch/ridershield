@@ -45,10 +45,13 @@ export default function ReferralPanel({ uid, onClose, onUpgrade }: Props) {
   }
 
   async function handleShare() {
-    const texto = `Estou a usar o ZIVO para navegar seguro em Dublin!\nUsa o meu código ${code} para teres 30 dias PRO grátis.\nDescarrega aqui: https://ridershield.vercel.app`
+    // O link já leva o código: quem abrir cai no cadastro com ele preenchido.
+    // (Sem o campo `url` separado — o WhatsApp juntava os dois e o link sem código aparecia primeiro.)
+    const link = `https://ridershield.vercel.app/?ref=${encodeURIComponent(code)}`
+    const texto = `Estou a usar o ZIVO para navegar seguro em Dublin!\nUsa o meu código ${code} para teres 30 dias PRO grátis.\nCria a tua conta aqui: ${link}`
     if (navigator.share) {
       try {
-        await navigator.share({ title: 'ZIVO — Navega seguro', text: texto, url: `https://ridershield.vercel.app?ref=${code}` })
+        await navigator.share({ title: 'ZIVO — Navega seguro', text: texto })
       } catch {}
     } else {
       await navigator.clipboard.writeText(texto)
