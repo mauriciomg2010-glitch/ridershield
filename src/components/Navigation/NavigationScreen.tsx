@@ -1,6 +1,7 @@
 // src/components/Navigation/NavigationScreen.tsx
 'use client'
 import { useEffect, useRef, useCallback, useState } from 'react'
+import { diag } from '@/lib/diagnostics'
 import { getModeIcon } from '@/components/Map/TransportModeSelector'
 import { INCIDENT_TYPES } from '@/data/incidentTypes'
 import { Incident } from '@/types'
@@ -136,6 +137,7 @@ export default function NavigationScreen({
   }, [])
 
   const speak = useCallback((text: string) => {
+    diag('voz', { texto: text, mudo: muted })
     if (typeof window === 'undefined' || !window.speechSynthesis) return
     if (muted) return
     // não corta a frase que está sendo falada (ex.: aviso de zona); só descarta fila antiga
@@ -411,7 +413,7 @@ export default function NavigationScreen({
                   </div>
                   {incidentPhase === 'ahead' && (
                     <p style={{ fontSize: 12, color: 'var(--muted)', margin: '0 0 12px' }}>
-                      Reportado por outro rider. Vamos perguntar se ainda está lá depois de passares.
+                      {nearbyIncident?.userId === currentUserId ? 'O teu report.' : 'Reportado por outro rider. Vamos perguntar se ainda está lá depois de passares.'}
                     </p>
                   )}
                   {/* Vote buttons — só depois de passar (não distrai na aproximação) */}

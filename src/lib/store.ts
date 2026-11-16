@@ -1,3 +1,4 @@
+import { diag } from './diagnostics'
 // src/lib/store.ts
 import { create } from 'zustand'
 import { User, Incident, Group, Alert, EmergencyContacts } from '@/types'
@@ -64,7 +65,10 @@ export const useStore = create<AppState>((set) => ({
     set((state) => ({ isSharingLocation: !state.isSharingLocation })),
   setIsSharingLocation: (isSharingLocation: boolean) => set({ isSharingLocation }),
   setCurrentLocation: (currentLocation) => set({ currentLocation }),
-  setCurrentFix: (currentFix) => set({ currentFix, currentLocation: currentFix ? { lat: currentFix.lat, lng: currentFix.lng } : null }),
+  setCurrentFix: (currentFix) => {
+    if (currentFix) diag('gps', { lat: +currentFix.lat.toFixed(6), lng: +currentFix.lng.toFixed(6), acc: currentFix.accuracy, vel: currentFix.speed, rumo: currentFix.heading })
+    set({ currentFix, currentLocation: currentFix ? { lat: currentFix.lat, lng: currentFix.lng } : null })
+  },
   setEmergencyContacts: (emergencyContacts) => set({ emergencyContacts }),
   setActiveGroupId: (activeGroupId) => set({ activeGroupId }),
 }))

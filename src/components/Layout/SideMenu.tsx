@@ -14,6 +14,7 @@ import { isAdminUser, ADMIN_UID as MENU_ADMIN_UID } from '@/lib/admin'
 import { EmergencyContacts } from '@/types'
 import ReferralPanel from '@/components/Referral/ReferralPanel'
 import DeleteAccountSection from '@/components/Account/DeleteAccountSection'
+import DiagnosticsSection from '@/components/Account/DiagnosticsSection'
 import toast from 'react-hot-toast'
 
 export interface MenuCategory { key: string; label: string; icon: string; query: string }
@@ -489,6 +490,7 @@ export default function SideMenu({ open, onClose, onNavigate, categories = [], a
                 </div>}
               </div>
 
+              <DiagnosticsSection />
               <DeleteAccountSection />
             </div>
           </div>

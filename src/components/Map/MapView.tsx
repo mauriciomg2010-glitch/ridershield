@@ -11,8 +11,9 @@ import Map, { Source, Layer, Marker } from 'react-map-gl/mapbox'
 import type { MapRef } from 'react-map-gl/mapbox'
 import 'mapbox-gl/dist/mapbox-gl.css'
 import { useStore } from '@/lib/store'
-import { nextReportOnRoute } from '@/lib/navigation/reportAhead'
+import { nextReportOnRoute, nextReportAheadFree } from '@/lib/navigation/reportAhead'
 import { frequentPlaces } from '@/lib/navigation/habits'
+import { diag, diagOn, onDiagChange } from '@/lib/diagnostics'
 import { subscribeToIncidents, subscribeToGlobalPresence, reportIncident, voteIncident } from '@/lib/firestore'
 import { INCIDENT_TYPES as QUICK_REPORT_TYPES } from '@/data/incidentTypes'
 import { useLang } from '@/contexts/LangContext'
@@ -760,6 +761,7 @@ export default function MapView({ groupMembers = EMPTY_MEMBERS, currentUserId, g
         : moving ? (routeBrg ?? nav.navBearing)
         : (nav.compassActive ? nav.heading : (routeBrg ?? nav.navBearing))
       headingAtualRef.current = lerpAngle(headingAtualRef.current, targetH, 1 - Math.exp(-dt / 350))
+      diag('camara', { rumo: Math.round(headingAtualRef.current), alvo: Math.round(targetH), fonte: nav.northLocked ? 'norte' : moving ? 'rota' : nav.compassActive ? 'bussola' : 'gps', vel: Math.round(nav.navSpeed), zoom: +zoomAtualRef.current.toFixed(2), livre: navMapFreeRef.current }, 500)
 
       // (a seta é desenhada pelo UserPuck com animação própria — sem redesenhar o mapa inteiro)
 
@@ -904,6 +906,7 @@ export default function MapView({ groupMembers = EMPTY_MEMBERS, currentUserId, g
         return
       }
       const smoothed = Math.round(smoothHeading(headingHistoryRef.current, direction))
+      diag('bussola', { bruto: Math.round(direction), suave: smoothed, fonte: e.webkitCompassHeading != null ? 'ios' : e.type === 'deviceorientationabsolute' ? 'abs' : 'rel', precisao: e.webkitCompassAccuracy ?? null, beta: Math.round(e.beta ?? 0), gamma: Math.round(e.gamma ?? 0) }, 200)
       setHeading(prev => {
         const diff = Math.abs(smoothed - prev)
         if (Math.min(diff, 360 - diff) < 3) return prev
@@ -1434,70 +1437,126 @@ export default function MapView({ groupMembers = EMPTY_MEMBERS, currentUserId, g
 
   useEffect(() => () => { if (incidentPassTimerRef.current) clearTimeout(incidentPassTimerRef.current) }, [])
 
+  const [diagAtivo, setDiagAtivo] = useState(false)
+  useEffect(() => { setDiagAtivo(diagOn()); return onDiagChange(() => setDiagAtivo(diagOn())) }, [])
+
+  // o mesmo report pode voltar a avisar 10 min depois (rider passa várias vezes no mesmo sítio)
+  const marcarAvisado = (id: string) => {
+    const set = alertedIncidentIdsRef.current
+    set.add(id)
+    setTimeout(() => { if (alertedIncidentIdsRef.current === set) set.delete(id) }, 10 * 60_000)
+  }
+
+  // Voz do aviso quando NÃO está a navegar (na navegação quem fala é o NavigationScreen)
+  const falouReportRef = useRef<string | null>(null)
   useEffect(() => {
-    if (!isNavigating || !currentLocation || !currentUserId) return
+    if (isNavigating || !nearbyIncident || incidentPhase !== 'ahead') return
+    if (falouReportRef.current === nearbyIncident.id) return
+    falouReportRef.current = nearbyIncident.id
     try {
-      const tr = trackerRef.current
-      const pr = progressRef.current
-      const pos = posAtualRef.current.lat !== 0 ? posAtualRef.current : currentLocation
+      const label = QUICK_REPORT_TYPES.find(t => t.id === nearbyIncident.type)?.label ?? 'Incidente'
+      const u = new SpeechSynthesisUtterance(`Atenção: ${label} reportado à frente`)
+      u.lang = 'pt-BR'
+      window.speechSynthesis?.speak(u)
+    } catch {}
+  }, [isNavigating, nearbyIncident, incidentPhase])
+
+  // rumo/velocidade do GPS fora da navegação (a bússola treme demais para isto)
+  const freeMotionRef = useRef<{ lat: number; lng: number; t: number; rumo: number | null; vel: number } | null>(null)
+  const incidentModeRef = useRef<'rota' | 'livre'>('livre')
+
+  useEffect(() => {
+    if (!currentLocation || !currentUserId) return
+    try {
+      const tr = isNavigating ? trackerRef.current : null
+      const pr = isNavigating ? progressRef.current : null
+      const pos = isNavigating && posAtualRef.current.lat !== 0 ? posAtualRef.current : currentLocation
+      const isMine = (inc: any) => inc?.userId === currentUserId
+
+      // movimento a partir do GPS (para o modo sem navegação)
+      const fix = currentFix
+      const prevM = freeMotionRef.current
+      let rumo: number | null = fix?.heading != null && (fix.speed ?? 0) > 1 ? fix.heading : null
+      let vel = fix?.speed ?? 0
+      if (prevM) {
+        const d = metersBetweenLocal(prevM, currentLocation)
+        const dt = (Date.now() - prevM.t) / 1000
+        if (fix?.speed == null && dt > 0.5) vel = d / dt
+        if (rumo == null && d > 8) rumo = bearingBetween(prevM, currentLocation)
+      }
+      if (!prevM || metersBetweenLocal(prevM, currentLocation) > 8 || Date.now() - prevM.t > 4000) {
+        freeMotionRef.current = { lat: currentLocation.lat, lng: currentLocation.lng, t: Date.now(), rumo: rumo ?? prevM?.rumo ?? null, vel }
+      }
+      rumo = rumo ?? prevM?.rumo ?? null
 
       // 1) já há um aviso ativo
       if (nearbyIncident) {
         if (incidentPhase === 'passed') return            // o temporizador fecha sozinho
-        if (tr && pr && incidentAlongRef.current != null && !pr.offRoute) {
+        const passou = () => {
+          diag('report', { id: nearbyIncident.id, fase: 'passou', meu: isMine(nearbyIncident) })
+          if (isMine(nearbyIncident)) clearIncidentAlert()   // o próprio report: não pergunta
+          else askIncidentNow()
+        }
+        if (incidentModeRef.current === 'rota' && tr && pr && incidentAlongRef.current != null && !pr.offRoute) {
           const ahead = incidentAlongRef.current - pr.along
-          if (ahead < -15) { askIncidentNow(); return }
+          if (ahead < -15) { passou(); return }
           const rounded = Math.max(0, Math.round(ahead / 10) * 10)
           setIncidentDist(prev => (prev === rounded ? prev : rounded))
           return
         }
-        // sem rota (ou saiu dela): passou quando ficou para trás ou longe
         const dist = metersBetweenLocal(pos, nearbyIncident.location)
-        const bearingNow = northLocked ? 0 : (compassActive ? heading : navBearing)
-        const diff = Math.abs(((bearingBetween(pos, nearbyIncident.location) - bearingNow + 540) % 360) - 180)
-        if (dist < 40 || diff > 100) askIncidentNow()
+        const diff = rumo == null ? 0 : Math.abs(((bearingBetween(pos, nearbyIncident.location) - rumo + 540) % 360) - 180)
+        if (dist < 20 || (dist < 120 && diff > 100)) passou()
         else if (dist > 400) clearIncidentAlert()
+        else { const r = Math.round(dist / 10) * 10; setIncidentDist(prev => (prev === r ? prev : r)) }
         return
       }
 
-      // 2) procura o próximo report à frente
+      // 2) procura o próximo report à frente (inclui os meus — sem pergunta no fim)
       const candidates = filteredIncidents.filter(inc =>
-        inc.userId !== currentUserId
-        && !alertedIncidentIdsRef.current.has(inc.id)
-        && !(inc.voters ?? []).includes(currentUserId))
+        !alertedIncidentIdsRef.current.has(inc.id)
+        && (isMine(inc) || !(inc.voters ?? []).includes(currentUserId))
+        && inc.type !== 'confirmed_safe')
       if (!candidates.length) return
 
+      // diagnóstico: o que está perto e porque (não) avisou
+      for (const inc of candidates) {
+        const d = metersBetweenLocal(pos, inc.location)
+        if (d < 400) diag('report-perto', {
+          id: inc.id, tipo: inc.type, meu: isMine(inc), dist: Math.round(d),
+          angulo: rumo == null ? null : Math.round(Math.abs(((bearingBetween(pos, inc.location) - rumo + 540) % 360) - 180)),
+          vel: +vel.toFixed(1), navegando: isNavigating, naRota: !!(tr && pr && !pr.offRoute),
+        }, 2000, `rp-${inc.id}`)
+      }
+
+      const lite = candidates.map(inc => ({ inc, id: inc.id, lat: inc.location.lat, lng: inc.location.lng }))
       if (tr && pr && !pr.offRoute) {
-        const hit = nextReportOnRoute(
-          tr, pr.along, tr.currentSeg,
-          candidates.map(inc => ({ inc, id: inc.id, lat: inc.location.lat, lng: inc.location.lng })),
-          300, 35,
-        )
+        const hit = nextReportOnRoute(tr, pr.along, tr.currentSeg, lite, 300, 35)
         if (!hit) return
-        alertedIncidentIdsRef.current.add(hit.report.id)
+        marcarAvisado(hit.report.id)
+        incidentModeRef.current = 'rota'
         incidentAlongRef.current = hit.reportAlong
         setIncidentPhase('ahead')
         setIncidentDist(Math.round(hit.distAhead / 10) * 10)
         setNearbyIncident(hit.report.inc)
+        diag('report', { id: hit.report.id, fase: 'aviso', modo: 'rota', dist: Math.round(hit.distAhead) })
         return
       }
 
-      // 3) sem rota: regra antiga (150 m à frente em linha reta)
-      const bearingNow = northLocked ? 0 : (compassActive ? heading : navBearing)
-      for (const inc of candidates) {
-        const dist = metersBetweenLocal(pos, inc.location)
-        if (dist > 150) continue
-        const diff = Math.abs(((bearingBetween(pos, inc.location) - bearingNow + 540) % 360) - 180)
-        if (diff > 90) continue
-        alertedIncidentIdsRef.current.add(inc.id)
-        incidentAlongRef.current = null
-        setIncidentPhase('ahead')
-        setIncidentDist(Math.round(dist / 10) * 10)
-        setNearbyIncident(inc)
-        break
-      }
+      // 3) sem rota (ou fora dela): a andar (> ~5 km/h), na direção do GPS, até 250 m
+      if (rumo == null || vel < 1.5) return
+      const hit = nextReportAheadFree([pos.lng, pos.lat], rumo, lite, 250, 30, 40)
+      if (!hit) return
+      marcarAvisado(hit.report.id)
+      incidentModeRef.current = 'livre'
+      incidentAlongRef.current = null
+      setIncidentPhase('ahead')
+      setIncidentDist(Math.round(hit.dist / 10) * 10)
+      setNearbyIncident(hit.report.inc)
+      diag('report', { id: hit.report.id, fase: 'aviso', modo: 'livre', dist: Math.round(hit.dist) })
     } catch (e) {
       console.warn('[reports] aviso falhou (navegação segue):', e)
+      diag('erro', { onde: 'reports', msg: String((e as any)?.message ?? e) })
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [currentLocation, isNavigating, filteredIncidents, currentUserId, nearbyIncident, incidentPhase])
@@ -2762,6 +2821,53 @@ export default function MapView({ groupMembers = EMPTY_MEMBERS, currentUserId, g
       </SafeBoundary>
 
       {/* Selected permanent zone popup — shown both in nav and normal mode */}
+      {diagAtivo && (
+        <div style={{ position: 'fixed', left: 10, bottom: 'calc(env(safe-area-inset-bottom, 0px) + 92px)', zIndex: 40, background: 'rgba(220,38,38,0.92)', color: 'white', fontSize: 10, fontWeight: 800, padding: '3px 8px', borderRadius: 10, pointerEvents: 'none' }}>
+          ● DIAG
+        </div>
+      )}
+
+      {/* Aviso de report à frente SEM navegação (na navegação aparece no painel da navegação) */}
+      {!isNavigating && nearbyIncident && (() => {
+        const t = QUICK_REPORT_TYPES.find(x => x.id === nearbyIncident.type)
+        const meu = nearbyIncident.userId === currentUserId
+        return (
+          <div style={{ position: 'fixed', left: 12, right: 12, top: 'calc(env(safe-area-inset-top, 0px) + 84px)', zIndex: 60, background: 'var(--surface, #111827)', border: `2px solid ${t?.color ?? '#f59e0b'}`, borderRadius: 16, padding: '12px 14px', boxShadow: '0 8px 30px rgba(0,0,0,0.35)' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+              <span style={{ fontSize: 26 }}>{t?.emoji ?? '⚠️'}</span>
+              <div style={{ flex: 1, minWidth: 0 }}>
+                <div style={{ fontSize: 15, fontWeight: 800, color: 'var(--text)' }}>
+                  {incidentPhase === 'passed' ? `${t?.label ?? 'Incidente'} — ainda está aí?` : (t?.label ?? 'Incidente')}
+                </div>
+                <div style={{ fontSize: 12, color: 'var(--muted)' }}>
+                  {incidentPhase === 'ahead' && incidentDist != null ? `a ${incidentDist} m · ` : ''}{meu ? 'o teu report' : 'reportado por outro rider'}
+                </div>
+              </div>
+              <button onClick={clearIncidentAlert} aria-label="Fechar" style={{ background: 'transparent', border: 'none', color: 'var(--muted)', fontSize: 20, cursor: 'pointer' }}>✕</button>
+            </div>
+            {incidentPhase === 'passed' && !meu && (
+              <div style={{ display: 'flex', gap: 8, marginTop: 10 }}>
+                {(['confirm', 'deny'] as const).map(v => (
+                  <button key={v}
+                    onClick={async () => {
+                      if (!currentUserId) return
+                      const id = nearbyIncident.id
+                      clearIncidentAlert()
+                      try {
+                        await voteIncident(id, currentUserId, v)
+                        toast.success(v === 'confirm' ? 'Obrigado! Os outros riders vão ser avisados.' : 'Obrigado! Vamos tirar do mapa se mais riders confirmarem.')
+                      } catch { toast.error('Sem ligação — o voto não foi enviado.') }
+                    }}
+                    style={{ flex: 1, padding: '10px 0', borderRadius: 10, border: 'none', fontWeight: 800, fontSize: 14, cursor: 'pointer', background: v === 'confirm' ? '#dc2626' : '#16a34a', color: 'white' }}>
+                    {v === 'confirm' ? '⚠️ Ainda está' : '✓ Já saiu'}
+                  </button>
+                ))}
+              </div>
+            )}
+          </div>
+        )
+      })()}
+
       {selectedPermZone && (() => {
         const level = getRiskLevelActual(selectedPermZone, currentHour)
         const colors = PERM_ZONE_COLORS[level]

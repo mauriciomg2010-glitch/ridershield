@@ -361,3 +361,13 @@ test('aprende caminho habitual só depois de 2 viagens iguais pelo próprio cami
   assert.equal(fp.length, 1); assert.equal(fp[0].name, 'Restaurante X')
   assert.equal(viasFromTrace(meu).length, 3)
 })
+
+test('report à frente sem navegação (direção do GPS)', async () => {
+  const { nextReportAheadFree } = await import('../src/lib/navigation/reportAhead')
+  const me: LngLat = [-6.40, 53.28]
+  const at = (d: number, b: number) => { const p = destination(me, d, b); return { lng: p[0], lat: p[1] } }
+  const reps = [{ id: 'frente', ...at(180, 92) }, { id: 'lado', ...at(150, 150) }, { id: 'atras', ...at(100, 270) }, { id: 'longe', ...at(400, 90) }]
+  assert.equal(nextReportAheadFree(me, 90, reps)?.report.id, 'frente')
+  assert.equal(nextReportAheadFree(me, 270, reps)?.report.id, 'atras')
+  assert.equal(nextReportAheadFree(me, 0, reps), null)
+})

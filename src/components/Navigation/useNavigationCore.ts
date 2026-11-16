@@ -15,6 +15,7 @@ import { zonesOnRoute, pointInZone, AvoidZone } from '@/lib/navigation/zones'
 import { ZoneAlertGuide, ZoneAlertState, zoneSpansOnRoute } from '@/lib/navigation/zoneAlert'
 import { bearing as geoBearing, distM, LngLat } from '@/lib/navigation/geo'
 import { recordTrip, overlap, simplifyTrace } from '@/lib/navigation/habits'
+import { diag } from '@/lib/diagnostics'
 
 type LatLng = { lat: number; lng: number }
 export type LiveProgress = Progress & { time: number; speedMps: number; onRoute: boolean }
@@ -157,6 +158,7 @@ export function useNavigationCore({ isNavigating, currentFix, navDest, routeProf
   /** Prepara uma sessão nova (chamar antes de applyRoute no início da navegação). */
   const beginSession = useCallback((dest: LatLng, profile: string, destName?: string) => {
     tripRef.current = { start: Date.now(), origin: null, trace: [], firstRoute: null, name: destName, recorded: false }
+    diag('nav-inicio', { destino: [+dest.lat.toFixed(5), +dest.lng.toFixed(5)], perfil: profile, nome: destName ?? null })
     navDestRef.current = dest
     profileRef.current = profile
     prevFixRef.current = null
@@ -167,6 +169,7 @@ export function useNavigationCore({ isNavigating, currentFix, navDest, routeProf
 
   /** Limpa tudo ao cancelar a navegação. */
   const resetNav = useCallback(() => {
+    if (tripRef.current) diag('nav-fim', { chegou: hasArrivedRef.current })
     finishTrip(false)
     tripRef.current = null
     trackerRef.current = null
@@ -192,6 +195,7 @@ export function useNavigationCore({ isNavigating, currentFix, navDest, routeProf
     if (!dest || rerouteBusyRef.current) return
     rerouteBusyRef.current = true
     lastRerouteRef.current = Date.now()
+    diag('recalculo', { de: [+from.lat.toFixed(5), +from.lng.toFixed(5)], fora: Math.round(progressRef.current?.offRouteM ?? -1), contramao: !!progressRef.current?.wrongWay })
     setIsRecalculating(true)
     try {
       const zones = await loadAvoidZones()
@@ -244,6 +248,7 @@ export function useNavigationCore({ isNavigating, currentFix, navDest, routeProf
       }
       const p = tr.update({ ...currentFix, speed: v, heading: headingGps })
       progressRef.current = { ...p, time: Date.now(), speedMps: v, onRoute: p.offRouteM < 40 }
+      diag('rota', { passo: p.stepIdx, ate: Math.round(p.distToManeuver), fora: Math.round(p.offRouteM), contramao: p.wrongWay, falta: Math.round(p.remainingM) }, 1000)
 
       setCurrentStepIdx(p.stepIdx)
       setDistToNext(Math.round(p.distToManeuver))
@@ -273,6 +278,7 @@ export function useNavigationCore({ isNavigating, currentFix, navDest, routeProf
 
       if (p.arrived && !hasArrivedRef.current) {
         hasArrivedRef.current = true
+        diag('chegada', {})
         finishTrip(true)
         setHasArrived(true)
         cbRef.current.onArrived?.()

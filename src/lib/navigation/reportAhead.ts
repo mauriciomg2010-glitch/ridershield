@@ -1,7 +1,7 @@
 // src/lib/navigation/reportAhead.ts
 // Reports de outros riders à frente NA ROTA (estilo Waze): avisa antes de chegar e,
 // depois de passar, pergunta se ainda está lá.
-import { LngLat, projectOnSegment } from './geo'
+import { LngLat, projectOnSegment, distM, bearing } from './geo'
 
 export interface RouteLike {
   coords: LngLat[]
@@ -34,6 +34,26 @@ export function nextReportOnRoute<T extends ReportLite>(
     const ahead = pr.along - along
     if (ahead < -5 || ahead > aheadM) continue
     if (!best || ahead < best.distAhead) best = { report: r, distAhead: Math.max(0, ahead), reportAlong: pr.along }
+  }
+  return best
+}
+
+/**
+ * Sem navegação (rider só a conduzir com o mapa aberto): report à frente na direção do movimento.
+ * Usa o rumo do GPS (não a bússola) — em cone de ±coneDeg e a no máx. sideM metros para o lado.
+ */
+export function nextReportAheadFree<T extends ReportLite>(
+  pos: LngLat, headingDeg: number, reports: T[], maxM = 250, coneDeg = 30, sideM = 40,
+): { report: T; dist: number } | null {
+  let best: { report: T; dist: number } | null = null
+  for (const r of reports) {
+    const p: LngLat = [r.lng, r.lat]
+    const d = distM(pos, p)
+    if (d > maxM) continue
+    const diff = Math.abs(((bearing(pos, p) - headingDeg + 540) % 360) - 180)
+    if (d > 25 && diff > coneDeg) continue
+    if (Math.sin(diff * Math.PI / 180) * d > sideM) continue
+    if (!best || d < best.dist) best = { report: r, dist: d }
   }
   return best
 }
