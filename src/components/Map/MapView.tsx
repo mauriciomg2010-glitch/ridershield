@@ -1440,6 +1440,32 @@ export default function MapView({ groupMembers = EMPTY_MEMBERS, currentUserId, g
   const [diagAtivo, setDiagAtivo] = useState(false)
   useEffect(() => { setDiagAtivo(diagOn()); return onDiagChange(() => setDiagAtivo(diagOn())) }, [])
 
+  // Tela sempre ligada durante a navegação (iPhone iOS 16.4+ e Android). Se a tela apagar,
+  // o navegador para o GPS — era por isso que a rota caía no iPhone.
+  useEffect(() => {
+    if (!isNavigating) return
+    const nav: any = navigator
+    if (!nav.wakeLock?.request) { diag('tela-ligada', { suportado: false }); return }
+    let lock: any = null
+    let ativo = true
+    const pedir = async () => {
+      try {
+        if (!ativo || document.visibilityState !== 'visible') return
+        lock = await nav.wakeLock.request('screen')
+        diag('tela-ligada', { ok: true })
+        lock.addEventListener?.('release', () => diag('tela-ligada', { liberada: true }))
+      } catch (e: any) { diag('tela-ligada', { ok: false, erro: String(e?.message ?? e).slice(0, 80) }) }
+    }
+    const onVis = () => { if (document.visibilityState === 'visible') pedir() }
+    pedir()
+    document.addEventListener('visibilitychange', onVis)
+    return () => {
+      ativo = false
+      document.removeEventListener('visibilitychange', onVis)
+      try { lock?.release?.() } catch {}
+    }
+  }, [isNavigating])
+
   // o mesmo report pode voltar a avisar 10 min depois (rider passa várias vezes no mesmo sítio)
   const marcarAvisado = (id: string) => {
     const set = alertedIncidentIdsRef.current
