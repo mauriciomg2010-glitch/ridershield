@@ -127,28 +127,27 @@ function calcularZoomPorVelocidade(speedKmh: number): number {
 
 // Ajuste de zoom escolhido pelo rider (pinça + "re-centralizar") — fica guardado no aparelho
 function lerZoomBias(): number {
-  try { const v = Number(localStorage.getItem(NAV_ZOOM_BIAS_KEY)); return Number.isFinite(v) ? Math.max(-2, Math.min(1.5, v)) : 0 } catch { return 0 }
+  try {
+    // v2: zera o zoom guardado pela versão antiga (gravava −2 sozinho no início da navegação)
+    if (localStorage.getItem('zivo_nav_zoom_bias_v') !== '2') {
+      localStorage.removeItem(NAV_ZOOM_BIAS_KEY); localStorage.setItem('zivo_nav_zoom_bias_v', '2')
+    }
+    const v = Number(localStorage.getItem(NAV_ZOOM_BIAS_KEY))
+    return Number.isFinite(v) ? Math.max(-1.5, Math.min(1, v)) : 0
+  } catch { return 0 }
 }
 function gravarZoomBias(v: number) {
   try { localStorage.setItem(NAV_ZOOM_BIAS_KEY, String(Math.round(v * 100) / 100)) } catch {}
 }
 
-// Moves camera center AHEAD of rider (+ sign) so rider appears in lower third.
-// The crucial sign fix: previous code used − which placed center BEHIND the rider,
-// causing the rider to appear at the top of the pitched view.
-function calcularCentroDeslocado(
-  lat: number, lng: number, bearingDeg: number, zoom: number
-): { lat: number; lng: number } {
+// Seta no terço de baixo: em vez de deslocar o centro à mão (errava com inclinação 3D e zoom
+// afastado — a seta fugia para baixo da tela), dizemos ao Mapbox para reservar espaço em cima.
+// O ponto do rider fica exatamente em NAV_RIDER_Y da altura, em qualquer zoom/inclinação.
+function navPadding() {
   const H = typeof window !== 'undefined' ? window.innerHeight : 844
-  const mpp = (156543.03392 * Math.cos((lat * Math.PI) / 180)) / Math.pow(2, zoom)
-  const pitchCorrection = 1  // 1/cos overshoots the near-frustum at pitch≥62° (arrow off-screen); cos undershoots to center; 1.0 is empirically correct
-  const offsetM = (H * NAV_RIDER_Y - H / 2) * mpp * pitchCorrection  // pixels below screen-centre → metres ahead
-  const rad = (bearingDeg * Math.PI) / 180
-  return {
-    lat: lat + (offsetM / 111320) * Math.cos(rad),                               // + = ahead
-    lng: lng + offsetM / (111320 * Math.cos((lat * Math.PI) / 180)) * Math.sin(rad),
-  }
+  return { top: Math.round(H * (2 * NAV_RIDER_Y - 1)), bottom: 0, left: 0, right: 0 }
 }
+const NO_PADDING = { top: 0, bottom: 0, left: 0, right: 0 }
 
 // Haversine distance between two {lat,lng} points — returns metres
 function haversineDist(a: { lat: number; lng: number }, b: { lat: number; lng: number }): number {
@@ -482,6 +481,8 @@ export default function MapView({ groupMembers = EMPTY_MEMBERS, currentUserId, g
 
   const zoomAtualRef = useRef(NAV_ZOOM)
   const zoomBiasRef = useRef(0)
+  const compassInfoRef = useRef<{ t: number; acc: number | null }>({ t: 0, acc: null })
+  const userPinchedRef = useRef(false)
   useEffect(() => { zoomBiasRef.current = lerZoomBias() }, [])
 
   // Search
@@ -755,13 +756,19 @@ export default function MapView({ groupMembers = EMPTY_MEMBERS, currentUserId, g
       const newLng = posAtualRef.current.lng + (target.lng - posAtualRef.current.lng) * k
       posAtualRef.current = { lat: newLat, lng: newLng }
 
-      // Direção: em movimento segue a rua (ou o rumo do GPS); parado usa a bússola
+      // Direção (como o Google Maps): segue SEMPRE a direção da rota onde o rider está — parado ou
+      // a andar. A bússola só entra antes de haver rota e se for fiável. Os diagnósticos mostraram:
+      // no iPhone, dentro do carro/suporte, a bússola tinha erro de ±89° em 1/4 do tempo; no Android
+      // não chegava nenhum dado e o mapa virava para o NORTE em cada paragem.
       const moving = nav.navSpeed > 7
+      const bussolaOk = nav.compassActive && Date.now() - compassInfoRef.current.t < 2000
+        && (compassInfoRef.current.acc == null || compassInfoRef.current.acc <= 30)
       const targetH = nav.northLocked ? 0
-        : moving ? (routeBrg ?? nav.navBearing)
-        : (nav.compassActive ? nav.heading : (routeBrg ?? nav.navBearing))
+        : routeBrg != null ? routeBrg
+        : moving ? nav.navBearing
+        : bussolaOk ? nav.heading : headingAtualRef.current
       headingAtualRef.current = lerpAngle(headingAtualRef.current, targetH, 1 - Math.exp(-dt / 350))
-      diag('camara', { rumo: Math.round(headingAtualRef.current), alvo: Math.round(targetH), fonte: nav.northLocked ? 'norte' : moving ? 'rota' : nav.compassActive ? 'bussola' : 'gps', vel: Math.round(nav.navSpeed), zoom: +zoomAtualRef.current.toFixed(2), livre: navMapFreeRef.current }, 500)
+      diag('camara', { rumo: Math.round(headingAtualRef.current), alvo: Math.round(targetH), fonte: nav.northLocked ? 'norte' : routeBrg != null ? 'rota' : moving ? 'gps' : bussolaOk ? 'bussola' : 'parado', vel: Math.round(nav.navSpeed), zoom: +zoomAtualRef.current.toFixed(2), livre: navMapFreeRef.current }, 500)
 
       // (a seta é desenhada pelo UserPuck com animação própria — sem redesenhar o mapa inteiro)
 
@@ -772,8 +779,7 @@ export default function MapView({ groupMembers = EMPTY_MEMBERS, currentUserId, g
         zoomAtualRef.current += (zAlvo - zoomAtualRef.current) * (1 - Math.exp(-dt / 1500))
         const zoom = zoomAtualRef.current
         const heading = headingAtualRef.current
-        const { lat: cLat, lng: cLng } = calcularCentroDeslocado(newLat, newLng, heading, zoom)
-        mapRef.current?.getMap()?.jumpTo({ center: [cLng, cLat], bearing: heading, pitch: NAV_PITCH, zoom })
+        mapRef.current?.getMap()?.jumpTo({ center: [newLng, newLat], bearing: heading, pitch: NAV_PITCH, zoom, padding: navPadding() } as any)
       }
     }
     rafIdRef.current = requestAnimationFrame(animar)
@@ -905,6 +911,7 @@ export default function MapView({ groupMembers = EMPTY_MEMBERS, currentUserId, g
       } else {
         return
       }
+      compassInfoRef.current = { t: Date.now(), acc: typeof e.webkitCompassAccuracy === 'number' && e.webkitCompassAccuracy >= 0 ? e.webkitCompassAccuracy : null }
       const smoothed = Math.round(smoothHeading(headingHistoryRef.current, direction))
       diag('bussola', { bruto: Math.round(direction), suave: smoothed, fonte: e.webkitCompassHeading != null ? 'ios' : e.type === 'deviceorientationabsolute' ? 'abs' : 'rel', precisao: e.webkitCompassAccuracy ?? null, beta: Math.round(e.beta ?? 0), gamma: Math.round(e.gamma ?? 0) }, 200)
       setHeading(prev => {
@@ -990,11 +997,11 @@ export default function MapView({ groupMembers = EMPTY_MEMBERS, currentUserId, g
       setSelectedZone(null)
       onPanelChange?.(false)
       const z0 = NAV_ZOOM + zoomBiasRef.current
-      const { lat: cLat, lng: cLng } = calcularCentroDeslocado(currentLocation.lat, currentLocation.lng, b0, z0)
+      userPinchedRef.current = false
       mapRef.current?.flyTo({
-        center: [cLng, cLat],
-        pitch: NAV_PITCH, zoom: z0, bearing: b0, duration: 800,
-      })
+        center: [currentLocation.lng, currentLocation.lat],
+        pitch: NAV_PITCH, zoom: z0, bearing: b0, duration: 800, padding: navPadding(),
+      } as any)
       if (snapTimerRef.current !== null) clearTimeout(snapTimerRef.current)
       snapTimerRef.current = setTimeout(() => {
         snapTimerRef.current = null
@@ -1034,6 +1041,7 @@ export default function MapView({ groupMembers = EMPTY_MEMBERS, currentUserId, g
     setSelectedPermZone(null)
     setNearbyIncident(null)
     alertedIncidentIdsRef.current = new Set()
+    try { mapRef.current?.getMap()?.setPadding(NO_PADDING as any) } catch {}
 
     if (restoreDest && restoreRoutes.length > 0) {
       // Restore pre-navigation view: reopen mode selector with saved routes + fitBounds
@@ -1064,30 +1072,35 @@ export default function MapView({ groupMembers = EMPTY_MEMBERS, currentUserId, g
   const resumeFollow = useCallback(() => {
     if (snapTimerRef.current !== null) { clearTimeout(snapTimerRef.current); snapTimerRef.current = null }
     const s = rafNavStateRef.current
-    const liveHeading = s.northLocked ? 0 : (s.navSpeed > 7 || !s.compassActive ? s.navBearing : s.heading)
+    const trR = trackerRef.current, prR = progressRef.current
+    const rotaBrg = trR && prR ? trR.bearingAt(prR.along) : null
+    const liveHeading = s.northLocked ? 0 : (rotaBrg ?? (s.navSpeed > 7 ? s.navBearing : headingAtualRef.current))
     headingAtualRef.current = liveHeading
     const auto = calcularZoomPorVelocidade(s.navSpeed)
     // Se o rider afastou/aproximou com a pinça antes de re-centralizar, guarda essa preferência
+    // (só quando foi mesmo a pinça do rider — antes o início da navegação, com o mapa ainda
+    //  longe, gravava −2 e a navegação ficava presa num zoom muito afastado)
     const zNow = mapRef.current?.getZoom()
-    if (navMapFreeRef.current && typeof zNow === 'number' && Number.isFinite(zNow)) {
-      const bias = Math.max(-2, Math.min(1.5, zNow - auto))
+    if (userPinchedRef.current && typeof zNow === 'number' && Number.isFinite(zNow)) {
+      const bias = Math.max(-1.5, Math.min(1, zNow - auto))
       if (Math.abs(bias - zoomBiasRef.current) > 0.15) { zoomBiasRef.current = bias; gravarZoomBias(bias) }
+      diag('zoom-preferido', { zoom: +zNow.toFixed(2), auto: +auto.toFixed(2), bias: +bias.toFixed(2) })
     }
+    userPinchedRef.current = false
     const zoom = auto + zoomBiasRef.current
     const pos = posAtualRef.current.lat !== 0 ? posAtualRef.current : currentLocation
     if (!pos || pos.lat === 0) return
-    const { lat: rcLat, lng: rcLng } = calcularCentroDeslocado(pos.lat, pos.lng, liveHeading, zoom)
     navMapFreeRef.current = true          // keep true during animation so RAF doesn't fight easeTo
     setNavMapFree(false)
     setShowReCenter(false)
     mapRef.current?.stop()
-    mapRef.current?.easeTo({ center: [rcLng, rcLat], bearing: liveHeading, pitch: NAV_PITCH, zoom, duration: 150 })
+    mapRef.current?.easeTo({ center: [pos.lng, pos.lat], bearing: liveHeading, pitch: NAV_PITCH, zoom, duration: 150, padding: navPadding() } as any)
     snapFromResumeRef.current = true      // block accidental touch/drag/zoom from killing this timer
     snapTimerRef.current = setTimeout(() => {
       snapTimerRef.current = null
       snapFromResumeRef.current = false
       const s2 = rafNavStateRef.current
-      headingAtualRef.current = s2.northLocked ? 0 : (s2.navSpeed > 7 || !s2.compassActive ? s2.navBearing : s2.heading)
+      if (s2.northLocked) headingAtualRef.current = 0
       zoomAtualRef.current = zoom
       navMapFreeRef.current = false
     }, 160)
@@ -1918,7 +1931,7 @@ export default function MapView({ groupMembers = EMPTY_MEMBERS, currentUserId, g
           if (e.originalEvent && snapTimerRef.current !== null && !snapFromResumeRef.current) {
             clearTimeout(snapTimerRef.current); snapTimerRef.current = null
           }
-          if (isNavigating && e.originalEvent) { navMapFreeRef.current = true; setNavMapFree(true); setShowReCenter(true) }
+          if (isNavigating && e.originalEvent) { userPinchedRef.current = true; navMapFreeRef.current = true; setNavMapFree(true); setShowReCenter(true) }
         }}
         // Na navegação a câmera se move a cada quadro (jumpTo) e o mapa dispara "fim de movimento"
         // a cada quadro. Atualizar estado aqui redesenhava o mapa inteiro ~50x/s — por isso só

@@ -219,6 +219,7 @@ export default function Home() {
             </div>
           )}>
           <MapView
+            currentUserId={firebaseUser?.uid}
             requestNavTo={searchDest}
             onNavRequested={() => setSearchDest(null)}
             onNavigationChange={setIsNavigating}
