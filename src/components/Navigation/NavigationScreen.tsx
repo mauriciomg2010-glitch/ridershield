@@ -158,11 +158,15 @@ export default function NavigationScreen({
   const guideRef = useRef(new VoiceGuide())
   const guideStepsRef = useRef<any[] | null>(null)
   useEffect(() => {
-    if (!isNavigating || muted || !steps.length || hasArrived) return
+    if (!isNavigating || muted || !steps.length || hasArrived) {
+      if (isNavigating) diag('voz-pausa', { mudo: muted, passos: steps.length, chegou: hasArrived, passo: stepIdx, ate: Math.round(distToNext) }, 10000)
+      return
+    }
     // Rota nova (recálculo / troca de rota) → recomeça os avisos
     if (guideStepsRef.current !== steps) { guideStepsRef.current = steps; guideRef.current.reset() }
     const text = guideRef.current.next(steps, stepIdx, distToNext, speedMps, nextGap)
     if (text) speak(text)
+    else diag('voz-nada', { passo: stepIdx, tipo: steps[stepIdx]?.maneuver?.type, ate: Math.round(distToNext), vel: +speedMps.toFixed(1) }, 3000)
   }, [isNavigating, steps, stepIdx, distToNext, speedMps, nextGap, muted, hasArrived, speak])
 
   useEffect(() => {
@@ -337,6 +341,7 @@ export default function NavigationScreen({
           onClick={() => {
             setMuted(m => {
               const next = !m
+              diag('voz-mudo', { mudo: next })
               // Cancel any in-progress speech immediately when muting
               if (next && typeof window !== 'undefined') window.speechSynthesis?.cancel()
               return next
