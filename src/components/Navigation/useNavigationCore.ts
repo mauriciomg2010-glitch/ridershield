@@ -192,7 +192,8 @@ export function useNavigationCore({ isNavigating, currentFix, navDest, routeProf
   /** Recalcula SEMPRE pela rota segura. */
   const reroute = useCallback(async (from: LatLng) => {
     const dest = navDestRef.current
-    if (!dest || rerouteBusyRef.current) return
+    // depois de chegar não recalcula (antes recalculava e seguia a falar das zonas)
+    if (!dest || rerouteBusyRef.current || hasArrivedRef.current) return
     rerouteBusyRef.current = true
     lastRerouteRef.current = Date.now()
     diag('recalculo', { de: [+from.lat.toFixed(5), +from.lng.toFixed(5)], fora: Math.round(progressRef.current?.offRouteM ?? -1), contramao: !!progressRef.current?.wrongWay })
@@ -263,7 +264,7 @@ export function useNavigationCore({ isNavigating, currentFix, navDest, routeProf
       // modo alerta nas zonas (separado: um erro aqui não afeta as instruções da rota)
       guard('zoneAlert', () => {
         const guide = alertGuideRef.current
-        if (!guide) return
+        if (!guide || hasArrivedRef.current) return
         const here: [number, number] = [currentFix.lng, currentFix.lat]
         const inside = new Set(allZonesRef.current.filter(z => pointInZone(here, z)).map(z => z.id))
         const r = guide.update(p.along, inside, v, Date.now(), allZonesRef.current)

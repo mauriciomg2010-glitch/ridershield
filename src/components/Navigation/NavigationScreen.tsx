@@ -2,10 +2,10 @@
 'use client'
 import { useEffect, useRef, useCallback, useState } from 'react'
 import { diag } from '@/lib/diagnostics'
-import { getModeIcon } from '@/components/Map/TransportModeSelector'
+import ManeuverIcon from './ManeuverIcon'
 import { INCIDENT_TYPES } from '@/data/incidentTypes'
 import { Incident } from '@/types'
-import { VoiceGuide, instructionText, bannerText, formatDistance, spokenDistance } from '@/lib/navigation/instructions'
+import { VoiceGuide, bannerText, formatDistance, formatDuration, spokenDistance } from '@/lib/navigation/instructions'
 import type { ZoneAlertState } from '@/lib/navigation/zoneAlert'
 import ZoneAlertBanner from './ZoneAlertBanner'
 
@@ -16,18 +16,6 @@ function timeAgo(d: Date): string {
   if (mins < 60) return `há ${mins} min`
   const h = Math.floor(mins / 60)
   return h === 1 ? 'há 1h' : `há ${h}h`
-}
-
-function getManeuverIcon(type: string, modifier?: string): string {
-  if (type === 'arrive') return '🏁'
-  if (type === 'depart') return '🧭'
-  if (type === 'roundabout' || type === 'rotary') return '↻'
-  if (modifier === 'uturn') return '↩'
-  if (modifier === 'slight left') return '↖'
-  if (modifier === 'slight right') return '↗'
-  if (modifier?.includes('left')) return '↰'
-  if (modifier?.includes('right')) return '↱'
-  return '↑'
 }
 
 interface Props {
@@ -181,9 +169,14 @@ export default function NavigationScreen({
     speak(zoneSpeech.text)
   }, [isNavigating, muted, zoneSpeech, speak])
 
+  const lastRecalcSpeechRef = useRef(0)
   // Announce recalculation
   useEffect(() => {
-    if (isRecalculating && !muted) speak('Recalculando rota')
+    // no máximo 1 vez a cada 30 s (antes repetia a cada recálculo, até 5 vezes seguidas numa rotatória)
+    if (isRecalculating && !muted && Date.now() - lastRecalcSpeechRef.current > 30_000) {
+      lastRecalcSpeechRef.current = Date.now()
+      speak('Recalculando rota')
+    }
   }, [isRecalculating, speak, muted])
 
   // Cancel speech on nav end
@@ -214,104 +207,92 @@ export default function NavigationScreen({
 
   if (!isNavigating) return null
 
-  const progressPct = totalDist > 0 ? Math.min(100, ((totalDist - remainingDist) / totalDist) * 100) : 0
   const arrivalTime = new Date(Date.now() + (remainingSec ?? navEta * 60) * 1000)
   const arrivalStr = arrivalTime.toLocaleTimeString('pt-PT', { hour: '2-digit', minute: '2-digit' })
 
   return (
     <>
-      {/* Route progress bar */}
-      {totalDist > 0 && (
-        <div className="absolute z-[601]" style={{ top: 0, left: 0, right: 0, height: 3, background: 'rgba(0,0,0,0.2)' }}>
-          <div style={{ height: '100%', background: '#4ade80', width: `${progressPct}%`, transition: 'width 1s linear' }} />
-        </div>
-      )}
-
-      {/* Speed badge */}
+      {/* Velocidade — discreta, como no Google Maps (antes um selo verde/laranja/vermelho) */}
       {speed > 0 && (
         <div className="absolute z-[601]" style={{
-          bottom: 96, left: 16,
-          background: speed > 80 ? '#dc2626' : speed > 50 ? '#f59e0b' : '#16a34a',
-          borderRadius: 8, padding: '5px 11px', color: 'white', fontWeight: 800, fontSize: 15,
-          boxShadow: '0 2px 8px rgba(0,0,0,0.35)',
+          bottom: 100, left: 14, width: 54, height: 54, borderRadius: '50%',
+          background: 'white', color: '#202124', boxShadow: '0 2px 8px rgba(0,0,0,0.3)',
+          display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', lineHeight: 1,
         }}>
-          {speed} <span style={{ fontSize: 10, fontWeight: 600 }}>km/h</span>
+          <span style={{ fontSize: 19, fontWeight: 700 }}>{speed}</span>
+          <span style={{ fontSize: 9, fontWeight: 600, color: '#5f6368', marginTop: 2 }}>km/h</span>
         </div>
       )}
 
-      {/* Top navigation banner */}
-      {currentStep && (
-        <div className="absolute z-[600]" style={{ top: 0, left: 0, right: 0 }}>
-          <div style={{
-            background: '#1a5e38',
-            borderRadius: '0 0 18px 18px',
-            padding: '14px 16px 12px',
-            boxShadow: '0 4px 24px rgba(0,0,0,0.5)',
-          }}>
-            {riskOnRoute && !zoneAlert && (
-              <div style={{ color: '#fbbf24', fontSize: 11, fontWeight: 700, marginBottom: 6, letterSpacing: 0.3 }}>
-                ⚠️ Zona de risco à frente
-              </div>
-            )}
-            {isRecalculating && (
-              <div style={{ color: '#86efac', fontSize: 11, fontWeight: 700, marginBottom: 6 }}>
-                🔄 A recalcular rota...
-              </div>
-            )}
-            <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
-              <div style={{
-                width: 52, height: 52, borderRadius: '50%', flexShrink: 0,
-                background: 'rgba(255,255,255,0.15)', border: '2px solid rgba(255,255,255,0.3)',
-                display: 'flex', alignItems: 'center', justifyContent: 'center',
-                fontSize: 26, lineHeight: 1, color: 'white',
-              }}>
-                {currentStep.maneuver?.type === 'arrive' && distToNext > 80 ? '↑' : getManeuverIcon(currentStep.maneuver?.type ?? '', currentStep.maneuver?.modifier)}
+      {/* Barra de navegação (estilo Google Maps): seta grande + distância à esquerda,
+          estrada em letra grande à direita, "Depois" quando a próxima manobra vem logo a seguir */}
+      {currentStep && (() => {
+        const tipo = currentStep.maneuver?.type ?? ''
+        const mod = currentStep.maneuver?.modifier ?? ''
+        const chegando = tipo === 'arrive'
+        const longeDoFim = chegando && distToNext > 80
+        const isRot = /roundabout|rotary/.test(tipo)
+        const exitN = currentStep.maneuver?.exit
+        const via = (currentStep.name || '').trim()
+        const ref = (currentStep.ref || '').split(';')[0].trim()
+        const nomeSemRef = ref && via.toUpperCase().startsWith(ref.toUpperCase()) ? via.slice(ref.length).replace(/^[\s/,-]+/, '') : via
+        const titulo = chegando ? 'Destino' : (nomeSemRef || bannerText(currentStep, distToNext))
+        const sub = isRot && exitN ? `Rotatória · ${exitN}ª saída` : ''
+        const mostrarDepois = !!nextStep?.maneuver && nextStep.maneuver.type !== 'arrive' && nextGap != null && nextGap < 250
+        return (
+          <div className="absolute z-[600]" style={{ top: 'calc(env(safe-area-inset-top, 0px) + 6px)', left: 8, right: 8 }}>
+            <div style={{
+              background: '#0f5446', borderRadius: 16, padding: '12px 14px',
+              boxShadow: '0 4px 16px rgba(0,0,0,0.35)', display: 'flex', alignItems: 'center', gap: 12,
+            }}>
+              <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', minWidth: 56 }}>
+                <ManeuverIcon type={longeDoFim ? 'continue' : tipo} modifier={longeDoFim ? 'straight' : mod} size={46} />
+                <span style={{ color: 'white', fontSize: 17, fontWeight: 700, marginTop: 2, whiteSpace: 'nowrap' }}>
+                  {formatDistance(distToNext)}
+                </span>
               </div>
               <div style={{ flex: 1, minWidth: 0 }}>
+                {ref && !chegando && (
+                  <span style={{ display: 'inline-block', background: 'white', color: '#202124', fontWeight: 800, fontSize: 15, borderRadius: 4, padding: '1px 7px', marginBottom: 4 }}>
+                    {ref}
+                  </span>
+                )}
                 <div style={{
-                  color: 'white', fontSize: 17, fontWeight: 700, lineHeight: 1.25,
-                  overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
+                  color: 'white', fontSize: titulo.length > 26 ? 21 : 26, fontWeight: 600, lineHeight: 1.15,
+                  display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical', overflow: 'hidden',
                 }}>
-                  {bannerText(currentStep, distToNext)}
+                  {titulo}
                 </div>
-                <div style={{ color: '#93c5fd', fontSize: 13, marginTop: 3 }}>
-                  {currentStep.name ? `${currentStep.name} · ` : ''}
-                  {formatDistance(distToNext)}
-                </div>
+                {sub && <div style={{ color: 'rgba(255,255,255,0.8)', fontSize: 14, marginTop: 3 }}>{sub}</div>}
               </div>
-              {/* Mode icon — static display */}
-              <span style={{ fontSize: 20, flexShrink: 0 }}>{getModeIcon(navModeKey)}</span>
             </div>
-
-            {/* Next step preview */}
-            {nextStep?.maneuver && nextStep.maneuver.type !== 'arrive' && (
-              <div style={{
-                marginTop: 8, paddingTop: 8,
-                borderTop: '1px solid rgba(255,255,255,0.1)',
-                display: 'flex', alignItems: 'center', gap: 8,
-              }}>
-                <span style={{ color: '#475569', fontSize: 14, flexShrink: 0 }}>
-                  {getManeuverIcon(nextStep.maneuver?.type ?? '', nextStep.maneuver?.modifier)}
-                </span>
-                <span style={{
-                  color: '#64748b', fontSize: 11,
-                  overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
-                }}>
-                  A seguir: {instructionText(nextStep)}
-                </span>
+            {(mostrarDepois || isRecalculating || (riskOnRoute && !zoneAlert)) && (
+              <div style={{ display: 'flex', gap: 6, marginTop: 4 }}>
+                {mostrarDepois && (
+                  <div style={{ background: '#0b3f35', borderRadius: 12, padding: '6px 12px', display: 'flex', alignItems: 'center', gap: 6, boxShadow: '0 2px 8px rgba(0,0,0,0.3)' }}>
+                    <span style={{ color: 'white', fontSize: 15, fontWeight: 600 }}>Depois</span>
+                    <ManeuverIcon type={nextStep.maneuver?.type} modifier={nextStep.maneuver?.modifier} size={24} />
+                  </div>
+                )}
+                {isRecalculating && (
+                  <div style={{ background: '#0b3f35', borderRadius: 12, padding: '6px 12px', color: 'white', fontSize: 13, fontWeight: 600 }}>A recalcular…</div>
+                )}
+                {riskOnRoute && !zoneAlert && !isRecalculating && (
+                  <div style={{ background: '#7c2d12', borderRadius: 12, padding: '6px 12px', color: 'white', fontSize: 13, fontWeight: 600 }}>⚠️ Zona de risco à frente</div>
+                )}
               </div>
             )}
           </div>
-        </div>
-      )}
+        )
+      })()}
 
       {/* Modo alerta — fica na tela até passar por todas as zonas ou mudar para a rota segura */}
       {!hideControls && onSwitchToSafe && (
-        <ZoneAlertBanner alert={zoneAlert} isRecalculating={isRecalculating} onSwitchToSafe={onSwitchToSafe} />
+        <ZoneAlertBanner alert={zoneAlert} isRecalculating={isRecalculating} onSwitchToSafe={onSwitchToSafe} top={158} />
       )}
 
       {/* Side column: compass + mute + SOS — hidden when any report panel is open */}
-      {!hideControls && <div className="absolute z-[600]" style={{ top: 140, right: 12, display: 'flex', flexDirection: 'column', gap: 10 }}>
+      {!hideControls && <div className="absolute z-[600]" style={{ top: 'calc(env(safe-area-inset-top, 0px) + 158px)', right: 12, display: 'flex', flexDirection: 'column', gap: 10 }}>
         <button
           onClick={onToggleNorth}
           title={northLocked ? 'Norte fixo' : 'Norte livre'}
@@ -469,22 +450,21 @@ export default function NavigationScreen({
 
           {/* Distance / ETA / Cancel row — always visible */}
           <div style={{ padding: '12px 16px', display: 'flex', alignItems: 'center', gap: 12 }}>
-            <div>
-              <div style={{ fontSize: 20, fontWeight: 700, color: 'var(--text)', lineHeight: 1 }}>
-                {formatDistance(remainingDist)}
+            <div style={{ flex: 1, textAlign: 'center' }}>
+              <div style={{ fontSize: 24, fontWeight: 700, color: '#188038', lineHeight: 1.05 }}>
+                {formatDuration(remainingSec ?? navEta * 60)}
               </div>
-              <div style={{ fontSize: 12, color: 'var(--muted)', marginTop: 2 }}>{navEta} min · Chega às {arrivalStr}</div>
+              <div style={{ fontSize: 14, color: 'var(--muted)', marginTop: 3 }}>{formatDistance(remainingDist)} · {arrivalStr}</div>
             </div>
-            <div style={{ flex: 1 }} />
             <button
               onClick={onCancel}
               style={{
-                background: '#ef4444', border: 'none', borderRadius: 12,
-                padding: '9px 20px', color: 'white', fontWeight: 700,
-                fontSize: 13, cursor: 'pointer',
+                background: '#d93025', border: 'none', borderRadius: 22,
+                padding: '10px 20px', color: 'white', fontWeight: 700,
+                fontSize: 15, cursor: 'pointer',
               }}
             >
-              Cancelar
+              Sair
             </button>
           </div>
         </div>

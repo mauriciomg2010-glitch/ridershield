@@ -2242,27 +2242,22 @@ export default function MapView({ groupMembers = EMPTY_MEMBERS, currentUserId, g
           )
         })}
 
-        {/* Route line — congestion-colored with neon glow */}
+        {/* Linha da rota estilo Google Maps: azul; laranja/vermelho só onde há trânsito */}
         {routeCongestionGeoJSON && (
           <Source id="route" type="geojson" data={routeCongestionGeoJSON}>
-            {/* Outer glow — wide blurred layer behind casing */}
-            <Layer id="route-line-glow" type="line"
-              layout={{ 'line-cap': 'round', 'line-join': 'round' }}
-              paint={{ 'line-color': '#4f8ef7', 'line-width': 22, 'line-opacity': 0.12, 'line-blur': 8 }} />
             <Layer id="route-line-casing" type="line"
               layout={{ 'line-cap': 'round', 'line-join': 'round' }}
-              paint={{ 'line-color': '#0d2151', 'line-width': 10, 'line-opacity': 0.75 }} />
+              paint={{ 'line-color': '#0b57d0', 'line-width': ['interpolate', ['linear'], ['zoom'], 12, 7, 16, 12, 18, 18] as any }} />
             <Layer id="route-line" type="line"
               layout={{ 'line-cap': 'round', 'line-join': 'round' }}
               paint={{
                 'line-color': ['match', ['get', 'congestion'],
-                  'low', '#00e676',
-                  'moderate', '#ffab00',
-                  'heavy', '#ff6d00',
-                  'severe', '#d50000',
-                  '#4f8ef7',
+                  'moderate', '#f29900',
+                  'heavy', '#d93025',
+                  'severe', '#a50e0e',
+                  '#4285f4',
                 ] as any,
-                'line-width': 6,
+                'line-width': ['interpolate', ['linear'], ['zoom'], 12, 4.5, 16, 8.5, 18, 13] as any,
               }} />
           </Source>
         )}
