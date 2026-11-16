@@ -121,6 +121,8 @@ export default function TransportModeSelector({
   type TipoAnalise = 'loading' | 'sem_zonas' | 'destino_em_zona' | 'tem_rota_segura' | 'todas_passam_por_zona'
   const [tipoAnalise, setTipoAnalise] = useState<TipoAnalise>('loading')
   const [destZonaInfo, setDestZonaInfo] = useState<any | null>(null)
+  // o rider já está DENTRO de uma zona (não dá para evitar — a navegação avisa à saída)
+  const [origemZona, setOrigemZona] = useState<{ name: string; level: string } | null>(null)
   // metros da rota rápida dentro de zonas de risco (para mostrar ao rider)
   const [fastRiskMeters, setFastRiskMeters] = useState(0)
 
@@ -190,6 +192,8 @@ export default function TransportModeSelector({
       if (stale()) return
       const profile = getProfileForMode(selectedMode)
       const destInZone = zones.find(z => pointInZone([dest.lng, dest.lat], z)) ?? null
+      const orgZone = zones.find(z => pointInZone([org.lng, org.lat], z)) ?? null
+      setOrigemZona(orgZone ? { name: orgZone.name, level: orgZone.level } : null)
 
       // Zonas que cada rota atravessa (verificação por segmento, inclui trechos de rua e polígonos)
       const avoidable = zones.filter(z => z !== destInZone && !pointInZone([org.lng, org.lat], z))
@@ -523,7 +527,7 @@ export default function TransportModeSelector({
                     {extraMinutos > 0 && <span style={{ color: '#1a6b4a', fontWeight: 600 }}> · +{extraMinutos} min</span>}
                   </div>
                   <div style={{ background: 'rgba(26,107,74,0.12)', borderRadius: 8, padding: '7px 10px', fontSize: 12, color: '#1a6b4a', fontWeight: 600 }}>
-                    ✓ Sem zonas de atenção no percurso
+                    {origemZona ? `✓ Sem outras zonas (estás dentro de ${origemZona.name})` : '✓ Sem zonas de atenção no percurso'}
                   </div>
                 </>
               ) : (
@@ -576,11 +580,16 @@ export default function TransportModeSelector({
         ) : tipoAnalise === 'sem_zonas' || !hasZones ? (
           // ── CASO 4: Sem zonas no percurso ─────────────────────────────────────
           <>
+            {origemZona && (
+              <div style={{ background: 'rgba(217,119,6,0.12)', borderRadius: 10, padding: '8px 12px', fontSize: 12, color: '#b45309', fontWeight: 600, marginBottom: 10 }}>
+                📍 Estás dentro de uma zona de risco ({origemZona.name}). A rota leva-te para fora dela — a navegação avisa até saíres.
+              </div>
+            )}
             <div style={{
               background: 'rgba(26,107,74,0.1)', borderRadius: 10,
               padding: '8px 12px', fontSize: 12, color: '#1a6b4a', fontWeight: 600, marginBottom: 10,
             }}>
-              ✓ Sem zonas de atenção
+              {origemZona ? '✓ Sem outras zonas no percurso' : '✓ Sem zonas de atenção'}
             </div>
             {routes.map((route, i) => {
               const isSel = i === localIdx
