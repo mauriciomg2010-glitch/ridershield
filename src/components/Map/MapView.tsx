@@ -17,6 +17,8 @@ import { diag, diagOn, onDiagChange } from '@/lib/diagnostics'
 import { subscribeToIncidents, subscribeToGlobalPresence, reportIncident, voteIncident } from '@/lib/firestore'
 import { INCIDENT_TYPES as QUICK_REPORT_TYPES, REPORT_MENU_TYPES } from '@/data/incidentTypes'
 import ReportIcon, { reportIconSvg } from '@/components/Report/ReportIcon'
+import ReportPromptCard from '@/components/Report/ReportPromptCard'
+import { isReportActive, MAX_TTL_MIN } from '@/lib/reportRules'
 import { useLang } from '@/contexts/LangContext'
 import { useTheme } from '@/contexts/ThemeContext'
 import { Incident, IncidentType } from '@/types'
@@ -536,7 +538,10 @@ export default function MapView({ groupMembers = EMPTY_MEMBERS, currentUserId, g
 
   const incidentsLoadedRef = useRef(false)
   // 24h cutoff — stable reference so the effect doesn't restart on every render
-  const incidentCutoff = useMemo(() => new Date(Date.now() - 24 * 3600 * 1000), [])
+  // busca até à duração máxima de um report (buraco = 30 dias); quem decide se aparece é reportRules
+  const incidentCutoff = useMemo(() => new Date(Date.now() - MAX_TTL_MIN * 60000), [])
+  const [relogioReports, setRelogioReports] = useState(0)
+  useEffect(() => { const t = setInterval(() => setRelogioReports(x => x + 1), 60_000); return () => clearInterval(t) }, [])
 
   // Subscribe to incidents only while the map tab is visible — saves Firestore reads on other tabs
   useEffect(() => {
@@ -566,10 +571,11 @@ export default function MapView({ groupMembers = EMPTY_MEMBERS, currentUserId, g
     () => incidents.filter(i =>
       i && i.location && Number.isFinite(i.location.lat) && Number.isFinite(i.location.lng)
       && i.timestamp instanceof Date && !isNaN(i.timestamp.getTime())
-      && i.timestamp.getTime() > Date.now() - timeFilter * 3600000
-      && (i.denials ?? 0) < 3
+      && isReportActive(i as any)
+      && (timeFilter >= 24 || i.timestamp.getTime() > Date.now() - timeFilter * 3600000)
     ),
-    [incidents, timeFilter]
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+    [incidents, timeFilter, relogioReports]
   )
 
   const nearbyNavRidersGeoJSON = useMemo(() => ({
@@ -2600,6 +2606,7 @@ export default function MapView({ groupMembers = EMPTY_MEMBERS, currentUserId, g
         hideControls={showQuickReport || externalReportOpen}
         nearbyIncident={nearbyIncident}
         speedLimit={speedLimit}
+        onCloseIncident={clearIncidentAlert}
         incidentPhase={incidentPhase}
         incidentDist={incidentDist}
         currentUserId={currentUserId}
@@ -2879,45 +2886,28 @@ export default function MapView({ groupMembers = EMPTY_MEMBERS, currentUserId, g
       )}
 
       {/* Aviso de report à frente SEM navegação (na navegação aparece no painel da navegação) */}
-      {!isNavigating && nearbyIncident && (() => {
-        const t = QUICK_REPORT_TYPES.find(x => x.id === nearbyIncident.type)
-        const meu = nearbyIncident.userId === currentUserId
-        return (
-          <div style={{ position: 'fixed', left: 12, right: 12, top: 'calc(env(safe-area-inset-top, 0px) + 84px)', zIndex: 60, background: 'var(--surface, #111827)', border: `2px solid ${t?.color ?? '#f59e0b'}`, borderRadius: 16, padding: '12px 14px', boxShadow: '0 8px 30px rgba(0,0,0,0.35)' }}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-              <ReportIcon type={nearbyIncident.type} size={36} />
-              <div style={{ flex: 1, minWidth: 0 }}>
-                <div style={{ fontSize: 15, fontWeight: 800, color: 'var(--text)' }}>
-                  {incidentPhase === 'passed' ? `${t?.label ?? 'Incidente'} — ainda está aí?` : (t?.label ?? 'Incidente')}
-                </div>
-                <div style={{ fontSize: 12, color: 'var(--muted)' }}>
-                  {incidentPhase === 'ahead' && incidentDist != null ? `a ${incidentDist} m · ` : ''}{meu ? 'o teu report' : 'reportado por outro rider'}
-                </div>
-              </div>
-              <button onClick={clearIncidentAlert} aria-label="Fechar" style={{ background: 'transparent', border: 'none', color: 'var(--muted)', fontSize: 20, cursor: 'pointer' }}>✕</button>
-            </div>
-            {incidentPhase === 'passed' && !meu && (
-              <div style={{ display: 'flex', gap: 8, marginTop: 10 }}>
-                {(['confirm', 'deny'] as const).map(v => (
-                  <button key={v}
-                    onClick={async () => {
-                      if (!currentUserId) return
-                      const id = nearbyIncident.id
-                      clearIncidentAlert()
-                      try {
-                        await voteIncident(id, currentUserId, v)
-                        toast.success(v === 'confirm' ? 'Obrigado! Os outros riders vão ser avisados.' : 'Obrigado! Vamos tirar do mapa se mais riders confirmarem.')
-                      } catch { toast.error('Sem ligação — o voto não foi enviado.') }
-                    }}
-                    style={{ flex: 1, padding: '10px 0', borderRadius: 10, border: 'none', fontWeight: 800, fontSize: 14, cursor: 'pointer', background: v === 'confirm' ? '#dc2626' : '#16a34a', color: 'white' }}>
-                    {v === 'confirm' ? '⚠️ Ainda está' : '✓ Já saiu'}
-                  </button>
-                ))}
-              </div>
-            )}
-          </div>
-        )
-      })()}
+      {!isNavigating && nearbyIncident && (
+        <ReportPromptCard
+          key={nearbyIncident.id + incidentPhase}
+          type={nearbyIncident.type}
+          timestamp={nearbyIncident.timestamp}
+          phase={incidentPhase}
+          dist={incidentDist}
+          isMine={nearbyIncident.userId === currentUserId}
+          confirmations={(nearbyIncident as any).confirmations ?? 0}
+          bottom="calc(env(safe-area-inset-bottom, 0px) + 84px)"
+          onClose={clearIncidentAlert}
+          onVote={async v => {
+            if (!currentUserId) return
+            const id = nearbyIncident.id
+            clearIncidentAlert()
+            try {
+              await voteIncident(id, currentUserId, v)
+              toast.success(v === 'confirm' ? 'Obrigado! Os outros riders vão ser avisados.' : 'Obrigado! Se outro rider confirmar, sai do mapa.')
+            } catch { toast.error('Sem ligação — o voto não foi enviado.') }
+          }}
+        />
+      )}
 
       {selectedPermZone && (() => {
         const level = getRiskLevelActual(selectedPermZone, currentHour)

@@ -48,6 +48,7 @@ export interface Incident {
   confirmations?: number
   denials?: number
   voters?: string[]
+  lastConfirmedAt?: Date | null
 }
 
 export interface Group {

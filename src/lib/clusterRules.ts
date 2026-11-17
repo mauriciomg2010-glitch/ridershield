@@ -35,13 +35,16 @@ export interface ClusterResult {
 }
 
 /** Decide (função pura, testável) se os reports à volta de um ponto justificam uma zona. */
+const SEGURANCA = new Set(['assault_robbery', 'attempted_robbery', 'physical_assault', 'bike_theft', 'suspicious_activity', 'robbery', 'aggression'])
+
 export function avaliarCluster(lat: number, lng: number, all: ClusterReport[], now = Date.now()): ClusterResult | null {
   const desde = now - DIAS * 24 * 3600 * 1000
   const reports = all.filter(r =>
     Number.isFinite(r.lat) && Number.isFinite(r.lng)
     && r.timestampMs >= desde
-    && r.type !== 'confirmed_safe'
-    && (r.denials ?? 0) < 3
+    // só reports de SEGURANÇA viram zona (polícia, buraco, trânsito… não são zona de risco)
+    && SEGURANCA.has(r.type)
+    && (r.denials ?? 0) < (r.confirmations ?? 0) + 2
     && distM(lat, lng, r.lat, r.lng) <= RAIO_CLUSTER_M)
   if (!reports.length) return null
 

@@ -245,7 +245,7 @@ export function subscribeToIncidents(
     collection(db, 'incidents'),
     where('timestamp', '>=', Timestamp.fromDate(fromDate)),
     orderBy('timestamp', 'desc'),
-    limit(200)
+    limit(400)
   )
   return onSnapshot(q, (snap) => {
     const incidents: Incident[] = snap.docs.map((d) => {
@@ -262,6 +262,7 @@ export function subscribeToIncidents(
         confirmations: data.confirmations ?? 0,
         denials: data.denials ?? 0,
         voters: data.voters ?? [],
+        lastConfirmedAt: data.lastConfirmedAt?.toDate?.() ?? null,
       }
     })
     callback(incidents)
@@ -281,7 +282,23 @@ export async function voteIncident(
   await updateDoc(incRef, {
     [vote === 'confirm' ? 'confirmations' : 'denials']: increment(1),
     voters: arrayUnion(userId),
+    // "Sim, está" renova o prazo do report (ver src/lib/reportRules.ts)
+    ...(vote === 'confirm' ? { lastConfirmedAt: serverTimestamp() } : { lastDeniedAt: serverTimestamp() }),
   })
+  // Registo de cada voto — o dado mais valioso (quem passou, quando, o que viu). Não bloqueia.
+  getDoc(incRef).then(snap => {
+    const d = snap.data() as any
+    return addDoc(collection(db, 'incidentVotes'), {
+      incidentId, userId, vote,
+      type: d?.type ?? null,
+      reporterId: d?.userId ?? null,
+      location: d?.location ?? null,
+      reportedAt: d?.timestamp ?? null,
+      confirmationsAfter: d?.confirmations ?? null,
+      denialsAfter: d?.denials ?? null,
+      at: serverTimestamp(),
+    })
+  }).catch(e => console.warn('[voto] registo falhou:', e))
   // "Ainda está" de outro rider é a 2ª prova que a zona automática precisa
   if (vote === 'confirm') {
     getDoc(incRef).then(snap => {

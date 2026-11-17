@@ -168,6 +168,14 @@ service cloud.firestore {
       allow write: if request.auth != null;
     }
 
+    // Votos dos reports ("ainda está" / "já saiu") — histórico; só o próprio cria, só admin lê
+    match /incidentVotes/{voteId} {
+      allow create: if request.auth != null && request.resource.data.userId == request.auth.uid
+        && request.resource.data.vote in ['confirm', 'deny'];
+      allow read: if isAdmin();
+      allow update, delete: if false;
+    }
+
     // Credit claims
     match /creditClaims/{claimId} {
       allow read: if request.auth != null && (resource.data.uid == request.auth.uid || isAdmin());

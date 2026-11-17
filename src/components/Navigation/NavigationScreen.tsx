@@ -3,7 +3,7 @@
 import { useEffect, useRef, useCallback, useState } from 'react'
 import { diag } from '@/lib/diagnostics'
 import ManeuverIcon, { roundaboutExitAngle } from './ManeuverIcon'
-import ReportIcon from '@/components/Report/ReportIcon'
+import ReportPromptCard from '@/components/Report/ReportPromptCard'
 import { INCIDENT_TYPES } from '@/data/incidentTypes'
 import { Incident } from '@/types'
 import { VoiceGuide, bannerText, formatDistance, formatDuration, spokenDistance } from '@/lib/navigation/instructions'
@@ -48,6 +48,7 @@ interface Props {
   nearbyIncident?: Incident | null
   /** limite de velocidade (km/h) da rua atual, quando conhecido */
   speedLimit?: number | null
+  onCloseIncident?: () => void
   /** 'ahead' = aviso antes de chegar; 'passed' = já passou, pergunta se ainda está */
   incidentPhase?: 'ahead' | 'passed'
   incidentDist?: number | null
@@ -86,6 +87,7 @@ export default function NavigationScreen({
   hideControls = false,
   nearbyIncident = null,
   speedLimit = null,
+  onCloseIncident,
   incidentPhase = 'passed',
   incidentDist = null,
   currentUserId,
@@ -217,7 +219,7 @@ export default function NavigationScreen({
   return (
     <>
       {/* Limite da rua + velocidade (como no Google Maps). Passou do limite → número a vermelho */}
-      {(speed > 0 || speedLimit) && (
+      {(speed > 0 || speedLimit) && !nearbyIncident && (
         <div className="absolute z-[601]" style={{ bottom: 100, left: 14, display: 'flex', alignItems: 'flex-end', gap: 6 }}>
           {speedLimit ? (
             <div style={{
@@ -393,95 +395,31 @@ export default function NavigationScreen({
         {/* Report button moved to bottom-right standalone position below */}
       </div>}
 
-      {/* Bottom bar — expands upward when a nearby incident is detected */}
+      {/* Report à frente / "ainda está aí?" — cartão grande por cima do rodapé */}
+      {nearbyIncident && (
+        <ReportPromptCard
+          key={nearbyIncident.id + incidentPhase}
+          type={nearbyIncident.type}
+          timestamp={nearbyIncident.timestamp}
+          phase={incidentPhase}
+          dist={incidentDist}
+          isMine={nearbyIncident.userId === currentUserId}
+          confirmations={(nearbyIncident as any).confirmations ?? 0}
+          bottom={96}
+          onVote={async v => { if (onVoteIncident) await onVoteIncident(nearbyIncident.id, v) }}
+          onClose={() => onCloseIncident?.()}
+        />
+      )}
+
+      {/* Bottom bar */}
       <div className="absolute z-[600]" style={{ bottom: '12px', left: '12px', right: '12px' }}>
         <div style={{
           background: 'var(--surface)',
-          border: `1px solid ${nearbyIncident ? '#f59e0b' : 'var(--border)'}`,
+          border: '1px solid var(--border)',
           borderRadius: 16,
           overflow: 'hidden',
-          boxShadow: nearbyIncident
-            ? '0 4px 24px rgba(245,158,11,0.35)'
-            : '0 4px 20px rgba(0,0,0,0.3)',
-          transition: 'border-color 0.3s ease, box-shadow 0.3s ease',
+          boxShadow: '0 4px 20px rgba(0,0,0,0.3)',
         }}>
-          {/* Incident confirmation panel — animates in/out */}
-          {(() => {
-            const incType = nearbyIncident
-              ? INCIDENT_TYPES.find(t => t.id === nearbyIncident.type)
-              : null
-            return (
-              <div style={{
-                maxHeight: nearbyIncident ? '120px' : '0px',
-                overflow: 'hidden',
-                transition: 'max-height 0.3s ease',
-              }}>
-                <div style={{ padding: '12px 16px 0' }}>
-                  {/* Header row */}
-                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 10 }}>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                      {nearbyIncident && <ReportIcon type={nearbyIncident.type} size={28} />}
-                      <span style={{ fontSize: 14, fontWeight: 700, color: 'var(--text)' }}>
-                        {incidentPhase === 'passed' ? `${incType?.label ?? 'Incidente'} — ainda está aí?` : (incType?.label ?? 'Incidente')}
-                      </span>
-                    </div>
-                    <span style={{ fontSize: 11, color: 'var(--muted)', whiteSpace: 'nowrap' }}>
-                      {nearbyIncident
-                        ? (incidentPhase === 'ahead' && incidentDist != null ? `a ${formatDistance(incidentDist)} · ` : '') + timeAgo(nearbyIncident.timestamp)
-                        : ''}
-                    </span>
-                  </div>
-                  {incidentPhase === 'ahead' && (
-                    <p style={{ fontSize: 12, color: 'var(--muted)', margin: '0 0 12px' }}>
-                      {nearbyIncident?.userId === currentUserId ? 'O teu report.' : 'Reportado por outro rider. Vamos perguntar se ainda está lá depois de passares.'}
-                    </p>
-                  )}
-                  {/* Vote buttons — só depois de passar (não distrai na aproximação) */}
-                  <div style={{ display: incidentPhase === 'passed' ? 'flex' : 'none', gap: 8, marginBottom: 12 }}>
-                    <button
-                      disabled={voting}
-                      onClick={async () => {
-                        if (!nearbyIncident || !onVoteIncident || voting) return
-                        setVoting(true)
-                        await onVoteIncident(nearbyIncident.id, 'confirm')
-                        setVoting(false)
-                      }}
-                      style={{
-                        flex: 1, padding: '8px 0', borderRadius: 10, border: 'none',
-                        background: voting ? 'rgba(34,197,94,0.1)' : '#16a34a',
-                        color: voting ? '#16a34a' : 'white',
-                        fontWeight: 700, fontSize: 13, cursor: voting ? 'default' : 'pointer',
-                        transition: 'background 0.2s',
-                      }}
-                    >
-                      ✓ Ainda está
-                    </button>
-                    <button
-                      disabled={voting}
-                      onClick={async () => {
-                        if (!nearbyIncident || !onVoteIncident || voting) return
-                        setVoting(true)
-                        await onVoteIncident(nearbyIncident.id, 'deny')
-                        setVoting(false)
-                      }}
-                      style={{
-                        flex: 1, padding: '8px 0', borderRadius: 10, border: 'none',
-                        background: voting ? 'rgba(239,68,68,0.1)' : '#dc2626',
-                        color: voting ? '#dc2626' : 'white',
-                        fontWeight: 700, fontSize: 13, cursor: voting ? 'default' : 'pointer',
-                        transition: 'background 0.2s',
-                      }}
-                    >
-                      ✗ Já saiu
-                    </button>
-                  </div>
-                  {/* Divider */}
-                  <div style={{ height: 1, background: 'var(--border)', marginLeft: -16, marginRight: -16 }} />
-                </div>
-              </div>
-            )
-          })()}
-
           {/* Distance / ETA / Cancel row — always visible */}
           <div style={{ padding: '12px 16px', display: 'flex', alignItems: 'center', gap: 12 }}>
             <div style={{ flex: 1, textAlign: 'center' }}>
@@ -505,7 +443,7 @@ export default function NavigationScreen({
       </div>
 
       {/* Report button — bottom-right, consistent with main map position */}
-      {onReport && !hideControls && (
+      {onReport && !hideControls && !nearbyIncident && (
         <button
           onClick={onReport}
           title="Reportar incidente"

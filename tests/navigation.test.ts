@@ -332,7 +332,7 @@ test('report à frente na rota: avisa só se estiver na rota e à frente', async
 test('zona automática precisa de mais de uma pessoa', async () => {
   const { avaliarCluster } = await import('../src/lib/clusterRules')
   const now = Date.now()
-  const r = (userId: string, dx = 0, extra: any = {}) => ({ lat: 53.33 + dx, lng: -6.27, userId, type: 'theft', hour: 21, timestampMs: now - 3600e3, ...extra })
+  const r = (userId: string, dx = 0, extra: any = {}) => ({ lat: 53.33 + dx, lng: -6.27, userId, type: 'bike_theft', hour: 21, timestampMs: now - 3600e3, ...extra })
   assert.equal(avaliarCluster(53.33, -6.27, [r('a')], now), null, '1 report sozinho não cria zona')
   assert.equal(avaliarCluster(53.33, -6.27, [r('a'), r('a', 0.0005)], now), null, 'o mesmo rider 2x não conta')
   assert.ok(avaliarCluster(53.33, -6.27, [r('a'), r('b', 0.001)], now), '2 riders a ~110 m criam')
@@ -391,4 +391,26 @@ test('zonas automáticas fracas não desviam a rota', () => {
   const base = { id: 'AUTO-x', source: 'auto_clustering', lat: 53.29, lng: -6.41, radius: 120 }
   assert.equal(fromFirestoreZone({ ...base, riskLevel: 'medium' }), null)
   assert.ok(fromFirestoreZone({ ...base, riskLevel: 'high' }))
+})
+
+test('regras de vida dos reports', async () => {
+  const { isReportActive, reportExpiresAt } = await import('../src/lib/reportRules')
+  const h = 3600e3, now = Date.UTC(2026, 10, 18, 12)
+  const r = (type: string, horas: number, extra: any = {}) => ({ type, timestamp: new Date(now - horas * h), ...extra })
+  assert.ok(isReportActive(r('police', 1), now), 'polícia com 1 h')
+  assert.equal(isReportActive(r('police', 3), now), false, 'polícia some após 2 h')
+  assert.ok(isReportActive(r('police', 3, { lastConfirmedAt: new Date(now - 0.5 * h) }), now), 'confirmação renova')
+  assert.equal(isReportActive(r('police', 7, { lastConfirmedAt: new Date(now - 0.1 * h) }), now), false, 'máximo 3× a duração')
+  assert.ok(isReportActive(r('pothole', 24 * 20), now), 'buraco dura 30 dias')
+  assert.equal(isReportActive(r('assault_robbery', 1, { denials: 2 }), now), false, '2 "já saiu" sem confirmações → sai')
+  assert.ok(isReportActive(r('assault_robbery', 1, { denials: 2, confirmations: 1 }), now), 'com 1 confirmação precisa de 3')
+  assert.equal(isReportActive(r('assault_robbery', 1, { denials: 3, confirmations: 1 }), now), false)
+  assert.ok(reportExpiresAt(r('traffic_jam', 0)) === now + h)
+})
+
+test('zona automática ignora reports de estrada', async () => {
+  const { avaliarCluster } = await import('../src/lib/clusterRules')
+  const now = Date.now()
+  const r = (userId: string, type: string) => ({ lat: 53.33, lng: -6.27, userId, type, hour: 9, timestampMs: now - 3600e3 })
+  assert.equal(avaliarCluster(53.33, -6.27, [r('a', 'police'), r('b', 'pothole')], now), null)
 })
