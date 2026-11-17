@@ -1,5 +1,6 @@
 // src/components/Map/MapSearchBar.tsx
 'use client'
+import { normalizeEircode, lookupEircode } from '@/lib/eircode'
 import { useState, useRef, useCallback, useEffect } from 'react'
 
 interface HistoryItem {
@@ -61,6 +62,17 @@ export default function MapSearchBar({ onPlaceSelected, userLocation }: Props) {
 
   const suggestPlaces = useCallback(async (q: string) => {
     if (q.length < 2) { setSuggestions([]); return }
+    // Eircode completo → vai direto ao endereço exato
+    if (normalizeEircode(q)) {
+      try {
+        const r = await lookupEircode(q)
+        if (r) { setSuggestions([{ __eircode: r, name: r.eircode, full_address: r.label, feature_type: 'address' }]); return }
+        setSuggestions([{ __eircodeMissing: true, name: normalizeEircode(q), full_address: 'Eircode não encontrado' }])
+        return
+      } catch {
+        // serviço ainda não configurado: segue para a pesquisa normal (encontra a zona do Eircode)
+      }
+    }
     const token = process.env.NEXT_PUBLIC_MAPBOX_TOKEN
     const prox = userLocation ? `&proximity=${userLocation.lng},${userLocation.lat}` : ''
     const url = `https://api.mapbox.com/search/searchbox/v1/suggest?q=${encodeURIComponent(q)}&language=pt&country=ie${prox}&types=poi,address,place,neighborhood,street&limit=6&session_token=${sessionTokenRef.current}&access_token=${token}`
@@ -80,6 +92,14 @@ export default function MapSearchBar({ onPlaceSelected, userLocation }: Props) {
   }, [])
 
   const selectSuggestion = useCallback(async (s: any) => {
+    if (s.__eircodeMissing) return
+    if (s.__eircode) {
+      const r = s.__eircode
+      saveToHistory({ id: `eircode-${r.eircode}`, name: r.eircode, address: r.label, lat: r.lat, lng: r.lng })
+      setOpen(false); setText(''); setSuggestions([])
+      onPlaceSelected(r.lat, r.lng, r.eircode)
+      return
+    }
     setLoading(true)
     setSuggestions([])
     try {

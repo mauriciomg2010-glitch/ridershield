@@ -13,6 +13,7 @@ import 'mapbox-gl/dist/mapbox-gl.css'
 import { useStore } from '@/lib/store'
 import { nextReportOnRoute, nextReportAheadFree } from '@/lib/navigation/reportAhead'
 import { frequentPlaces } from '@/lib/navigation/habits'
+import { normalizeEircode, lookupEircode } from '@/lib/eircode'
 import { diag, diagOn, onDiagChange } from '@/lib/diagnostics'
 import { subscribeToIncidents, subscribeToGlobalPresence, reportIncident, voteIncident } from '@/lib/firestore'
 import { INCIDENT_TYPES as QUICK_REPORT_TYPES, REPORT_MENU_TYPES } from '@/data/incidentTypes'
@@ -1148,6 +1149,15 @@ export default function MapView({ groupMembers = EMPTY_MEMBERS, currentUserId, g
 
   const suggestPlaces = useCallback(async (text: string) => {
     if (text.length < 2) { setSearchSuggestions([]); return }
+    if (normalizeEircode(text)) {
+      try {
+        const r = await lookupEircode(text)
+        setSearchSuggestions(r
+          ? [{ __eircode: r, name: r.eircode, full_address: r.label, feature_type: 'address' }]
+          : [{ __eircodeMissing: true, name: normalizeEircode(text), full_address: 'Eircode não encontrado' }])
+        return
+      } catch { /* serviço não configurado: pesquisa normal */ }
+    }
     const token = process.env.NEXT_PUBLIC_MAPBOX_TOKEN
     const prox = currentLocation ? `&proximity=${currentLocation.lng},${currentLocation.lat}` : ''
     const url = `https://api.mapbox.com/search/searchbox/v1/suggest?q=${encodeURIComponent(text)}&language=pt&country=ie${prox}&types=poi,address,place,neighborhood,street&limit=6&session_token=${sessionTokenRef.current}&access_token=${token}`
@@ -1169,6 +1179,16 @@ export default function MapView({ groupMembers = EMPTY_MEMBERS, currentUserId, g
   }, [])
 
   const selectSuggestion = useCallback(async (suggestion: any) => {
+    if (suggestion?.__eircodeMissing) return
+    if (suggestion?.__eircode) {
+      const r = suggestion.__eircode
+      lastPlaceRef.current = { lat: r.lat, lng: r.lng, name: r.label }
+      setSearchSuggestions([]); setShowSearch(false); setSearchText('')
+      mapRef.current?.flyTo({ center: [r.lng, r.lat], zoom: 16, duration: 800 })
+      setPendingNavDest({ lat: r.lat, lng: r.lng })
+      setShowModeSelector(true)
+      return
+    }
     setSearchLoading(true)
     setSearchSuggestions([])
     try {

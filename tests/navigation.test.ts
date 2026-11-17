@@ -414,3 +414,13 @@ test('zona automática ignora reports de estrada', async () => {
   const r = (userId: string, type: string) => ({ lat: 53.33, lng: -6.27, userId, type, hour: 9, timestampMs: now - 3600e3 })
   assert.equal(avaliarCluster(53.33, -6.27, [r('a', 'police'), r('b', 'pothole')], now), null)
 })
+
+test('Eircode: reconhece e normaliza', async () => {
+  const { normalizeEircode, isEircodeRoutingKey } = await import('../src/lib/eircode')
+  assert.equal(normalizeEircode('d24x4y2'), 'D24 X4Y2')
+  assert.equal(normalizeEircode(' D02 X285 '), 'D02 X285')
+  assert.equal(normalizeEircode('D6W XY12'), 'D6W XY12')
+  assert.equal(normalizeEircode('Grange Castle Road'), null)
+  assert.equal(normalizeEircode('D24 XB12'), null, 'B não existe no Eircode')
+  assert.ok(isEircodeRoutingKey('d24'))
+})
