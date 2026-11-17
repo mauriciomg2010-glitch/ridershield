@@ -15,6 +15,7 @@ import { zonesOnRoute, pointInZone, AvoidZone } from '@/lib/navigation/zones'
 import { ZoneAlertGuide, ZoneAlertState, zoneSpansOnRoute } from '@/lib/navigation/zoneAlert'
 import { bearing as geoBearing, distM, LngLat } from '@/lib/navigation/geo'
 import { recordTrip, overlap, simplifyTrace } from '@/lib/navigation/habits'
+import { projectAhead } from '@/lib/navigation/reportAhead'
 import { diag } from '@/lib/diagnostics'
 
 type LatLng = { lat: number; lng: number }
@@ -42,7 +43,7 @@ interface Options {
 }
 
 const REROUTE_COOLDOWN_MS = 8000
-const FASTER_ROUTE_EVERY_MS = 120000
+const FASTER_ROUTE_EVERY_MS = 90000
 const FASTER_ROUTE_MIN_GAIN_S = 120
 
 const byFewestZones = (a: any, b: any) => (a._hits?.length ?? 0) - (b._hits?.length ?? 0) || a.duration - b.duration
@@ -76,6 +77,10 @@ export function useNavigationCore({ isNavigating, currentFix, navDest, routeProf
   const navDestRef = useRef<LatLng | null>(navDest)
   const profileRef = useRef(routeProfile)
   const hasArrivedRef = useRef(false)
+  // Rota alternativa mostrada a cinzento durante a navegação (como o Google Maps)
+  const [altRoute, setAltRoute] = useState<{ route: any; deltaS: number; divAlong: number; label: [number, number] } | null>(null)
+  const altRouteRef = useRef(altRoute)
+  altRouteRef.current = altRoute
   const navigatingRef = useRef(isNavigating)
   const cbRef = useRef({ onBearing, onArrived, onRouteApplied })
   const alertGuideRef = useRef<ZoneAlertGuide | null>(null)
@@ -134,6 +139,7 @@ export function useNavigationCore({ isNavigating, currentFix, navDest, routeProf
   }, [])
 
   const applyRoute = useCallback((route: any) => {
+    setAltRoute(null)
     guard('applyRoute', () => {
       if (tripRef.current && !tripRef.current.firstRoute && Array.isArray(route?.geometry?.coordinates)) {
         tripRef.current.firstRoute = route.geometry.coordinates as LngLat[]
@@ -249,6 +255,7 @@ export function useNavigationCore({ isNavigating, currentFix, navDest, routeProf
       }
       const p = tr.update({ ...currentFix, speed: v, heading: headingGps })
       progressRef.current = { ...p, time: Date.now(), speedMps: v, onRoute: p.offRouteM < 40 }
+      if (altRouteRef.current && p.along > altRouteRef.current.divAlong + 40) setAltRoute(null)
       diag('rota', { passo: p.stepIdx, ate: Math.round(p.distToManeuver), fora: Math.round(p.offRouteM), contramao: p.wrongWay, falta: Math.round(p.remainingM) }, 1000)
 
       setCurrentStepIdx(p.stepIdx)
@@ -298,7 +305,7 @@ export function useNavigationCore({ isNavigating, currentFix, navDest, routeProf
   // ── a cada 2 min: procura rota SEGURA mais rápida (trânsito mudou) ──
   useEffect(() => {
     if (!isNavigating) return
-    const interval = setInterval(async () => {
+    const check = async () => {
       const dest = navDestRef.current
       const fix = useStore.getState().currentFix
       const pr = progressRef.current
@@ -308,18 +315,51 @@ export function useNavigationCore({ isNavigating, currentFix, navDest, routeProf
           fetchMapboxRoutes(fix, dest, profileRef.current, { alternatives: true }),
           loadAvoidZones(),
         ])
-        const best = routes
+        const seguras = routes
           .filter((r: any) => zonesOnRoute(r.geometry.coordinates, zones).length === 0)
-          .sort((a: any, b: any) => a.duration - b.duration)[0]
+          .sort((a: any, b: any) => a.duration - b.duration)
+        const best = seguras[0]
         const cur = progressRef.current
         if (best && cur && navigatingRef.current && !rerouteBusyRef.current && best.duration < cur.remainingS - FASTER_ROUTE_MIN_GAIN_S) {
+          setAltRoute(null)
           applyRoute(best)
           toast('🛡️ Rota segura mais rápida encontrada', { duration: 4000 })
+          return
         }
+        // alternativa segura que segue por outro caminho → mostrada a cinzento com a diferença de tempo
+        const tr = trackerRef.current
+        if (!tr || !cur || !navigatingRef.current) return
+        const restante = tr.remainingCoords(cur.along) as [number, number][]
+        let escolhida: any = null
+        for (const r of seguras) {
+          const g = r.geometry.coordinates as [number, number][]
+          if (overlap(simplifyTrace(g, 40), restante, 40) < 0.65) { escolhida = r; break }
+        }
+        if (!escolhida) { setAltRoute(null); return }
+        const g = escolhida.geometry.coordinates as [number, number][]
+        // onde se separa da rota atual (para sumir depois de passar esse ponto) e onde pôr a etiqueta
+        let divIdx = g.findIndex(p => overlap([p], restante, 40) === 0)
+        if (divIdx < 0) divIdx = 0
+        const divPt = g[divIdx]
+        const proj = projectAhead({ coords: tr.coords as any, cum: tr.cum }, divPt, tr.currentSeg, cur.along, 5000)
+        const label = g[Math.min(g.length - 1, divIdx + Math.floor((g.length - divIdx) / 3))]
+        setAltRoute({ route: escolhida, deltaS: Math.round(escolhida.duration - cur.remainingS), divAlong: proj?.along ?? cur.along, label })
+        diag('alternativa', { delta: Math.round(escolhida.duration - cur.remainingS) })
       } catch { /* sem rede: tenta no próximo ciclo */ }
-    }, FASTER_ROUTE_EVERY_MS)
-    return () => clearInterval(interval)
+    }
+    const first = setTimeout(check, 25_000)          // 1ª verificação logo no início
+    const interval = setInterval(check, FASTER_ROUTE_EVERY_MS)
+    return () => { clearTimeout(first); clearInterval(interval); setAltRoute(null) }
   }, [isNavigating, applyRoute])
+
+  /** Rider tocou na alternativa cinzenta: passa a navegar por ela. */
+  const switchToAlt = useCallback(() => {
+    const a = altRouteRef.current
+    if (!a) return
+    diag('alternativa-escolhida', { delta: a.deltaS })
+    setAltRoute(null)
+    applyRoute(a.route)
+  }, [applyRoute])
 
   /** Distância entre a próxima manobra e a seguinte (para "Depois, …" na voz). */
   const nextGap = trackerRef.current
@@ -329,10 +369,10 @@ export function useNavigationCore({ isNavigating, currentFix, navDest, routeProf
   return {
     // estado
     routeGeoJSON, routeCongestion, navSteps, currentStepIdx, distToNext, remainingDist, remainingSec, navEta,
-    riskOnRoute, activeRouteZones, isRecalculating, hasArrived, routeTrim, nextGap, zoneAlert, zoneSpeech,
+    riskOnRoute, activeRouteZones, isRecalculating, hasArrived, routeTrim, nextGap, zoneAlert, zoneSpeech, altRoute,
     // refs (leitura pela câmera)
     trackerRef, progressRef,
     // ações
-    applyRoute, beginSession, resetNav, updateRiskForRoute, setActiveRouteZones, setHasArrived, switchToSafeRoute,
+    applyRoute, beginSession, resetNav, updateRiskForRoute, setActiveRouteZones, setHasArrived, switchToSafeRoute, switchToAlt,
   }
 }

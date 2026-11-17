@@ -7,8 +7,8 @@ import { zonesOnRoute as zonesHitByRoute, pointInZone } from '@/lib/navigation/z
 import { zoneSpansOnRoute } from '@/lib/navigation/zoneAlert'
 
 export const TRANSPORT_MODES = [
-  { key: 'car',     label: 'Carro/Moto', icon: '🚗', profile: 'driving-traffic' },
-  { key: 'cycling', label: 'Bike',        icon: '🚲', profile: 'cycling' },
+  { key: 'car',     label: 'Carro / Moto', icon: '🏍️', profile: 'driving-traffic' },
+  { key: 'cycling', label: 'Bicicleta',    icon: '🚲', profile: 'cycling' },
   { key: 'walking', label: 'A pé',        icon: '🚶', profile: 'walking' },
 ] as const
 
@@ -84,9 +84,9 @@ function hasCongestion(route: any): boolean {
 }
 
 const ACTIVE_TABS: Array<{ key: ModeKey; icon: string; label: string; profile: string }> = [
-  { key: 'car',     icon: '🚗', label: 'Carro/Moto', profile: 'driving-traffic' },
-  { key: 'cycling', icon: '🚲', label: 'Bike',        profile: 'cycling' },
-  { key: 'walking', icon: '🚶', label: 'A pé',        profile: 'walking' },
+  { key: 'car',     icon: '🏍️', label: 'Carro / Moto', profile: 'driving-traffic' },
+  { key: 'cycling', icon: '🚲', label: 'Bicicleta',    profile: 'cycling' },
+  { key: 'walking', icon: '🚶', label: 'A pé',         profile: 'walking' },
 ]
 
 // ── Props ─────────────────────────────────────────────────────────────────────
@@ -379,7 +379,8 @@ export default function TransportModeSelector({
               cursor: 'pointer', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 4,
             }}>
               <span style={{ fontSize: 22 }}>{tab.icon}</span>
-              <span style={{ fontSize: 11, fontWeight: 700, color: isSel ? '#4285f4' : 'var(--muted)' }}>{tabLabel}</span>
+              <span style={{ fontSize: 11, fontWeight: 600, color: isSel ? '#1a73e8' : 'var(--muted)' }}>{tab.label}</span>
+              <span style={{ fontSize: 12, fontWeight: 700, color: isSel ? '#1a73e8' : 'var(--muted)' }}>{tabLabel}</span>
             </button>
           )
         })}

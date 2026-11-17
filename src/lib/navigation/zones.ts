@@ -86,6 +86,10 @@ export function fromFirestoreZone(raw: any, now = new Date()): AvoidZone | null 
   // Zona só por horário (ex.: canal à noite): fora das horas marcadas não é evitada.
   const peaks: number[] = Array.isArray(raw.peakHours) ? raw.peakHours.map(Number) : []
   if (raw.blockOnlyInPeakHours === true && peaks.length > 0 && !peaks.includes(hour)) return null
+  // Zonas automáticas (geradas pelos reports) são círculos e apanhavam avenidas e casas à volta:
+  // só desviam a rota quando já são de risco alto/crítico (5+ riders/confirmações). Abaixo disso
+  // ficam só no mapa e nos avisos de report.
+  if (raw.source === 'auto_clustering' && raw.riskLevel !== 'high' && raw.riskLevel !== 'critical') return null
   const base = {
     id: String(raw.id ?? raw.zoneId ?? ''),
     name: String(raw.areaName ?? raw.segmentName ?? raw.name ?? raw.id ?? 'Zona'),
@@ -129,23 +133,41 @@ export function fromPermanentZone(z: {
   return finish({ id: z.id, name: z.name, level: actualLevel, city: z.city, kind: 'area', ring: circleRing(c, r), bufferM: 0, center: c, peak, source: 'permanent' })
 }
 
-export function pointInZone(p: LngLat, z: AvoidZone): boolean {
+/**
+ * Margem da borda (m): as zonas desenhadas à mão encostam nas avenidas, e o GPS erra 5–15 m.
+ * Só conta como "dentro" quem está pelo menos EDGE_TOL_M para dentro da borda — assim a avenida
+ * que passa entre duas zonas, ou a rua de casa colada a uma zona, deixa de ser marcada.
+ */
+export const EDGE_TOL_M = 15
+
+function distToRing(p: LngLat, ring: LngLat[]): number {
+  let best = Infinity
+  for (let i = 1; i < ring.length; i++) best = Math.min(best, projectOnSegment(p, ring[i - 1], ring[i]).dist)
+  return best
+}
+
+export function pointInZone(p: LngLat, z: AvoidZone, margin = EDGE_TOL_M): boolean {
   if (p[0] < z.bbox[0] || p[0] > z.bbox[2] || p[1] < z.bbox[1] || p[1] > z.bbox[3]) return false
   if (z.kind === 'street' && z.line) {
     for (let i = 1; i < z.line.length; i++) if (projectOnSegment(p, z.line[i - 1], z.line[i]).dist <= z.bufferM) return true
     return false
   }
-  return pointInRing(p, z.ring)
+  if (!pointInRing(p, z.ring)) return false
+  return margin <= 0 || distToRing(p, z.ring) >= margin
 }
 
-/** O segmento a–b toca a zona? */
 function segmentHitsZone(a: LngLat, b: LngLat, z: AvoidZone): boolean {
   if (z.kind === 'street' && z.line) {
     for (let i = 1; i < z.line.length; i++) if (segmentSegmentDist(a, b, z.line[i - 1], z.line[i]) <= z.bufferM) return true
     return false
   }
-  if (pointInRing(a, z.ring) || pointInRing(b, z.ring)) return true
-  for (let i = 1; i < z.ring.length; i++) if (segmentsIntersect(a, b, z.ring[i - 1], z.ring[i])) return true
+  // percorre o segmento a cada ~8 m: só conta se algum ponto entra EDGE_TOL_M para dentro da zona
+  const len = distM(a, b)
+  const n = Math.max(1, Math.ceil(len / 8))
+  for (let k = 0; k <= n; k++) {
+    const t = k / n
+    if (pointInZone([a[0] + (b[0] - a[0]) * t, a[1] + (b[1] - a[1]) * t], z)) return true
+  }
   return false
 }
 

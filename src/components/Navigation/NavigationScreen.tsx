@@ -2,7 +2,7 @@
 'use client'
 import { useEffect, useRef, useCallback, useState } from 'react'
 import { diag } from '@/lib/diagnostics'
-import ManeuverIcon from './ManeuverIcon'
+import ManeuverIcon, { roundaboutExitAngle } from './ManeuverIcon'
 import { INCIDENT_TYPES } from '@/data/incidentTypes'
 import { Incident } from '@/types'
 import { VoiceGuide, bannerText, formatDistance, formatDuration, spokenDistance } from '@/lib/navigation/instructions'
@@ -246,7 +246,8 @@ export default function NavigationScreen({
               boxShadow: '0 4px 16px rgba(0,0,0,0.35)', display: 'flex', alignItems: 'center', gap: 12,
             }}>
               <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', minWidth: 56 }}>
-                <ManeuverIcon type={longeDoFim ? 'continue' : tipo} modifier={longeDoFim ? 'straight' : mod} size={46} />
+                <ManeuverIcon type={longeDoFim ? 'continue' : tipo} modifier={longeDoFim ? 'straight' : mod} size={46}
+                  exitAngle={isRot ? roundaboutExitAngle(currentStep) : null} exit={isRot ? exitN : undefined} />
                 <span style={{ color: 'white', fontSize: 17, fontWeight: 700, marginTop: 2, whiteSpace: 'nowrap' }}>
                   {formatDistance(distToNext)}
                 </span>
@@ -271,7 +272,8 @@ export default function NavigationScreen({
                 {mostrarDepois && (
                   <div style={{ background: '#0b3f35', borderRadius: 12, padding: '6px 12px', display: 'flex', alignItems: 'center', gap: 6, boxShadow: '0 2px 8px rgba(0,0,0,0.3)' }}>
                     <span style={{ color: 'white', fontSize: 15, fontWeight: 600 }}>Depois</span>
-                    <ManeuverIcon type={nextStep.maneuver?.type} modifier={nextStep.maneuver?.modifier} size={24} />
+                    <ManeuverIcon type={nextStep.maneuver?.type} modifier={nextStep.maneuver?.modifier} size={24}
+                      exitAngle={/roundabout|rotary/.test(nextStep.maneuver?.type ?? '') ? roundaboutExitAngle(nextStep) : null} />
                   </div>
                 )}
                 {isRecalculating && (

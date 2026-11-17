@@ -53,7 +53,7 @@ export function avaliarCluster(lat: number, lng: number, all: ClusterReport[], n
   const evidencia = riders + confirmations
   const riskLevel: ClusterResult['riskLevel'] =
     evidencia >= 8 ? 'critical' : evidencia >= 5 ? 'high' : evidencia >= 3 ? 'medium' : 'low'
-  const radius = evidencia >= 5 ? 200 : evidencia >= 3 ? 150 : 100
+  const radius = evidencia >= 5 ? 150 : evidencia >= 3 ? 110 : 80
 
   const center = {
     lat: reports.reduce((s, r) => s + r.lat, 0) / reports.length,

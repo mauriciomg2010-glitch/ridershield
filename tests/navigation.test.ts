@@ -371,3 +371,24 @@ test('report à frente sem navegação (direção do GPS)', async () => {
   assert.equal(nextReportAheadFree(me, 270, reps)?.report.id, 'atras')
   assert.equal(nextReportAheadFree(me, 0, reps), null)
 })
+
+test('zona desenhada: avenida colada à borda não conta, atravessar conta', () => {
+  const c: LngLat = [-6.41, 53.29]
+  // quadrado de 200 m × 200 m
+  const nw = destination(destination(c, 100, 0), 100, 270), ne = destination(destination(c, 100, 0), 100, 90)
+  const se = destination(destination(c, 100, 180), 100, 90), sw = destination(destination(c, 100, 180), 100, 270)
+  const z = fromFirestoreZone({ id: 'q', riskLevel: 'high', polygon: [nw, ne, se, sw].map(p => ({ lng: p[0], lat: p[1] })) })!
+  // avenida 8 m para dentro da borda norte (desenho/GPS imprecisos) — não é zona
+  const a = destination(nw, 8, 180), b = destination(ne, 8, 180)
+  assert.equal(zonesOnRoute(line(destination(a, 200, 270), destination(b, 200, 90), 30), [z]).length, 0)
+  assert.equal(pointInZone(destination(c, 92, 0), z), false, 'casa a 8 m da borda')
+  // atravessar pelo meio — é zona
+  assert.equal(zonesOnRoute(line(destination(c, 300, 0), destination(c, 300, 180), 30), [z]).length, 1)
+  assert.equal(pointInZone(c, z), true)
+})
+
+test('zonas automáticas fracas não desviam a rota', () => {
+  const base = { id: 'AUTO-x', source: 'auto_clustering', lat: 53.29, lng: -6.41, radius: 120 }
+  assert.equal(fromFirestoreZone({ ...base, riskLevel: 'medium' }), null)
+  assert.ok(fromFirestoreZone({ ...base, riskLevel: 'high' }))
+})

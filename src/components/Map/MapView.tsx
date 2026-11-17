@@ -509,9 +509,9 @@ export default function MapView({ groupMembers = EMPTY_MEMBERS, currentUserId, g
   // ── Motor de navegação isolado (src/components/Navigation/useNavigationCore.ts) ──
   const {
     routeGeoJSON, routeCongestion, navSteps, currentStepIdx, distToNext, remainingDist, remainingSec, navEta,
-    riskOnRoute, activeRouteZones, isRecalculating, hasArrived, routeTrim, nextGap, zoneAlert, zoneSpeech,
+    riskOnRoute, activeRouteZones, isRecalculating, hasArrived, routeTrim, nextGap, zoneAlert, zoneSpeech, altRoute,
     trackerRef, progressRef,
-    applyRoute, beginSession, resetNav, updateRiskForRoute, setActiveRouteZones, setHasArrived, switchToSafeRoute,
+    applyRoute, beginSession, resetNav, updateRiskForRoute, setActiveRouteZones, setHasArrived, switchToSafeRoute, switchToAlt,
   } = useNavigationCore({
     isNavigating, currentFix, navDest, routeProfile,
     onBearing: setNavBearing,
@@ -2241,6 +2241,28 @@ export default function MapView({ groupMembers = EMPTY_MEMBERS, currentUserId, g
             </Marker>
           )
         })}
+
+        {/* Alternativa durante a navegação (cinzento, como no Google Maps) — por baixo da rota */}
+        {isNavigating && altRoute && (
+          <Source id="alt-route" type="geojson" data={asFeature(altRoute.route.geometry)}>
+            <Layer id="alt-route-casing" type="line" layout={{ 'line-cap': 'round', 'line-join': 'round' }}
+              paint={{ 'line-color': '#80868b', 'line-width': ['interpolate', ['linear'], ['zoom'], 12, 6, 16, 10, 18, 15] as any }} />
+            <Layer id="alt-route-line" type="line" layout={{ 'line-cap': 'round', 'line-join': 'round' }}
+              paint={{ 'line-color': '#bdc1c6', 'line-width': ['interpolate', ['linear'], ['zoom'], 12, 4, 16, 7, 18, 11] as any }} />
+          </Source>
+        )}
+        {isNavigating && altRoute && (() => {
+          const d = altRoute.deltaS
+          const txt = Math.abs(d) < 60 ? 'Mesmo tempo' : d > 0 ? `+${Math.round(d / 60)} min` : `${Math.round(-d / 60)} min mais rápida`
+          return (
+            <Marker longitude={altRoute.label[0]} latitude={altRoute.label[1]} anchor="bottom">
+              <button onClick={(e) => { e.stopPropagation(); switchToAlt(); toast('Rota alternativa escolhida') }}
+                style={{ background: 'white', color: d < -59 ? '#188038' : '#3c4043', border: 'none', borderRadius: 10, padding: '5px 9px', fontSize: 13, fontWeight: 700, boxShadow: '0 2px 6px rgba(0,0,0,0.3)', whiteSpace: 'nowrap', cursor: 'pointer' }}>
+                {txt}
+              </button>
+            </Marker>
+          )
+        })()}
 
         {/* Linha da rota estilo Google Maps: azul; laranja/vermelho só onde há trânsito */}
         {routeCongestionGeoJSON && (
