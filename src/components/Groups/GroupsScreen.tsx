@@ -86,21 +86,7 @@ export default function GroupsScreen() {
           <h1 className="text-2xl font-bold" style={{color:'var(--text)'}}>{t('groups')}</h1>
           <p className="text-sm mt-0.5" style={{color:'var(--muted)'}}>{t('ride_together')}</p>
         </div>
-        <button
-          onClick={() => {
-            setReportLocation(currentLocation ? { ...currentLocation, timestamp: Date.now() } : null)
-            setShowReport(true)
-          }}
-          style={{
-            width: 40, height: 40, borderRadius: '50%',
-            background: 'rgba(239,68,68,0.12)', border: '1px solid rgba(239,68,68,0.35)',
-            display: 'flex', alignItems: 'center', justifyContent: 'center',
-            cursor: 'pointer', fontSize: 18, flexShrink: 0,
-          }}
-          title="Reportar incidente"
-        >
-          ⚠️
-        </button>
+        {/* botão de report saiu daqui: reporta-se no mapa */}
       </div>
       {showReport && <ReportModal onClose={() => setShowReport(false)} initialLocation={reportLocation} />}
 

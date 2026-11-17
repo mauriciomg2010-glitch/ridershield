@@ -520,7 +520,7 @@ export default function MapView({ groupMembers = EMPTY_MEMBERS, currentUserId, g
   // ── Motor de navegação isolado (src/components/Navigation/useNavigationCore.ts) ──
   const {
     routeGeoJSON, routeCongestion, navSteps, currentStepIdx, distToNext, remainingDist, remainingSec, navEta,
-    riskOnRoute, activeRouteZones, isRecalculating, hasArrived, routeTrim, nextGap, zoneAlert, zoneSpeech, altRoute, speedLimit,
+    riskOnRoute, activeRouteZones, isRecalculating, hasArrived, routeTrim, nextGap, zoneAlert, zoneSpeech, altRoute, speedLimit, safeAlt, destZone,
     trackerRef, progressRef,
     applyRoute, beginSession, resetNav, updateRiskForRoute, setActiveRouteZones, setHasArrived, switchToSafeRoute, switchToAlt,
   } = useNavigationCore({
@@ -2606,6 +2606,8 @@ export default function MapView({ groupMembers = EMPTY_MEMBERS, currentUserId, g
         hideControls={showQuickReport || externalReportOpen}
         nearbyIncident={nearbyIncident}
         speedLimit={speedLimit}
+        safeAlt={safeAlt}
+        destZone={destZone}
         onCloseIncident={clearIncidentAlert}
         incidentPhase={incidentPhase}
         incidentDist={incidentDist}
@@ -3259,7 +3261,8 @@ export default function MapView({ groupMembers = EMPTY_MEMBERS, currentUserId, g
           className="absolute z-[600]"
           onClick={resumeFollow}
           style={{
-            bottom: 128, left: 16,
+            // ao centro, acima do rodapé — antes ficava escondido atrás da velocidade
+            bottom: 104, left: '50%', transform: 'translateX(-50%)',
             background: 'white', border: 'none',
             borderRadius: 24, padding: '10px 18px',
             boxShadow: '0 1px 6px rgba(0,0,0,0.3)',

@@ -49,6 +49,8 @@ interface Props {
   /** limite de velocidade (km/h) da rua atual, quando conhecido */
   speedLimit?: number | null
   onCloseIncident?: () => void
+  safeAlt?: 'checking' | 'yes' | 'no' | 'none-needed' | null
+  destZone?: { id: string; name: string } | null
   /** 'ahead' = aviso antes de chegar; 'passed' = já passou, pergunta se ainda está */
   incidentPhase?: 'ahead' | 'passed'
   incidentDist?: number | null
@@ -88,6 +90,8 @@ export default function NavigationScreen({
   nearbyIncident = null,
   speedLimit = null,
   onCloseIncident,
+  safeAlt = null,
+  destZone = null,
   incidentPhase = 'passed',
   incidentDist = null,
   currentUserId,
@@ -323,7 +327,7 @@ export default function NavigationScreen({
 
       {/* Modo alerta — fica na tela até passar por todas as zonas ou mudar para a rota segura */}
       {!hideControls && onSwitchToSafe && (
-        <ZoneAlertBanner alert={zoneAlert} isRecalculating={isRecalculating} onSwitchToSafe={onSwitchToSafe} top={158} />
+        <ZoneAlertBanner alert={zoneAlert} isRecalculating={isRecalculating} onSwitchToSafe={onSwitchToSafe} top={158} safeAlt={safeAlt} destZone={destZone} />
       )}
 
       {/* Side column: compass + mute + SOS — hidden when any report panel is open */}

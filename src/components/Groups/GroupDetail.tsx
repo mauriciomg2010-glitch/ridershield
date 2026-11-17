@@ -15,7 +15,7 @@ import {
 } from '@/lib/firestore'
 import { triggerEmergencyAlert } from '@/lib/emergencyAlert'
 import { stopEmergencySound, playEmergencyConfirmSound } from '@/lib/emergencySound'
-import { dismissedSosIds } from './GroupSosListener'
+import { dismissedSosIds, silenciarSosId } from './GroupSosListener'
 import { collection, query, where, getDocs, updateDoc, serverTimestamp } from 'firebase/firestore'
 import { db, rtdb } from '@/lib/firebase'
 import { ref as rtdbRef, onValue, set as rtdbSet, remove as rtdbRemove } from 'firebase/database'
@@ -134,8 +134,8 @@ export default function GroupDetail({ group: initialGroup, onBack }: Props) {
 
       // Own SOS — show cancel button but don't play sound
       if (data.userId === user.id) {
-        const isRecent = Date.now() - data.timestamp < 2 * 60 * 1000
-        if (isRecent) { activeSosRef.current = sosEntry; setActiveSos(sosEntry) }
+        // quem pediu ajuda vê sempre o botão para encerrar enquanto o pedido estiver ativo
+        activeSosRef.current = sosEntry; setActiveSos(sosEntry)
         return
       }
 
@@ -203,6 +203,8 @@ export default function GroupDetail({ group: initialGroup, onBack }: Props) {
         userName: user.name,
         timestamp: Date.now(),
         active: true,
+        // posição no momento do pedido (os outros veem no mapa e podem navegar até lá)
+        ...(currentLocation ? { lat: currentLocation.lat, lng: currentLocation.lng } : {}),
       })
       triggerEmergencyAlert({
         userId: user.id,
@@ -286,7 +288,7 @@ export default function GroupDetail({ group: initialGroup, onBack }: Props) {
       }
     }
     // Both sender and non-sender: stop locally
-    if (sos && !isSender) dismissedSosIds.add(`${group.id}_${sos.userId}_${sos.id.split('_').pop()}`)
+    if (sos && !isSender) silenciarSosId(`${group.id}_${sos.userId}_${sos.id.split('_').pop()}`)
     soundPlayingRef.current = false
     stopEmergencySound()
     setActiveSos(null)

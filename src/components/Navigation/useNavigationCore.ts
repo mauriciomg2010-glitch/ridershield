@@ -88,6 +88,10 @@ export function useNavigationCore({ isNavigating, currentFix, navDest, routeProf
   const cbRef = useRef({ onBearing, onArrived, onRouteApplied })
   const alertGuideRef = useRef<ZoneAlertGuide | null>(null)
   const allZonesRef = useRef<AvoidZone[]>([])
+  // há rota que evita as zonas à frente? ('none-needed' = só a zona do destino ou nenhuma)
+  const [safeAlt, setSafeAlt] = useState<'checking' | 'yes' | 'no' | 'none-needed' | null>(null)
+  const safeAltRef = useRef<any>(null)
+  const [destZone, setDestZone] = useState<{ id: string; name: string } | null>(null)
   const zoneAlertRef = useRef<ZoneAlertState | null>(null)
   const speechIdRef = useRef(0)
   navDestRef.current = navDest
@@ -111,6 +115,28 @@ export function useNavigationCore({ isNavigating, currentFix, navDest, routeProf
         alertGuideRef.current = new ZoneAlertGuide(zoneSpansOnRoute(trCoords, hits)).adoptFrom(navigatingRef.current ? alertGuideRef.current : null)
         zoneAlertRef.current = null
         setZoneAlert(null)
+        // destino dentro de uma zona (entrega em zona de risco) — aviso diferente, sem "rota segura"
+        const dest = navDestRef.current
+        const dz = dest ? zs.find(z => pointInZone([dest.lng, dest.lat], z)) ?? null : null
+        setDestZone(dz ? { id: dz.id, name: dz.name } : null)
+        // existe rota que evita as OUTRAS zonas? (calcula em segundo plano; o botão só aparece se sim)
+        const evitaveis = hits.filter(z => z.id !== dz?.id)
+        safeAltRef.current = null
+        if (!evitaveis.length) { setSafeAlt('none-needed'); return }
+        setSafeAlt('checking')
+        const fix = useStore.getState().currentFix
+        if (!fix || !dest) { setSafeAlt('no'); return }
+        const reqId = riskReqRef.current
+        findSafeRoute({ lat: fix.lat, lng: fix.lng }, dest, profileRef.current || 'driving-traffic', zs)
+          .then(res => {
+            if (reqId !== riskReqRef.current) return
+            const r = res?.route
+            const restantes = r ? zonesOnRoute(r.geometry.coordinates, zs).filter(z => z.id !== dz?.id && !pointInZone([fix.lng, fix.lat], z)) : []
+            if (r && restantes.length === 0) { safeAltRef.current = r; setSafeAlt('yes') }
+            else setSafeAlt('no')
+            diag('rota-segura-disponivel', { ok: !!(r && restantes.length === 0) })
+          })
+          .catch(() => { if (reqId === riskReqRef.current) setSafeAlt('no') })
       }))
       .catch(() => {})
   }, [])
@@ -229,9 +255,11 @@ export function useNavigationCore({ isNavigating, currentFix, navDest, routeProf
 
   /** Botão "mudar para rota segura" do modo alerta. */
   const switchToSafeRoute = useCallback(() => {
+    // usa a rota segura já calculada; senão recalcula pela rota segura
+    if (safeAltRef.current) { const r = safeAltRef.current; safeAltRef.current = null; applyRoute(r); return }
     const fix = useStore.getState().currentFix
     if (fix) reroute({ lat: fix.lat, lng: fix.lng })
-  }, [reroute])
+  }, [reroute, applyRoute])
 
   // ── a cada leitura do GPS ──
   useEffect(() => {
@@ -379,7 +407,7 @@ export function useNavigationCore({ isNavigating, currentFix, navDest, routeProf
   return {
     // estado
     routeGeoJSON, routeCongestion, navSteps, currentStepIdx, distToNext, remainingDist, remainingSec, navEta,
-    riskOnRoute, activeRouteZones, isRecalculating, hasArrived, routeTrim, nextGap, zoneAlert, zoneSpeech, altRoute, speedLimit,
+    riskOnRoute, activeRouteZones, isRecalculating, hasArrived, routeTrim, nextGap, zoneAlert, zoneSpeech, altRoute, speedLimit, safeAlt, destZone,
     // refs (leitura pela câmera)
     trackerRef, progressRef,
     // ações

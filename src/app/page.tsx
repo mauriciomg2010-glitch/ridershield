@@ -281,7 +281,7 @@ export default function Home() {
       {showUpgradeScreen && <UpgradeScreen onClose={() => setShowUpgradeScreen(false)} />}
       {showReport && <ReportModal onClose={() => setShowReport(false)} initialLocation={reportLocation} />}
       {user && <MechanicAlertOverlay onNavigate={(tab) => setActiveTab(tab as Tab)} />}
-      {user && <GroupSosListener onOpenGroups={() => setActiveTab('groups' as Tab)} />}
+      {user && <GroupSosListener onOpenGroups={() => setActiveTab('groups' as Tab)} onShowOnMap={p => { setActiveTab('map' as Tab); setSearchDest({ lat: p.lat, lng: p.lng }) }} />}
       </SafeBoundary>
       {showSOS && <SOSModal onClose={()=>setShowSOS(false)} />}
       <SafeBoundary name="feedback-menu">
