@@ -3,6 +3,7 @@
 import { useEffect, useRef, useCallback, useState } from 'react'
 import { diag } from '@/lib/diagnostics'
 import ManeuverIcon, { roundaboutExitAngle } from './ManeuverIcon'
+import ReportIcon from '@/components/Report/ReportIcon'
 import { INCIDENT_TYPES } from '@/data/incidentTypes'
 import { Incident } from '@/types'
 import { VoiceGuide, bannerText, formatDistance, formatDuration, spokenDistance } from '@/lib/navigation/instructions'
@@ -45,6 +46,8 @@ interface Props {
   heading?: number
   hideControls?: boolean
   nearbyIncident?: Incident | null
+  /** limite de velocidade (km/h) da rua atual, quando conhecido */
+  speedLimit?: number | null
   /** 'ahead' = aviso antes de chegar; 'passed' = já passou, pergunta se ainda está */
   incidentPhase?: 'ahead' | 'passed'
   incidentDist?: number | null
@@ -82,6 +85,7 @@ export default function NavigationScreen({
   heading = 0,
   hideControls = false,
   nearbyIncident = null,
+  speedLimit = null,
   incidentPhase = 'passed',
   incidentDist = null,
   currentUserId,
@@ -212,15 +216,24 @@ export default function NavigationScreen({
 
   return (
     <>
-      {/* Velocidade — discreta, como no Google Maps (antes um selo verde/laranja/vermelho) */}
-      {speed > 0 && (
-        <div className="absolute z-[601]" style={{
-          bottom: 100, left: 14, width: 54, height: 54, borderRadius: '50%',
-          background: 'white', color: '#202124', boxShadow: '0 2px 8px rgba(0,0,0,0.3)',
-          display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', lineHeight: 1,
-        }}>
-          <span style={{ fontSize: 19, fontWeight: 700 }}>{speed}</span>
-          <span style={{ fontSize: 9, fontWeight: 600, color: '#5f6368', marginTop: 2 }}>km/h</span>
+      {/* Limite da rua + velocidade (como no Google Maps). Passou do limite → número a vermelho */}
+      {(speed > 0 || speedLimit) && (
+        <div className="absolute z-[601]" style={{ bottom: 100, left: 14, display: 'flex', alignItems: 'flex-end', gap: 6 }}>
+          {speedLimit ? (
+            <div style={{
+              width: 46, height: 46, borderRadius: '50%', background: 'white', border: '4px solid #d93025',
+              boxShadow: '0 1px 4px rgba(0,0,0,0.3)', display: 'flex', alignItems: 'center', justifyContent: 'center',
+              fontSize: 17, fontWeight: 800, color: '#202124',
+            }}>{speedLimit}</div>
+          ) : null}
+          <div style={{
+            width: 54, height: 54, borderRadius: '50%', background: 'white',
+            color: speedLimit && speed > speedLimit + 4 ? '#d93025' : '#202124', boxShadow: '0 1px 4px rgba(0,0,0,0.3)',
+            display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', lineHeight: 1,
+          }}>
+            <span style={{ fontSize: 19, fontWeight: 700 }}>{speed > 0 ? speed : '--'}</span>
+            <span style={{ fontSize: 9, fontWeight: 600, color: '#5f6368', marginTop: 2 }}>km/h</span>
+          </div>
         </div>
       )}
 
@@ -239,6 +252,13 @@ export default function NavigationScreen({
         const titulo = chegando ? 'Destino' : (nomeSemRef || bannerText(currentStep, distToNext))
         const sub = isRot && exitN ? `Rotatória · ${exitN}ª saída` : ''
         const mostrarDepois = !!nextStep?.maneuver && nextStep.maneuver.type !== 'arrive' && nextGap != null && nextGap < 250
+        // Faixas (lane guidance): faixas certas a branco, as outras apagadas
+        const faixas: any[] = Array.isArray(currentStep.intersections?.[0]?.lanes) ? currentStep.intersections[0].lanes : []
+        const mostrarFaixas = faixas.length >= 2 && distToNext < 600 && faixas.some(l => l.valid) && !faixas.every(l => l.valid)
+        const setaFaixa = (l: any): string => {
+          const ind: string[] = l.valid && l.valid_indication ? [l.valid_indication] : (l.indications ?? ['straight'])
+          return ind[0] ?? 'straight'
+        }
         return (
           <div className="absolute z-[600]" style={{ top: 'calc(env(safe-area-inset-top, 0px) + 6px)', left: 8, right: 8 }}>
             <div style={{
@@ -267,6 +287,17 @@ export default function NavigationScreen({
                 {sub && <div style={{ color: 'rgba(255,255,255,0.8)', fontSize: 14, marginTop: 3 }}>{sub}</div>}
               </div>
             </div>
+            {mostrarFaixas && (
+              <div style={{ background: '#0b3f35', borderRadius: '0 0 14px 14px', margin: '-8px 10px 0', padding: '10px 10px 6px', display: 'flex', justifyContent: 'center', gap: 4 }}>
+                {faixas.map((l, i) => {
+                  const ind = setaFaixa(l)
+                  const isU = ind === 'uturn'
+                  return (
+                    <ManeuverIcon key={i} type="turn" modifier={isU ? 'uturn' : ind === 'straight' || ind === 'none' ? 'straight' : ind} size={30} dim={!l.valid} />
+                  )
+                })}
+              </div>
+            )}
             {(mostrarDepois || isRecalculating || (riskOnRoute && !zoneAlert)) && (
               <div style={{ display: 'flex', gap: 6, marginTop: 4 }}>
                 {mostrarDepois && (
@@ -300,10 +331,9 @@ export default function NavigationScreen({
           title={northLocked ? 'Norte fixo' : 'Norte livre'}
           style={{
             width: 44, height: 44, borderRadius: '50%',
-            background: northLocked ? '#d97706' : 'var(--surface)',
-            border: `2px solid ${northLocked ? '#d97706' : 'var(--border)'}`,
+            background: northLocked ? '#e8f0fe' : 'white', border: 'none',
             display: 'flex', alignItems: 'center', justifyContent: 'center',
-            cursor: 'pointer', boxShadow: '0 2px 12px rgba(0,0,0,0.4)',
+            cursor: 'pointer', boxShadow: '0 1px 4px rgba(0,0,0,0.3)',
             padding: 0,
           }}
         >
@@ -314,10 +344,8 @@ export default function NavigationScreen({
               transition: 'transform 0.15s linear',
             }}
           >
-            <polygon points="12,2 16,12 12,10 8,12"
-              fill={northLocked ? 'white' : '#dc3545'} />
-            <polygon points="12,22 16,12 12,14 8,12"
-              fill={northLocked ? 'rgba(255,255,255,0.5)' : '#94a3b8'} />
+            <polygon points="12,2 16,12 12,10 8,12" fill="#d93025" />
+            <polygon points="12,22 16,12 12,14 8,12" fill="#9aa0a6" />
           </svg>
         </button>
         <button
@@ -332,29 +360,33 @@ export default function NavigationScreen({
           }}
           style={{
             width: 44, height: 44, borderRadius: '50%',
-            background: muted ? 'rgba(239,68,68,0.15)' : 'var(--surface)',
-            border: `2px solid ${muted ? '#ef4444' : 'var(--border)'}`,
+            background: 'white', border: 'none',
             display: 'flex', alignItems: 'center', justifyContent: 'center',
-            cursor: 'pointer', boxShadow: '0 2px 12px rgba(0,0,0,0.4)',
-            fontSize: 18,
+            cursor: 'pointer', boxShadow: '0 1px 4px rgba(0,0,0,0.3)',
           }}
+          title={muted ? 'Voz desligada' : 'Voz ligada'}
         >
-          {muted ? '🔇' : '🔊'}
+          <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="#3c4043" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+            <path d="M4 9h4l5-4v14l-5-4H4z" fill="#3c4043" />
+            {muted
+              ? <path d="M17 9l5 6M22 9l-5 6" stroke="#d93025" />
+              : <path d="M16.5 8.5a5 5 0 0 1 0 7M19 6a8.5 8.5 0 0 1 0 12" />}
+          </svg>
         </button>
         {onSOS && (
           <button
             onClick={onSOS}
             style={{
               width: 44, height: 44, borderRadius: '50%',
-              background: '#8b0000', border: '2px solid #dc3545',
+              background: 'white', border: 'none',
               display: 'flex', alignItems: 'center', justifyContent: 'center',
-              cursor: 'pointer', boxShadow: '0 2px 12px rgba(220,53,69,0.5)',
-              animation: 'sosRingPulse 1.5s ease-in-out infinite',
+              cursor: 'pointer', boxShadow: '0 1px 4px rgba(0,0,0,0.3)',
             }}
+            title="SOS"
           >
-            <svg width="20" height="20" viewBox="0 0 24 24" fill="none">
-              <path d="M12 2L3 7v5c0 5.25 3.75 10.15 9 11.35C17.25 22.15 21 17.25 21 12V7L12 2z" fill="white"/>
-              <line x1="11" y1="7" x2="13" y2="17" stroke="#dc3545" strokeWidth="2" strokeLinecap="round"/>
+            <svg width="22" height="22" viewBox="0 0 24 24" fill="none">
+              <path d="M12 2L3 7v5c0 5.25 3.75 10.15 9 11.35C17.25 22.15 21 17.25 21 12V7L12 2z" fill="#d93025"/>
+              <text x="12" y="15.5" textAnchor="middle" fontSize="7" fontWeight="900" fill="white" fontFamily="system-ui, sans-serif">SOS</text>
             </svg>
           </button>
         )}
@@ -388,7 +420,7 @@ export default function NavigationScreen({
                   {/* Header row */}
                   <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 10 }}>
                     <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                      <span style={{ fontSize: 18 }}>{incType?.emoji ?? '⚠️'}</span>
+                      {nearbyIncident && <ReportIcon type={nearbyIncident.type} size={28} />}
                       <span style={{ fontSize: 14, fontWeight: 700, color: 'var(--text)' }}>
                         {incidentPhase === 'passed' ? `${incType?.label ?? 'Incidente'} — ainda está aí?` : (incType?.label ?? 'Incidente')}
                       </span>
@@ -479,17 +511,15 @@ export default function NavigationScreen({
           title="Reportar incidente"
           className="absolute z-[601]"
           style={{
-            bottom: 96, right: 12,
-            width: 48, height: 48, borderRadius: '50%',
-            background: '#f59e0b',
-            border: '2px solid #f59e0b',
+            bottom: 100, right: 14,
+            width: 54, height: 54, borderRadius: '50%',
+            background: 'white', border: 'none',
             display: 'flex', alignItems: 'center', justifyContent: 'center',
             cursor: 'pointer',
-            boxShadow: '0 0 16px rgba(245,158,11,0.5), 0 2px 12px rgba(0,0,0,0.4)',
-            fontSize: 20,
+            boxShadow: '0 1px 6px rgba(0,0,0,0.3)',
           }}
         >
-          ⚠️
+          <svg width="26" height="26" viewBox="0 0 24 24"><path d="M12 3 L22 20 H2 Z" fill="#f29900" stroke="#f29900" strokeWidth="1.5" strokeLinejoin="round"/><rect x="11" y="9" width="2" height="6" rx="1" fill="white"/><circle cx="12" cy="17.2" r="1.2" fill="white"/></svg>
         </button>
       )}
     </>

@@ -9,7 +9,7 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 import toast from 'react-hot-toast'
 import { useStore, GpsFix } from '@/lib/store'
 import { RouteTracker, Progress } from '@/lib/navigation/routeTracker'
-import { fetchMapboxRoutes, findSafeRoute, flattenCongestion } from '@/lib/navigation/routing'
+import { fetchMapboxRoutes, findSafeRoute, flattenCongestion, flattenMaxspeed } from '@/lib/navigation/routing'
 import { loadAvoidZones, toZoneHit } from '@/lib/navigation/zoneSource'
 import { zonesOnRoute, pointInZone, AvoidZone } from '@/lib/navigation/zones'
 import { ZoneAlertGuide, ZoneAlertState, zoneSpansOnRoute } from '@/lib/navigation/zoneAlert'
@@ -52,6 +52,9 @@ export function useNavigationCore({ isNavigating, currentFix, navDest, routeProf
   // ── estado exibido na tela ──
   const [routeGeoJSON, setRouteGeoJSON] = useState<any>(null)
   const [routeCongestion, setRouteCongestion] = useState<string[]>([])
+  // limite de velocidade da rua onde o rider está (do Mapbox; null = desconhecido)
+  const [speedLimit, setSpeedLimit] = useState<number | null>(null)
+  const maxspeedRef = useRef<(number | null)[]>([])
   const [navSteps, setNavSteps] = useState<any[]>([])
   const [currentStepIdx, setCurrentStepIdx] = useState(0)
   const [distToNext, setDistToNext] = useState(0)
@@ -149,6 +152,7 @@ export function useNavigationCore({ isNavigating, currentFix, navDest, routeProf
       progressRef.current = null
       setRouteGeoJSON(route.geometry)
       setRouteCongestion(flattenCongestion(route))
+      maxspeedRef.current = flattenMaxspeed(route)
       setNavSteps(tr.steps)
       setCurrentStepIdx(tr.steps.length > 1 ? 1 : 0)
       setDistToNext(Math.round(tr.maneuverAt[1] ?? route.distance ?? 0))
@@ -185,6 +189,8 @@ export function useNavigationCore({ isNavigating, currentFix, navDest, routeProf
     setRouteTrim(null)
     setRouteGeoJSON(null)
     setRouteCongestion([])
+    maxspeedRef.current = []
+    setSpeedLimit(null)
     setNavSteps([])
     setCurrentStepIdx(0)
     setRiskOnRoute(false)
@@ -256,6 +262,10 @@ export function useNavigationCore({ isNavigating, currentFix, navDest, routeProf
       const p = tr.update({ ...currentFix, speed: v, heading: headingGps })
       progressRef.current = { ...p, time: Date.now(), speedMps: v, onRoute: p.offRouteM < 40 }
       if (altRouteRef.current && p.along > altRouteRef.current.divAlong + 40) setAltRoute(null)
+      {
+        const lim = p.offRoute ? null : (maxspeedRef.current[tr.currentSeg] ?? null)
+        setSpeedLimit(prev => (prev === lim ? prev : lim))
+      }
       diag('rota', { passo: p.stepIdx, ate: Math.round(p.distToManeuver), fora: Math.round(p.offRouteM), contramao: p.wrongWay, falta: Math.round(p.remainingM) }, 1000)
 
       setCurrentStepIdx(p.stepIdx)
@@ -369,7 +379,7 @@ export function useNavigationCore({ isNavigating, currentFix, navDest, routeProf
   return {
     // estado
     routeGeoJSON, routeCongestion, navSteps, currentStepIdx, distToNext, remainingDist, remainingSec, navEta,
-    riskOnRoute, activeRouteZones, isRecalculating, hasArrived, routeTrim, nextGap, zoneAlert, zoneSpeech, altRoute,
+    riskOnRoute, activeRouteZones, isRecalculating, hasArrived, routeTrim, nextGap, zoneAlert, zoneSpeech, altRoute, speedLimit,
     // refs (leitura pela câmera)
     trackerRef, progressRef,
     // ações

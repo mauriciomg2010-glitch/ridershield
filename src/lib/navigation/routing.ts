@@ -48,7 +48,9 @@ export async function fetchMapboxRoutes(origin: LatLng, dest: LatLng, profile: s
   const params = new URLSearchParams({
     steps: 'true', geometries: 'geojson', overview: 'full', language: 'pt-BR',
     voice_instructions: 'true', banner_instructions: 'true', voice_units: 'metric',
-    annotations: 'congestion,duration,distance', exclude: 'ferry',
+    // maxspeed (limite de velocidade) só existe nos perfis de carro
+    annotations: prof.startsWith('driving') ? 'congestion,duration,distance,maxspeed' : 'congestion,duration,distance',
+    exclude: 'ferry',
     access_token: token ?? '',
   })
   if (opts.alternatives && vias.length === 0) params.set('alternatives', 'true')
@@ -190,6 +192,14 @@ export function flattenSteps(route: NavRoute): any[] {
 }
 
 /** Congestionamento de todas as pernas, alinhado com os segmentos da geometria. */
+/** Limite de velocidade (km/h) por segmento da geometria; null quando desconhecido. */
+export function flattenMaxspeed(route: NavRoute): (number | null)[] {
+  return (route?.legs ?? []).flatMap((l: any) => (l.annotation?.maxspeed ?? []).map((m: any) => {
+    if (!m || m.unknown || m.none || typeof m.speed !== 'number') return null
+    return m.unit === 'mph' ? Math.round(m.speed * 1.609) : m.speed
+  }))
+}
+
 export function flattenCongestion(route: NavRoute): string[] {
   return (route?.legs ?? []).flatMap((l: any) => l.annotation?.congestion ?? [])
 }

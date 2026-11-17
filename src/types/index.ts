@@ -10,6 +10,14 @@ export type IncidentType =
   | 'road_hazard'
   | 'no_entry_zone'
   | 'confirmed_safe'
+  // estrada (estilo Google Maps)
+  | 'police'
+  | 'accident'
+  | 'construction'
+  | 'traffic_jam'
+  | 'road_closed'
+  | 'pothole'
+  | 'flooding'
   // legacy (kept for backward compat with existing Firestore docs)
   | 'robbery'
   | 'aggression'

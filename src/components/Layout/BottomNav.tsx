@@ -51,18 +51,15 @@ export default function BottomNav({ activeTab, onTabChange, onMenuClick, onSOSCl
             className="active:scale-95 transition-transform"
             style={{
               width: 56, height: 56, borderRadius: '50%',
-              background: '#8b0000',
-              border: '2px solid #dc3545',
+              background: '#d93025',
+              border: '3px solid white',
+              boxShadow: '0 2px 8px rgba(0,0,0,0.25)',
               display: 'flex', alignItems: 'center', justifyContent: 'center',
-              animation: 'sosRingPulse 1.5s ease-in-out infinite',
             }}
           >
-            <svg width="26" height="26" viewBox="0 0 24 24" fill="none">
-              <path d="M12 2L3 7v5c0 5.25 3.75 10.15 9 11.35C17.25 22.15 21 17.25 21 12V7L12 2z" fill="white"/>
-              <line x1="11" y1="7" x2="13" y2="17" stroke="#dc3545" strokeWidth="2" strokeLinecap="round"/>
-            </svg>
+            <span style={{ color: 'white', fontWeight: 900, fontSize: 15, letterSpacing: 0.5 }}>SOS</span>
           </div>
-          <span style={{ color: '#dc3545', fontSize: '10px', fontWeight: 700, marginTop: 2 }}>SOS</span>
+          <span style={{ color: '#d93025', fontSize: '10px', fontWeight: 700, marginTop: 2 }}>Emergência</span>
         </button>
 
         {/* Earnings */}

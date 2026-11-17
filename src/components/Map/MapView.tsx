@@ -15,7 +15,8 @@ import { nextReportOnRoute, nextReportAheadFree } from '@/lib/navigation/reportA
 import { frequentPlaces } from '@/lib/navigation/habits'
 import { diag, diagOn, onDiagChange } from '@/lib/diagnostics'
 import { subscribeToIncidents, subscribeToGlobalPresence, reportIncident, voteIncident } from '@/lib/firestore'
-import { INCIDENT_TYPES as QUICK_REPORT_TYPES } from '@/data/incidentTypes'
+import { INCIDENT_TYPES as QUICK_REPORT_TYPES, REPORT_MENU_TYPES } from '@/data/incidentTypes'
+import ReportIcon, { reportIconSvg } from '@/components/Report/ReportIcon'
 import { useLang } from '@/contexts/LangContext'
 import { useTheme } from '@/contexts/ThemeContext'
 import { Incident, IncidentType } from '@/types'
@@ -39,20 +40,28 @@ import { formatDistance } from '@/lib/navigation/instructions'
 const DUBLIN_LNG = -6.2603
 const DUBLIN_LAT = 53.3498
 
-const INCIDENT_COLORS: Record<IncidentType, string> = {
-  assault_robbery: '#ef4444', bike_theft: '#f97316', physical_assault: '#fb923c',
-  attempted_robbery: '#f59e0b', suspicious_activity: '#8b5cf6', road_hazard: '#10b981',
-  no_entry_zone: '#dc2626', confirmed_safe: '#22c55e',
-  // legacy
-  robbery: '#ef4444', aggression: '#eab308', accident: '#60a5fa',
+// Ícones dos reports no mapa: cria a imagem quando o mapa a pede (também depois de trocar o estilo)
+function registarIconesReport(map: any) {
+  if (!map || map.__zivoIcons) return
+  map.__zivoIcons = true
+  const pedidos = new Set<string>()
+  const adicionar = (id: string) => {
+    if (!id.startsWith('rep-') || pedidos.has(id)) return
+    pedidos.add(id)
+    const img = new Image(96, 96)
+    img.onload = () => {
+      try { if (!map.hasImage(id)) map.addImage(id, img, { pixelRatio: 2 }) } catch {}
+      pedidos.delete(id)
+    }
+    img.onerror = () => pedidos.delete(id)
+    img.src = 'data:image/svg+xml;charset=utf-8,' + encodeURIComponent(reportIconSvg(id.slice(4), 96))
+  }
+  map.on('styleimagemissing', (ev: any) => adicionar(String(ev.id)))
 }
-const INCIDENT_EMOJIS: Record<IncidentType, string> = {
-  assault_robbery: '🔴', bike_theft: '🚲', physical_assault: '👊',
-  attempted_robbery: '🟠', suspicious_activity: '👀', road_hazard: '🚧',
-  no_entry_zone: '🚫', confirmed_safe: '✅',
-  // legacy
-  robbery: '🔴', aggression: '🟡', accident: '🔵',
-}
+
+// Cor/nome dos reports a partir da lista única de tipos (src/data/incidentTypes.ts)
+const incColor = (k: string) => QUICK_REPORT_TYPES.find(x => x.id === k)?.color ?? ({ robbery: '#dc2626', aggression: '#b91c1c' } as any)[k] ?? '#6b7280'
+const incLabel = (k: string) => QUICK_REPORT_TYPES.find(x => x.id === k)?.label ?? ({ robbery: 'Assalto', aggression: 'Agressão' } as any)[k] ?? 'Incidente'
 
 export interface RiskZone {
   id: string; name: string; level: 'high' | 'medium' | 'low'; type: string; description?: string
@@ -509,7 +518,7 @@ export default function MapView({ groupMembers = EMPTY_MEMBERS, currentUserId, g
   // ── Motor de navegação isolado (src/components/Navigation/useNavigationCore.ts) ──
   const {
     routeGeoJSON, routeCongestion, navSteps, currentStepIdx, distToNext, remainingDist, remainingSec, navEta,
-    riskOnRoute, activeRouteZones, isRecalculating, hasArrived, routeTrim, nextGap, zoneAlert, zoneSpeech, altRoute,
+    riskOnRoute, activeRouteZones, isRecalculating, hasArrived, routeTrim, nextGap, zoneAlert, zoneSpeech, altRoute, speedLimit,
     trackerRef, progressRef,
     applyRoute, beginSession, resetNav, updateRiskForRoute, setActiveRouteZones, setHasArrived, switchToSafeRoute, switchToAlt,
   } = useNavigationCore({
@@ -1888,6 +1897,7 @@ export default function MapView({ groupMembers = EMPTY_MEMBERS, currentUserId, g
     <div className="relative w-full h-full">
       <Map
         ref={mapRef}
+        onLoad={(e: any) => registarIconesReport(e.target)}
         initialViewState={{ longitude: DUBLIN_LNG, latitude: DUBLIN_LAT, zoom: 14 }}
         style={{ width: '100%', height: '100%' }}
         mapStyle={mapStyle}
@@ -2295,17 +2305,13 @@ export default function MapView({ groupMembers = EMPTY_MEMBERS, currentUserId, g
               'heatmap-opacity': 0.8,
             }} />
           ) : (
-            <Layer id="incidents-circle" type="circle" paint={{
-              // cor por tipo (lista atual + tipos antigos)
-              'circle-color': ['match', ['get', 'type'],
-                ...QUICK_REPORT_TYPES.flatMap(t => [t.id, t.color]),
-                'robbery', '#ef4444', 'aggression', '#eab308', 'accident', '#60a5fa',
-                '#6b7280'],
-              // maior e visível também com o mapa afastado (antes 8 px fixos)
-              'circle-radius': ['interpolate', ['linear'], ['zoom'], 11, 6, 14, 9, 16, 12, 18, 15],
-              'circle-stroke-width': 3,
-              'circle-stroke-color': 'white', 'circle-opacity': 0.95,
-              'circle-pitch-alignment': 'viewport',
+            <Layer id="incidents-circle" type="symbol" layout={{
+              // ícone desenhado de cada tipo (policial, ladrão, buraco, obra…) — imagens 'rep-<tipo>'
+              'icon-image': ['concat', 'rep-', ['get', 'type']],
+              'icon-size': ['interpolate', ['linear'], ['zoom'], 11, 0.32, 14, 0.45, 16, 0.6, 18, 0.75],
+              'icon-allow-overlap': true,
+              'icon-ignore-placement': true,
+              'icon-pitch-alignment': 'viewport',
             } as any} />
           )}
         </Source>
@@ -2593,6 +2599,7 @@ export default function MapView({ groupMembers = EMPTY_MEMBERS, currentUserId, g
         heading={heading}
         hideControls={showQuickReport || externalReportOpen}
         nearbyIncident={nearbyIncident}
+        speedLimit={speedLimit}
         incidentPhase={incidentPhase}
         incidentDist={incidentDist}
         currentUserId={currentUserId}
@@ -2614,16 +2621,15 @@ export default function MapView({ groupMembers = EMPTY_MEMBERS, currentUserId, g
           className="absolute z-[500]"
           style={{
             right: 12, bottom: 88,
-            width: 64, height: 64, borderRadius: '50%',
-            background: '#f59e0b',
-            border: '2px solid #f59e0b',
+            width: 56, height: 56, borderRadius: '50%',
+            background: 'white', border: 'none',
             display: 'flex', alignItems: 'center', justifyContent: 'center',
-            boxShadow: '0 0 20px rgba(245,158,11,0.55), 0 2px 12px rgba(0,0,0,0.4)',
-            cursor: 'pointer', fontSize: 30,
+            boxShadow: '0 1px 6px rgba(0,0,0,0.3)',
+            cursor: 'pointer',
           }}
           title="Reportar incidente"
         >
-          ⚠️
+          <svg width="28" height="28" viewBox="0 0 24 24"><path d="M12 3 L22 20 H2 Z" fill="#f29900" stroke="#f29900" strokeWidth="1.5" strokeLinejoin="round"/><rect x="11" y="9" width="2" height="6" rx="1" fill="white"/><circle cx="12" cy="17.2" r="1.2" fill="white"/></svg>
         </button>
       )}
 
@@ -2648,8 +2654,8 @@ export default function MapView({ groupMembers = EMPTY_MEMBERS, currentUserId, g
         <div className="absolute left-3 right-3 z-[500] flex items-center gap-2" style={{ top: controlsTopOffset }}>
           <button onClick={() => setShowZonesModal(true)}
             className="px-3 py-2 text-xs font-semibold rounded-xl shadow-lg transition-colors"
-            style={{ background: showZones ? 'rgba(239,68,68,0.2)' : 'var(--surface)', color: showZones ? '#f87171' : 'var(--muted)', border: `1px solid ${showZones ? 'rgba(239,68,68,0.4)' : 'var(--border)'}` }}>
-            🚨 Zones
+            style={{ background: 'white', color: '#3c4043', border: 'none', boxShadow: '0 1px 4px rgba(0,0,0,0.25)' }}>
+            Zonas
           </button>
           <button
             onClick={() => {
@@ -2659,21 +2665,13 @@ export default function MapView({ groupMembers = EMPTY_MEMBERS, currentUserId, g
               if (next) setShowTrafficLegend(true)
             }}
             className="px-3 py-2 text-xs font-semibold rounded-xl shadow-lg transition-colors"
-            style={{
-              background: showTraffic ? 'rgba(0,200,83,0.15)' : 'var(--surface)',
-              color: showTraffic ? '#00c853' : 'var(--muted)',
-              border: `1px solid ${showTraffic ? 'rgba(0,200,83,0.4)' : 'var(--border)'}`,
-            }}>
-            🚦
+            style={{ background: showTraffic ? '#e8f0fe' : 'white', color: showTraffic ? '#1a73e8' : '#3c4043', border: 'none', boxShadow: '0 1px 4px rgba(0,0,0,0.25)' }} title="Trânsito">
+            Trânsito
           </button>
           <button
             onClick={() => setShowZones((z: boolean) => !z)}
             className="px-3 py-2 text-xs font-semibold rounded-xl shadow-lg transition-colors"
-            style={{
-              background: showZones ? 'rgba(239,68,68,0.2)' : 'var(--surface)',
-              color: showZones ? '#f87171' : 'var(--muted)',
-              border: `1px solid ${showZones ? 'rgba(239,68,68,0.4)' : 'var(--border)'}`,
-            }}>
+            style={{ background: showZones ? '#e8f0fe' : 'white', color: showZones ? '#1a73e8' : '#3c4043', border: 'none', boxShadow: '0 1px 4px rgba(0,0,0,0.25)' }} title="Mostrar zonas no mapa">
             🛡️
           </button>
           <button
@@ -2684,8 +2682,8 @@ export default function MapView({ groupMembers = EMPTY_MEMBERS, currentUserId, g
               mapRef.current?.fitBounds([[Math.min(...lngs), Math.min(...lats)], [Math.max(...lngs), Math.max(...lats)]], { padding: 40, maxZoom: 15 })
             }}
             className="rounded-xl px-3 py-2 shadow-lg transition-colors"
-            style={{ background: 'var(--surface)', border: `1px solid ${filteredIncidents.length > 0 ? '#d97706' : 'var(--border)'}`, cursor: filteredIncidents.length > 0 ? 'pointer' : 'default' }}>
-            <span className="text-xs font-semibold" style={{ color: filteredIncidents.length > 0 ? '#f59e0b' : 'var(--muted)' }}>
+            style={{ background: 'white', border: 'none', boxShadow: '0 1px 4px rgba(0,0,0,0.25)', cursor: filteredIncidents.length > 0 ? 'pointer' : 'default' }}>
+            <span className="text-xs font-semibold" style={{ color: '#3c4043' }}>
               {filteredIncidents.length} reports {filteredIncidents.length > 0 ? '→' : ''}
             </span>
           </button>
@@ -2695,13 +2693,10 @@ export default function MapView({ groupMembers = EMPTY_MEMBERS, currentUserId, g
             style={{
               marginLeft: 'auto', flexShrink: 0,
               width: 36, height: 36, borderRadius: '50%',
-              background: '#111827',
-              border: `2px solid ${mapBearing !== 0 ? '#f59e0b' : 'rgba(245,158,11,0.4)'}`,
+              background: 'white', border: 'none',
               display: 'flex', alignItems: 'center', justifyContent: 'center',
               cursor: 'pointer',
-              boxShadow: mapBearing !== 0
-                ? '0 0 12px rgba(245,158,11,0.5), 0 2px 8px rgba(0,0,0,0.5)'
-                : '0 2px 8px rgba(0,0,0,0.4)',
+              boxShadow: '0 1px 4px rgba(0,0,0,0.3)',
               padding: 0,
               transition: 'box-shadow 0.2s, border-color 0.2s',
             }}
@@ -2709,8 +2704,8 @@ export default function MapView({ groupMembers = EMPTY_MEMBERS, currentUserId, g
           >
             <svg width="20" height="20" viewBox="0 0 24 24"
               style={{ transform: `rotate(${-mapBearing}deg)`, transition: 'transform 0.15s linear' }}>
-              <polygon points="12,2 16,12 12,10 8,12" fill="#f59e0b" />
-              <polygon points="12,22 16,12 12,14 8,12" fill="#94a3b8" />
+              <polygon points="12,2 16,12 12,10 8,12" fill="#d93025" />
+              <polygon points="12,22 16,12 12,14 8,12" fill="#9aa0a6" />
             </svg>
           </button>
         </div>
@@ -2890,7 +2885,7 @@ export default function MapView({ groupMembers = EMPTY_MEMBERS, currentUserId, g
         return (
           <div style={{ position: 'fixed', left: 12, right: 12, top: 'calc(env(safe-area-inset-top, 0px) + 84px)', zIndex: 60, background: 'var(--surface, #111827)', border: `2px solid ${t?.color ?? '#f59e0b'}`, borderRadius: 16, padding: '12px 14px', boxShadow: '0 8px 30px rgba(0,0,0,0.35)' }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-              <span style={{ fontSize: 26 }}>{t?.emoji ?? '⚠️'}</span>
+              <ReportIcon type={nearbyIncident.type} size={36} />
               <div style={{ flex: 1, minWidth: 0 }}>
                 <div style={{ fontSize: 15, fontWeight: 800, color: 'var(--text)' }}>
                   {incidentPhase === 'passed' ? `${t?.label ?? 'Incidente'} — ainda está aí?` : (t?.label ?? 'Incidente')}
@@ -3185,10 +3180,10 @@ export default function MapView({ groupMembers = EMPTY_MEMBERS, currentUserId, g
                   ))}
                 </div>
               )}
-              {(Object.keys(INCIDENT_COLORS) as IncidentType[]).slice(0, 4).map((type) => (
-                <div key={type} className="flex items-center gap-1.5 mb-1">
-                  <div className="w-2.5 h-2.5 rounded-full flex-shrink-0" style={{ background: INCIDENT_COLORS[type] }} />
-                  <span className="text-xs truncate" style={{ color: 'var(--muted)' }}>{t(type)}</span>
+              {REPORT_MENU_TYPES.slice(0, 6).map((rt) => (
+                <div key={rt.id} className="flex items-center gap-1.5 mb-1">
+                  <ReportIcon type={rt.id} size={16} />
+                  <span className="text-xs truncate" style={{ color: 'var(--muted)' }}>{rt.label}</span>
                 </div>
               ))}
             </div>
@@ -3253,12 +3248,16 @@ export default function MapView({ groupMembers = EMPTY_MEMBERS, currentUserId, g
           }}
           className="absolute z-[400] w-11 h-11 rounded-full flex items-center justify-center text-xl shadow-lg transition-opacity"
           style={{
-            bottom: '160px', right: '12px',
-            background: autoFollow ? '#d97706' : 'var(--surface)',
-            border: `2px solid ${autoFollow ? '#d97706' : 'var(--border)'}`,
+            bottom: '160px', right: '16px',
+            background: 'white', border: 'none', boxShadow: '0 1px 4px rgba(0,0,0,0.3)',
             opacity: currentLocation ? 1 : 0.4,
-          }}>
-          🎯
+          }}
+          title="A minha localização">
+          <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke={autoFollow ? '#1a73e8' : '#5f6368'} strokeWidth="2" strokeLinecap="round">
+            <circle cx="12" cy="12" r="7" />
+            <circle cx="12" cy="12" r="3" fill={autoFollow ? '#1a73e8' : 'none'} />
+            <path d="M12 2v3M12 19v3M2 12h3M19 12h3" />
+          </svg>
         </button>
       )}
 
@@ -3271,18 +3270,18 @@ export default function MapView({ groupMembers = EMPTY_MEMBERS, currentUserId, g
           onClick={resumeFollow}
           style={{
             bottom: 128, left: 16,
-            background: 'var(--surface)', border: '1px solid var(--border)',
+            background: 'white', border: 'none',
             borderRadius: 24, padding: '10px 18px',
-            boxShadow: '0 2px 12px rgba(0,0,0,0.35)',
+            boxShadow: '0 1px 6px rgba(0,0,0,0.3)',
             display: 'flex', alignItems: 'center', gap: 8,
-            fontSize: 14, fontWeight: 700,
-            color: '#d97706', cursor: 'pointer',
+            fontSize: 15, fontWeight: 700,
+            color: '#1a73e8', cursor: 'pointer',
           }}
         >
-          <svg width="16" height="16" viewBox="0 0 24 24" fill="#d97706">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="#1a73e8">
             <polygon points="12,2 22,22 12,17 2,22" />
           </svg>
-          Re-center
+          Centralizar
         </button>
       )}
 
@@ -3311,7 +3310,7 @@ export default function MapView({ groupMembers = EMPTY_MEMBERS, currentUserId, g
             <div className="px-5 pb-4">
               <div className="flex items-center justify-between mb-4">
                 <h3 className="text-base font-bold" style={{ color: 'var(--text)' }}>
-                  ⚠️ Reportar incidente
+                  Reportar
                 </h3>
                 <button onClick={() => { setShowQuickReport(false); setFrozenReportPos(null) }} style={{ color: 'var(--muted)' }}>
                   <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
@@ -3326,7 +3325,7 @@ export default function MapView({ groupMembers = EMPTY_MEMBERS, currentUserId, g
                 </div>
               )}
               <div className="grid grid-cols-3 gap-2">
-                {QUICK_REPORT_TYPES.filter(qt => !qt.isUnique && qt.id !== 'no_entry_zone').map((qt) => (
+                {REPORT_MENU_TYPES.map((qt) => (
                   <button
                     key={qt.id}
                     disabled={quickReporting}
@@ -3358,9 +3357,9 @@ export default function MapView({ groupMembers = EMPTY_MEMBERS, currentUserId, g
                       }
                     }}
                     className="flex flex-col items-center justify-center py-3 rounded-xl border text-center transition-all active:scale-95 disabled:opacity-40"
-                    style={{ background: 'var(--card)', borderColor: qt.color + '44' }}
+                    style={{ background: 'var(--card)', borderColor: 'var(--border)' }}
                   >
-                    <span className="text-2xl mb-1">{qt.emoji}</span>
+                    <span className="mb-1"><ReportIcon type={qt.id} size={38} /></span>
                     <span className="text-xs font-semibold leading-tight" style={{ color: 'var(--text)' }}>{qt.label}</span>
                   </button>
                 ))}
@@ -3420,8 +3419,8 @@ export default function MapView({ groupMembers = EMPTY_MEMBERS, currentUserId, g
           <div className="flex items-start justify-between p-4 pb-2">
             <div>
               <span className="inline-block text-xs font-bold px-2 py-0.5 rounded-full mb-1"
-                style={{ background: INCIDENT_COLORS[selectedIncident.type] + '33', color: INCIDENT_COLORS[selectedIncident.type] }}>
-                {INCIDENT_EMOJIS[selectedIncident.type]} {t(selectedIncident.type)}
+                style={{ background: incColor(selectedIncident.type) + '22', color: incColor(selectedIncident.type), display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+                <ReportIcon type={selectedIncident.type} size={18} /> {incLabel(selectedIncident.type)}
               </span>
               <p className="text-xs" style={{ color: 'var(--muted)' }}>{formatDistanceToNow(selectedIncident.timestamp, { addSuffix: true })}</p>
             </div>

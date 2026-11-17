@@ -3,7 +3,8 @@
 import { useState, useRef } from 'react'
 import { useStore } from '@/lib/store'
 import { reportIncident, getRiderScore } from '@/lib/firestore'
-import { INCIDENT_TYPES, IncidentTypeDef } from '@/data/incidentTypes'
+import { REPORT_MENU_TYPES, IncidentTypeDef } from '@/data/incidentTypes'
+import ReportIcon from './ReportIcon'
 import { IncidentType } from '@/types'
 import toast from 'react-hot-toast'
 
@@ -180,21 +181,25 @@ export default function ReportModal({ onClose, initialLocation }: Props) {
               </div>
             )}
 
-            <div className="grid grid-cols-2 gap-2">
-              {INCIDENT_TYPES.map((item) => (
-                <button
-                  key={item.id}
-                  onClick={() => handleTypeSelect(item)}
-                  disabled={!initialLocation}
-                  className="flex flex-col items-start p-3 rounded-xl border text-left transition-all active:scale-95 disabled:opacity-40"
-                  style={{ background: 'var(--card)', borderColor: item.color + '33' }}
-                >
-                  <span className="text-2xl mb-1">{item.emoji}</span>
-                  <span className="text-sm font-semibold leading-tight" style={{ color: 'var(--text)' }}>{item.label}</span>
-                  <span className="text-xs leading-tight mt-0.5" style={{ color: 'var(--muted)' }}>{item.description}</span>
-                </button>
-              ))}
-            </div>
+            {([['seguranca', '🛡️ Segurança'], ['estrada', '🛣️ Estrada']] as const).map(([grp, titulo]) => (
+              <div key={grp} className="mb-3">
+                <p className="text-xs font-bold uppercase tracking-wide mb-2" style={{ color: 'var(--muted)' }}>{titulo}</p>
+                <div className="grid grid-cols-3 gap-2">
+                  {REPORT_MENU_TYPES.filter(t => t.group === grp).map((item) => (
+                    <button
+                      key={item.id}
+                      onClick={() => handleTypeSelect(item)}
+                      disabled={!initialLocation}
+                      className="flex flex-col items-center py-3 px-1 rounded-xl border text-center transition-all active:scale-95 disabled:opacity-40"
+                      style={{ background: 'var(--card)', borderColor: 'var(--border)' }}
+                    >
+                      <ReportIcon type={item.id} size={40} />
+                      <span className="text-xs font-semibold leading-tight mt-1.5" style={{ color: 'var(--text)' }}>{item.label}</span>
+                    </button>
+                  ))}
+                </div>
+              </div>
+            ))}
             <p className="text-xs text-center mt-4" style={{ color: 'var(--muted)' }}>
               Os reportes são anónimos e protegem a comunidade
             </p>
@@ -211,16 +216,18 @@ export default function ReportModal({ onClose, initialLocation }: Props) {
                 </svg>
               </button>
               <div className="flex items-center gap-2 flex-1">
-                <span className="text-2xl">{selectedType.emoji}</span>
+                <ReportIcon type={selectedType.id} size={30} />
                 <h2 className="text-lg font-bold" style={{ color: 'var(--text)' }}>{selectedType.label}</h2>
               </div>
             </div>
 
             <ScoreBar score={confidenceScore} />
 
+            {selectedType.subcategories.length > 0 && (
             <p className="text-xs font-semibold uppercase tracking-wide mb-2" style={{ color: 'var(--muted)' }}>
               O que aconteceu exactamente?
             </p>
+            )}
             <div className="grid grid-cols-1 gap-2 mb-4">
               {selectedType.subcategories.map((sub) => (
                 <button
@@ -262,7 +269,7 @@ export default function ReportModal({ onClose, initialLocation }: Props) {
               className="w-full text-white font-bold py-4 rounded-xl text-base disabled:opacity-50"
               style={{ background: `linear-gradient(135deg, ${selectedType.color} 0%, ${selectedType.color}cc 100%)` }}
             >
-              {loading ? 'A enviar…' : `${selectedType.emoji} Reportar ${selectedType.label}`}
+              {loading ? 'A enviar…' : `Reportar ${selectedType.label}`}
             </button>
           </div>
         )}
