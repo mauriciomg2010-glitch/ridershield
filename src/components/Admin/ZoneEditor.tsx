@@ -1,6 +1,7 @@
 'use client'
 import { useState, useRef, useCallback, useEffect } from 'react'
-import Map, { Source, Layer, Marker } from 'react-map-gl/mapbox'
+import Map, { Source, Layer, Marker, GeolocateControl, NavigationControl } from 'react-map-gl/mapbox'
+import { useStore } from '@/lib/store'
 import 'mapbox-gl/dist/mapbox-gl.css'
 import {
   collection, getDocs, setDoc, deleteDoc, doc, updateDoc,
@@ -415,7 +416,14 @@ export default function ZoneEditor({ onToast, isSuperAdmin = false, currentUid =
           mapStyle="mapbox://styles/mapbox/streets-v12"
           style={{ width: '100%', height: '100%' }}
           onClick={handleMapClick}
+          onLoad={() => {
+            // abre onde o admin está (ex.: teste em Limerick) em vez de sempre em Dublin
+            const here = useStore.getState().currentLocation
+            if (here) mapRef.current?.jumpTo({ center: [here.lng, here.lat], zoom: 14 })
+          }}
         >
+          <GeolocateControl position="top-right" positionOptions={{ enableHighAccuracy: true }} />
+          <NavigationControl position="top-right" showCompass={false} />
           {/* Preview: line while drawing + polygon fill after closing */}
           <Source id="preview" type="geojson" data={previewGeoJSON}>
             <Layer id="preview-poly-fill" type="fill" filter={['==', ['geometry-type'], 'Polygon']}

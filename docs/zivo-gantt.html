@@ -1,0 +1,270 @@
+<!DOCTYPE html>
+<html lang="pt">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>ZIVO — Plano até à Play Store</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+<style>
+  :root{
+    --bg:#0c0c0d; --panel:#151517; --card:#1c1c1f; --line:#2a2a2e; --text:#f3f1ea; --muted:#9a978e;
+    --gold:#d9ad3c; --done:#3fa66b; --doing:#d9ad3c; --todo:#5f6b7a; --you:#8b6cf0; --later:#3a3d44;
+  }
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--text);font:14px/1.45 Inter,system-ui,sans-serif;-webkit-font-smoothing:antialiased}
+  .wrap{max-width:1100px;margin:0 auto;padding:20px 14px 60px}
+  header{display:flex;flex-wrap:wrap;align-items:flex-end;gap:14px;justify-content:space-between;margin-bottom:18px}
+  h1{margin:0;font-size:22px;font-weight:800;letter-spacing:-.01em}
+  h1 span{color:var(--gold)}
+  .sub{color:var(--muted);font-size:13px;margin-top:4px}
+  .kpis{display:flex;gap:10px;flex-wrap:wrap}
+  .kpi{background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:10px 14px;min-width:120px}
+  .kpi b{display:block;font-size:22px;font-weight:800}
+  .kpi small{color:var(--muted);font-size:12px}
+  .bar{height:6px;background:var(--line);border-radius:6px;overflow:hidden;margin-top:6px}
+  .bar i{display:block;height:100%;background:var(--gold)}
+  .legend{display:flex;flex-wrap:wrap;gap:12px;margin:6px 0 14px;font-size:12px;color:var(--muted)}
+  .legend span{display:inline-flex;align-items:center;gap:6px}
+  .dot{width:10px;height:10px;border-radius:3px;display:inline-block}
+  .tabs{display:flex;gap:6px;margin:6px 0 14px;flex-wrap:wrap}
+  .tabs button{background:var(--panel);border:1px solid var(--line);color:var(--text);padding:8px 14px;border-radius:999px;font:600 13px Inter,sans-serif;cursor:pointer}
+  .tabs button.on{background:var(--gold);color:#111;border-color:var(--gold)}
+  section{display:none} section.on{display:block}
+
+  /* Gantt */
+  .gantt{background:var(--panel);border:1px solid var(--line);border-radius:14px;overflow:hidden}
+  .scroll{overflow-x:auto;-webkit-overflow-scrolling:touch}
+  .grid{display:grid;min-width:880px}
+  .hdr,.row{display:grid;grid-template-columns:230px 1fr;border-bottom:1px solid var(--line)}
+  @media (max-width:520px){ .hdr,.row{grid-template-columns:165px 1fr} .grid{min-width:760px} .row .lbl .nm{font-size:12px} }
+  .hdr{position:sticky;top:0;background:#111113;z-index:2}
+  .lbl{padding:8px 10px;border-right:1px solid var(--line);position:sticky;left:0;background:inherit;z-index:1}
+  .row{background:var(--panel);cursor:pointer}
+  .row:hover{background:#19191c}
+  .row.phase{background:#101012;cursor:default}
+  .row.phase .lbl{font-weight:800;color:var(--gold);font-size:12px;text-transform:uppercase;letter-spacing:.06em}
+  .row .lbl .id{color:var(--muted);font-size:11px;font-weight:700;margin-right:6px}
+  .row .lbl .nm{font-weight:600;font-size:13px}
+  .row .lbl .who{font-size:11px;color:var(--you);font-weight:700;margin-left:4px}
+  .weeks{display:grid;position:relative}
+  .wk{font-size:11px;color:var(--muted);padding:8px 0;text-align:center;border-left:1px solid var(--line)}
+  .wk b{display:block;color:var(--text);font-size:11px}
+  .track{position:relative;display:grid;min-height:40px}
+  .track .cell{border-left:1px solid #222226}
+  .gb{position:absolute;top:9px;height:22px;border-radius:6px;font-size:11px;font-weight:700;color:#111;display:flex;align-items:center;padding:0 7px;white-space:nowrap;overflow:hidden}
+  .today{position:absolute;top:0;bottom:0;width:2px;background:#e5484d;z-index:1}
+  .weeks .today::after{content:"hoje";position:absolute;top:2px;left:4px;font-size:10px;color:#e5484d;font-weight:700}
+  .row.dim{opacity:.28}
+  .row.sel{outline:2px solid var(--gold);outline-offset:-2px}
+  .row.dep .lbl .nm::after{content:"  ← precisa disto";color:var(--gold);font-size:11px}
+  .row.next .lbl .nm::after{content:"  → desbloqueia";color:#7fb7ff;font-size:11px}
+
+  .detail{margin-top:12px;background:var(--card);border:1px solid var(--line);border-radius:12px;padding:14px;display:none}
+  .detail.on{display:block}
+  .detail h3{margin:0 0 6px;font-size:15px}
+  .detail p{margin:4px 0;color:#d9d6cc}
+  .chip{display:inline-block;font-size:11px;font-weight:700;padding:2px 8px;border-radius:999px;margin-right:4px;color:#111}
+
+  /* listas */
+  .cards{display:grid;gap:10px;grid-template-columns:repeat(auto-fill,minmax(300px,1fr))}
+  .c{background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:12px 14px}
+  .c h4{margin:0 0 4px;font-size:14px}
+  .c p{margin:0;color:var(--muted);font-size:13px}
+  .c .tag{font-size:11px;font-weight:700;margin-bottom:6px;display:inline-block;padding:2px 8px;border-radius:999px}
+  .t-antes{background:#3b2f10;color:var(--gold)} .t-depois{background:#1d2a3a;color:#8fbfff} .t-desc{background:#2a1c1c;color:#ef8a8a} .t-feito{background:#16301f;color:#7fd6a0}
+  h2{font-size:16px;margin:22px 0 10px}
+  .note{color:var(--muted);font-size:12px;margin-top:14px}
+  ul.done{columns:2 260px;gap:24px;padding-left:18px;margin:0}
+  ul.done li{margin:3px 0;break-inside:avoid}
+  .path{background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:12px 14px;font-size:13px;line-height:1.9}
+  .path b{color:var(--gold)}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <div>
+      <h1><span>ZIVO</span> — plano até à Play Store</h1>
+      <div class="sub">Atualizado a 18 nov 2026 · datas estimadas, ajustam-se com os testes de rua</div>
+    </div>
+    <div class="kpis">
+      <div class="kpi"><small>Projeto total</small><b>77%</b><div class="bar"><i style="width:77%"></i></div></div>
+      <div class="kpi"><small>Lançamento previsto</small><b>início fev</b><small>2027</small></div>
+      <div class="kpi"><small>Tarefas até à loja</small><b id="kcount">–</b><small id="kdone"></small></div>
+    </div>
+  </header>
+
+  <div class="tabs">
+    <button data-t="gantt" class="on">Gantt</button>
+    <button data-t="pend">O que ficou para trás</button>
+    <button data-t="feito">Já feito</button>
+  </div>
+
+  <section id="gantt" class="on">
+    <div class="legend">
+      <span><i class="dot" style="background:var(--done)"></i>Feito</span>
+      <span><i class="dot" style="background:var(--doing)"></i>Em curso</span>
+      <span><i class="dot" style="background:var(--todo)"></i>Por fazer (Claude)</span>
+      <span><i class="dot" style="background:var(--you)"></i>Ação tua</span>
+      <span>Toca numa tarefa para ver de que depende</span>
+    </div>
+    <div class="path">Caminho crítico: <b>N1 testes</b> → <b>N2 correções</b> → <b>C1 Capacitor</b> → <b>C2/C3/C5</b> → <b>C6 testes Android</b> → <b>P2 teste fechado 14 dias</b> → <b>P3 revisão</b> → <b>P4 lançamento</b></div>
+    <div class="gantt" style="margin-top:12px"><div class="scroll"><div class="grid" id="g"></div></div></div>
+    <div class="detail" id="det"></div>
+    <p class="note">A Google exige que contas pessoais novas façam um teste fechado com pelo menos 12 testers durante 14 dias seguidos antes de publicar (fonte: Ajuda do Play Console, "App testing requirements for new personal developer accounts"). Por isso o recrutamento dos 12 riders deve começar já em dezembro.</p>
+  </section>
+
+  <section id="pend">
+    <h2>Pendentes do histórico — antes do lançamento</h2>
+    <div class="cards" id="antes"></div>
+    <h2>Pendentes do histórico — depois do lançamento</h2>
+    <div class="cards" id="depois"></div>
+    <h2>Sugiro não fazer (mudou com a app Android)</h2>
+    <div class="cards" id="desc"></div>
+  </section>
+
+  <section id="feito">
+    <h2>Já implementado</h2>
+    <ul class="done" id="donelist"></ul>
+  </section>
+</div>
+
+<script>
+const WEEKS = ['16 nov','23 nov','30 nov','7 dez','14 dez','21 dez','28 dez','4 jan','11 jan','18 jan','25 jan','1 fev','8 fev'];
+const TODAY = 0 + (2/7); // 18 nov = semana 0, dia 2
+
+// s = semana início (0 = 16 nov), d = duração em semanas
+const TASKS = [
+ {phase:'1 · Navegação web — terminar e afinar'},
+ {id:'N1', n:'Testes de rua (rotunda, canal, faixas, limite, card de report)', s:0, d:2, st:'doing', who:'tu + Claude', deps:[], info:'Usa o modo diagnóstico e manda os ficheiros. Validar: recálculo numa rotunda, travessia do canal sem aviso, report de 1 toque, SOS no iPhone em silêncio. 18 nov: teste em Limerick com zona nova + comparação de recálculo ZIVO vs Google Maps (vídeo do Google + diagnóstico do ZIVO).'},
+ {id:'N2', n:'Correções a partir dos diagnósticos', s:0, d:4, st:'doing', deps:['N1'], info:'Cada volta de testes gera ajustes. Fecha quando uma semana inteira de entregas correr sem erro grave.'},
+ {id:'N3', n:'Cortar custos de API (pesquisa, rotas, Eircode)', s:1, d:1, st:'todo', deps:[], info:'Verificar a rota alternativa a cada 5 min em vez de 90 s; pesquisa com Temporary Geocoding e espera ao escrever; guardar Eircodes de entregas concluídas. Meta: ~€0–60/mês com 1000 riders.'},
+ {id:'N4', n:'Criar chave HERE e pôr no Vercel (Eircode)', s:0, d:1, st:'you', who:'tu', deps:[], info:'platform.here.com → criar chave → Vercel → Settings → Environment Variables → HERE_API_KEY → Redeploy. 30.000 pesquisas grátis por mês.'},
+
+ {phase:'2 · Base obrigatória antes da loja'},
+ {id:'B1', n:'Painel admin: confirmar que abre e funciona', s:1, d:1, st:'todo', deps:[], info:'Era um bug antigo (desde maio). Testar no telemóvel e corrigir se ainda falhar — precisas dele para gerir zonas e testers.'},
+ {id:'B2', n:'Verificação de email no registo', s:2, d:1, st:'todo', deps:[], info:'Evita contas falsas e reports fantasma. Pedido desde maio.'},
+ {id:'B3', n:'Política de privacidade, termos e consentimento RGPD', s:2, d:2, st:'todo', deps:[], info:'Obrigatório na Play Store (localização, grupos, SOS). Inclui ecrã de consentimento para partilhar a localização.'},
+ {id:'B4', n:'Aprender com os trajetos de todos os riders', s:4, d:2, st:'todo', deps:['B3'], info:'Hoje os caminhos habituais ficam só no telemóvel. Com consentimento, juntar dados anónimos para melhorar rotas e zonas.'},
+ {id:'B5', n:'Servidor Valhalla próprio (rota segura)', s:5, d:2, st:'todo', deps:['N2'], info:'A rota que evita polígonos usa hoje um servidor público gratuito com limites. Servidor próprio ~€20–40/mês. Pode ficar para depois do teste fechado se correr bem.'},
+
+ {phase:'3 · App Android (Capacitor)'},
+ {id:'C0', n:'Conta Google Play Developer (taxa única $25)', s:1, d:2, st:'you', who:'tu', deps:[], info:'Criar já: a verificação de identidade pode demorar dias. Conta pessoal → exige teste fechado de 12 testers × 14 dias.'},
+ {id:'C1', n:'Empacotar a app com Capacitor', s:4, d:1, st:'todo', deps:['N2'], info:'O mesmo código web vira app Android instalável. As telas quase não mudam.'},
+ {id:'C2', n:'GPS em segundo plano e com ecrã bloqueado', s:5, d:1, st:'todo', deps:['C1'], info:'Resolve a limitação atual: com o ecrã bloqueado a navegação e os alertas param.'},
+ {id:'C3', n:'Notificações push (SOS, reports perto)', s:5, d:2, st:'todo', deps:['C1'], info:'SOS a tocar mesmo com a app fechada. Pedido desde maio (prioridade 1).'},
+ {id:'C4', n:'Protótipo Mapbox Navigation SDK → decidir motor', s:6, d:1, st:'todo', deps:['C1'], info:'Opcional. Se a navegação web já estiver boa nos testes, mantém-se e isto passa para depois.'},
+ {id:'C5', n:'Pagamento PRO €4,99 (Google Play Billing) + indicação', s:6, d:2, st:'todo', deps:['C1'], info:'Liga o pagamento real ao sistema de indicação (1 mês PRO + €3 após 2.º mês). Hoje o PRO é dado à mão pelo admin.'},
+ {id:'C6', n:'Testes em telemóveis Android reais', s:8, d:1, st:'todo', who:'tu + Claude', deps:['C2','C3','C5'], info:'Tu e 2–3 riders, antes de abrir aos 12 testers.'},
+
+ {phase:'4 · Play Store'},
+ {id:'P1', n:'Ficha da loja (ícone, imagens, texto, segurança de dados)', s:7, d:2, st:'todo', deps:['B3','C2'], info:'Inclui a justificação da localização em segundo plano, que a Google analisa com rigor.'},
+ {id:'R1', n:'Recrutar 12+ riders testers (Gmail)', s:3, d:4, st:'you', who:'tu', deps:[], info:'Grupos de WhatsApp, escola de intercâmbio, amigos riders. Precisam de ficar inscritos 14 dias seguidos — recruta 15 para ter margem.'},
+ {id:'P2', n:'Teste fechado: 12 testers × 14 dias', s:9, d:2, st:'todo', who:'tu + Claude', deps:['C6','P1','C0','R1'], info:'Regra da Google para contas pessoais novas. Durante estes 14 dias continuamos a corrigir com os diagnósticos.'},
+ {id:'P3', n:'Pedir acesso à produção + revisão da Google', s:11, d:1, st:'todo', who:'tu', deps:['P2'], info:'Responder às perguntas sobre o teste. Respostas vagas são motivo comum de recusa — preparo o texto contigo.'},
+ {id:'P4', n:'Lançamento e primeiros riders reais', s:12, d:1, st:'todo', deps:['P3'], info:'Lançamento em Dublin. A seguir: backlog pós-lançamento (aba ao lado).'},
+];
+
+const COLORS = {done:'var(--done)', doing:'var(--doing)', todo:'var(--todo)', you:'var(--you)'};
+const LABEL = {done:'Feito', doing:'Em curso', todo:'Por fazer', you:'Ação tua'};
+const g = document.getElementById('g');
+const cols = `repeat(${WEEKS.length}, 1fr)`;
+
+function el(tag, cls, html){ const e=document.createElement(tag); if(cls) e.className=cls; if(html!=null) e.innerHTML=html; return e; }
+
+// cabeçalho
+const hdr = el('div','hdr');
+hdr.append(el('div','lbl','<b style="font-size:12px;color:var(--muted)">Tarefa</b>'));
+const wh = el('div','weeks'); wh.style.gridTemplateColumns = cols;
+WEEKS.forEach((w,i)=>wh.append(el('div','wk',`<b>S${i+1}</b>${w}`)));
+{ const td=el('div','today'); td.style.left=`${TODAY/WEEKS.length*100}%`; wh.append(td); }
+hdr.append(wh); g.append(hdr);
+
+const rows = {};
+TASKS.forEach(t=>{
+  if(t.phase){ const r=el('div','row phase'); r.append(el('div','lbl',t.phase)); const tr=el('div','track'); tr.style.gridTemplateColumns=cols; for(let i=0;i<WEEKS.length;i++) tr.append(el('div','cell')); r.append(tr); g.append(r); return; }
+  const r = el('div','row');
+  r.append(el('div','lbl',`<span class="id">${t.id}</span><span class="nm">${t.n}</span>${t.who?`<span class="who">· ${t.who}</span>`:''}`));
+  const tr = el('div','track'); tr.style.gridTemplateColumns = cols;
+  for(let i=0;i<WEEKS.length;i++) tr.append(el('div','cell'));
+  const b = el('div','gb', t.d>=2 ? LABEL[t.st] : '');
+  b.style.left = `calc(${t.s/WEEKS.length*100}% + 3px)`;
+  b.style.width = `calc(${t.d/WEEKS.length*100}% - 6px)`;
+  b.style.background = COLORS[t.st];
+  if(t.st==='you'||t.st==='todo') b.style.color='#fff';
+  tr.append(b);
+  const td = el('div','today'); td.style.left = `${TODAY/WEEKS.length*100}%`; tr.append(td);
+  r.append(tr);
+  r.onclick = ()=>select(t.id);
+  rows[t.id] = r; g.append(r);
+});
+
+const real = TASKS.filter(t=>t.id);
+document.getElementById('kcount').textContent = real.length;
+document.getElementById('kdone').textContent = `${real.filter(t=>t.st==='doing').length} em curso · ${real.filter(t=>t.st==='you').length} tuas`;
+
+let current=null;
+function select(id){
+  const det = document.getElementById('det');
+  Object.values(rows).forEach(r=>r.classList.remove('dim','sel','dep','next'));
+  if(current===id){ current=null; det.classList.remove('on'); return; }
+  current=id;
+  const t = real.find(x=>x.id===id);
+  const next = real.filter(x=>x.deps.includes(id)).map(x=>x.id);
+  const rel = new Set([id,...t.deps,...next]);
+  Object.entries(rows).forEach(([k,r])=>{ if(!rel.has(k)) r.classList.add('dim'); });
+  rows[id].classList.add('sel');
+  t.deps.forEach(d=>rows[d]&&rows[d].classList.add('dep'));
+  next.forEach(d=>rows[d].classList.add('next'));
+  const nm = ids=>ids.map(i=>`${i} ${real.find(x=>x.id===i).n}`).join('; ');
+  det.innerHTML = `<h3>${t.id} · ${t.n}</h3>
+    <p><span class="chip" style="background:${COLORS[t.st]};color:${t.st==='doing'?'#111':'#fff'}">${LABEL[t.st]}</span>
+    Semana ${t.s+1}${t.d>1?`–${t.s+t.d}`:''} (${WEEKS[t.s]}) ${t.who?'· '+t.who:''}</p>
+    <p>${t.info}</p>
+    <p><b>Precisa de:</b> ${t.deps.length?nm(t.deps):'nada — pode começar já'}</p>
+    <p><b>Desbloqueia:</b> ${next.length?nm(next):'—'}</p>`;
+  det.classList.add('on');
+}
+
+// O que ficou para trás (pesquisado no histórico de maio a novembro)
+const ANTES = [
+ ['Notificações push','Pedido em maio como prioridade n.º 1. Só funciona bem como app nativa → tarefa C3.'],
+ ['Verificação de email','Pedido em maio para evitar contas falsas → tarefa B2.'],
+ ['Painel admin a abrir','Parou de abrir em 29/05; em outubro ainda estava por diagnosticar → tarefa B1.'],
+ ['Pagamento PRO real','Hoje o PRO é concedido à mão. Indicação depende do pagamento → tarefa C5.'],
+ ['Política de privacidade e RGPD','Exigência da Play Store e da localização em segundo plano → tarefa B3.'],
+ ['GPS com ecrã bloqueado (iPhone e Android)','Limitação da versão web, confirmada nos testes → tarefa C2.'],
+ ['Servidor de rotas próprio','A rota segura depende de um servidor público gratuito → tarefa B5.'],
+];
+const DEPOIS = [
+ ['SOS para contacto de emergência','Enviar SMS/WhatsApp com a localização a um contacto guardado; estudar ligação com a Garda.'],
+ ['Receber endereço do Uber/Deliveroo','Partilhar o pedido para o ZIVO e abrir a navegação (na app Android é mais fiável que na web).'],
+ ['Avaliação de zonas pelos riders','Votar se a zona melhorou ou piorou (1 voto por semana por zona).'],
+ ['Indicação de 2.º nível (€1,50)','O nível 1 está feito (1 mês PRO + €3). O 2.º nível fica para quando houver pagamentos reais.'],
+ ['Relatório mensal em PDF','Ganhos, custos e incidentes, para seguros e Revenue.'],
+ ['Mapa offline de Dublin','Funcionar sem internet em zonas com pouco sinal.'],
+ ['App iPhone (App Store)','Depois do Android estabilizar.'],
+ ['Outras cidades','Cork → Galway → Belfast. A base já guarda a cidade de cada zona.'],
+ ['Parcerias e B2B','Seguradoras de bikes, oficinas, API para plataformas de entrega, painel de banners de parceiros.'],
+];
+const DESC = [
+ ['Banner da área de transferência (copiar endereço)','Bug antigo do iPhone. Fica substituído pela partilha nativa no Android e pela pesquisa por Eircode.'],
+ ['Migração completa para React Native','O Capacitor aproveita todo o código atual; reescrever do zero atrasaria meses.'],
+ ['Plano Pro+ (€9,99) e venda de dados','Só faz sentido com milhares de utilizadores. Rever depois do lançamento.'],
+];
+const card=(arr,cls,tag)=>arr.map(([h,p])=>`<div class="c"><span class="tag ${cls}">${tag}</span><h4>${h}</h4><p>${p}</p></div>`).join('');
+document.getElementById('antes').innerHTML = card(ANTES,'t-antes','Antes do lançamento');
+document.getElementById('depois').innerHTML = card(DEPOIS,'t-depois','Depois do lançamento');
+document.getElementById('desc').innerHTML = card(DESC,'t-desc','Não fazer agora');
+
+const FEITO = ['Login, perfil e eliminação da própria conta','Mapa com zonas de risco em polígono, círculo e rua','Zonas só por horário (ex.: canal à noite)','Navegação estilo Google: banner verde, câmara, voz PT','Faixas, limite de velocidade e ícone de rotunda com saída','Rota alternativa com tempo e rota segura que evita zonas','Travessia curta de zona sem aviso','Recálculo que segue a direção do rider','Aviso de destino dentro de zona de risco','Aprender caminhos habituais do rider','Pesquisa por Eircode (falta a chave HERE)','Reports com 12 tipos e ícones desenhados','Aviso de report à frente e "ainda está aí?"','Regras de duração e votos dos reports','Report de 1 toque na navegação, fecha sozinho','Zonas automáticas a partir de reports','Grupos com localização ao vivo e chat','SOS com alarme persistente e "Ver no mapa"','Indicação: link, 1 mês PRO + €3, mínimo €5','Regras de segurança do Firestore','Modo diagnóstico com exportação','Marca dourado/preto e ícone novo','Ganhos, turnos e €/hora','Onboarding e instalação como PWA','Editor de zonas abre onde estás (botão de localização)'];
+document.getElementById('donelist').innerHTML = FEITO.map(f=>`<li>${f}</li>`).join('');
+
+document.querySelectorAll('.tabs button').forEach(b=>b.onclick=()=>{
+  document.querySelectorAll('.tabs button').forEach(x=>x.classList.toggle('on',x===b));
+  document.querySelectorAll('section').forEach(s=>s.classList.toggle('on',s.id===b.dataset.t));
+});
+</script>
+</body>
+</html>
