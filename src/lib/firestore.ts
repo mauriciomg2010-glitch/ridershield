@@ -89,6 +89,7 @@ export async function updateUserPremium(uid: string, isPremium: boolean): Promis
 // ─── INCIDENTS ────────────────────────────────────────────────────────────────
 
 export interface ReportOptions {
+  heading?: number | null
   description?: string
   subcategory?: string
   hasPhoto?: boolean
@@ -171,6 +172,7 @@ export async function reportIncident(
     initialScore = 50,
     mapWeight = 1,
     affectsMap = true,
+    heading = null,
   } = opts
 
   const riderScore = riderTrustScore ?? (await getRiderScore(userId))
@@ -219,6 +221,7 @@ export async function reportIncident(
     status,
     confirmations: 0,
     denials: 0,
+    heading: heading != null && isFinite(heading) ? Math.round(heading) : null,
   })
 
   // Update rider score: +2 for any valid report, +1 extra if has photo
@@ -263,6 +266,7 @@ export function subscribeToIncidents(
         denials: data.denials ?? 0,
         voters: data.voters ?? [],
         lastConfirmedAt: data.lastConfirmedAt?.toDate?.() ?? null,
+        heading: typeof data.heading === 'number' ? data.heading : null,
       }
     })
     callback(incidents)

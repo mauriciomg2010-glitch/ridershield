@@ -49,6 +49,8 @@ export interface Incident {
   denials?: number
   voters?: string[]
   lastConfirmedAt?: Date | null
+  /** sentido de quem reportou (graus); null = desconhecido */
+  heading?: number | null
 }
 
 export interface Group {

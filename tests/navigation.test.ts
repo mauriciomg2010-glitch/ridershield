@@ -491,3 +491,28 @@ test('escolha do rider: à 2.ª recusa de uma rota segura com desvio passa a seg
   let t = registerReroute(newChoiceState(), { leftDetour: true, moving: true, now: 0 })
   t = registerReroute(t, { leftDetour: true, moving: true, now: 6 * 60000 }); assert.ok(!t.following)
 })
+
+import { reportAppliesToDirection } from '../src/lib/reportRules'
+import { nextReportAheadFree as livre, nextReportOnRoute as naRota } from '../src/lib/navigation/reportAhead'
+test('sentido do report: polícia só avisa o mesmo lado da avenida; assalto avisa os dois', () => {
+  assert.ok(reportAppliesToDirection('police', 90, 100))
+  assert.ok(!reportAppliesToDirection('police', 90, 270), 'polícia do outro sentido não avisa')
+  assert.ok(reportAppliesToDirection('police', null, 270), 'report antigo sem sentido avisa')
+  assert.ok(reportAppliesToDirection('assault_robbery', 90, 270), 'assalto avisa os dois sentidos')
+  assert.ok(reportAppliesToDirection('flooding', 90, 270))
+  // sem navegação: rider vem para oeste numa avenida, polícia reportada por quem ia para leste
+  const pos: LngLat = [-6.26, 53.34]
+  const r = { id: 'p', inc: { type: 'police', heading: 90 } }
+  const at = destination(pos, 150, 270)
+  const rep = [{ ...r, lat: at[1], lng: at[0] }]
+  const f = (x: any, h: number) => reportAppliesToDirection(x.inc.type, x.inc.heading, h)
+  assert.equal(livre(pos, 270, rep, 250, 30, 40, f), null)
+  assert.ok(livre(pos, 270, [{ ...rep[0], inc: { type: 'police', heading: 265 } }], 250, 30, 40, f))
+  // com navegação: usa o sentido da rota no ponto do report
+  const tr = new RouteTracker(lRoute())   // A → leste → B → norte → C
+  const onEast = destination(A, 200, 90)
+  const route = { coords: tr.coords, cum: (tr as any).cum }
+  const mk = (h: number) => [{ id: 'x', lat: onEast[1], lng: onEast[0], inc: { type: 'police', heading: h } }]
+  assert.ok(naRota(route as any, 0, 0, mk(85), 300, 35, f))
+  assert.equal(naRota(route as any, 0, 0, mk(268), 300, 35, f), null)
+})

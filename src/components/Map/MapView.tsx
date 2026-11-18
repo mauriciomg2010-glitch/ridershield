@@ -19,7 +19,8 @@ import { subscribeToIncidents, subscribeToGlobalPresence, reportIncident, voteIn
 import { INCIDENT_TYPES as QUICK_REPORT_TYPES, REPORT_MENU_TYPES } from '@/data/incidentTypes'
 import ReportIcon, { reportIconSvg } from '@/components/Report/ReportIcon'
 import ReportPromptCard from '@/components/Report/ReportPromptCard'
-import { isReportActive, MAX_TTL_MIN } from '@/lib/reportRules'
+import { isReportActive, MAX_TTL_MIN, reportAppliesToDirection } from '@/lib/reportRules'
+import { sentidoAtual } from '@/lib/reportHeading'
 import { useLang } from '@/contexts/LangContext'
 import { useTheme } from '@/contexts/ThemeContext'
 import { Incident, IncidentType } from '@/types'
@@ -1604,8 +1605,10 @@ export default function MapView({ groupMembers = EMPTY_MEMBERS, currentUserId, g
       }
 
       const lite = candidates.map(inc => ({ inc, id: inc.id, lat: inc.location.lat, lng: inc.location.lng }))
+      // polícia/trânsito/obra: só avisa quem vai no mesmo sentido de quem reportou
+      const mesmoSentido = (r: { inc: Incident }, rumoPassagem: number) => reportAppliesToDirection(r.inc.type, r.inc.heading, rumoPassagem)
       if (tr && pr && !pr.offRoute) {
-        const hit = nextReportOnRoute(tr, pr.along, tr.currentSeg, lite, 300, 35)
+        const hit = nextReportOnRoute(tr, pr.along, tr.currentSeg, lite, 300, 35, mesmoSentido)
         if (!hit) return
         marcarAvisado(hit.report.id)
         incidentModeRef.current = 'rota'
@@ -1619,7 +1622,7 @@ export default function MapView({ groupMembers = EMPTY_MEMBERS, currentUserId, g
 
       // 3) sem rota (ou fora dela): a andar (> ~5 km/h), na direção do GPS, até 250 m
       if (rumo == null || vel < 1.5) return
-      const hit = nextReportAheadFree([pos.lng, pos.lat], rumo, lite, 250, 30, 40)
+      const hit = nextReportAheadFree([pos.lng, pos.lat], rumo, lite, 250, 30, 40, mesmoSentido)
       if (!hit) return
       marcarAvisado(hit.report.id)
       incidentModeRef.current = 'livre'
@@ -2939,7 +2942,7 @@ export default function MapView({ groupMembers = EMPTY_MEMBERS, currentUserId, g
           <div style={{
             position: 'absolute',
             // During navigation: sit above the bottom bar + speed badge (bottom: ~96px)
-            bottom: isNavigating ? 150 : 90,
+            bottom: isNavigating ? 'calc(150px + env(safe-area-inset-bottom, 0px))' : 90,
             left: 12, right: 12, zIndex: 500,
             background: 'var(--surface)', borderRadius: 14,
             border: `1px solid ${colors.fill}55`,
@@ -3110,7 +3113,7 @@ export default function MapView({ groupMembers = EMPTY_MEMBERS, currentUserId, g
           onClick={() => setShowTrafficLegend(false)}
           className="absolute z-[400] rounded-xl shadow-lg cursor-pointer"
           style={{
-            bottom: isNavigating ? '92px' : '136px',
+            bottom: isNavigating ? 'calc(100px + env(safe-area-inset-bottom, 0px))' : '136px',
             left: '12px',
             background: 'var(--surface)',
             border: '1px solid var(--border)',
@@ -3282,7 +3285,7 @@ export default function MapView({ groupMembers = EMPTY_MEMBERS, currentUserId, g
           onClick={resumeFollow}
           style={{
             // ao centro, acima do rodapé — antes ficava escondido atrás da velocidade
-            bottom: 104, left: '50%', transform: 'translateX(-50%)',
+            bottom: 'calc(104px + env(safe-area-inset-bottom, 0px))', left: '50%', transform: 'translateX(-50%)',
             background: 'white', border: 'none',
             borderRadius: 24, padding: '10px 18px',
             boxShadow: '0 1px 6px rgba(0,0,0,0.3)',
@@ -3356,7 +3359,7 @@ export default function MapView({ groupMembers = EMPTY_MEMBERS, currentUserId, g
                           qt.id as import('@/types').IncidentType,
                           reportLat,
                           reportLng,
-                          { initialScore: qt.initialScore, mapWeight: qt.mapWeight, affectsMap: qt.affectsMap }
+                          { initialScore: qt.initialScore, mapWeight: qt.mapWeight, affectsMap: qt.affectsMap, heading: sentidoAtual() }
                         )
                         setShowQuickReport(false)
                         setFrozenReportPos(null)

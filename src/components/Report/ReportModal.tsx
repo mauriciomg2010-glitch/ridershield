@@ -2,6 +2,7 @@
 'use client'
 import { useState, useRef, useEffect } from 'react'
 import { useStore } from '@/lib/store'
+import { sentidoAtual } from '@/lib/reportHeading'
 import { reportIncident, getRiderScore } from '@/lib/firestore'
 import { REPORT_MENU_TYPES, IncidentTypeDef } from '@/data/incidentTypes'
 import ReportIcon from './ReportIcon'
@@ -122,6 +123,7 @@ export default function ReportModal({ onClose, initialLocation, quick = false }:
           initialScore: selectedType.initialScore,
           mapWeight: selectedType.mapWeight,
           affectsMap: selectedType.affectsMap,
+          heading: sentidoAtual(),
         }
       )
       setScreen('confirm')

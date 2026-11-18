@@ -22,6 +22,8 @@ interface AppState {
   isSharingLocation: boolean
   currentLocation: { lat: number; lng: number } | null
   currentFix: GpsFix | null
+  /** último rumo com o rider a andar (para guardar o sentido de um report feito parado no semáforo) */
+  lastMoveHeading: { deg: number; time: number } | null
   emergencyContacts: EmergencyContacts | null
   activeGroupId: string | null
 
@@ -49,6 +51,7 @@ export const useStore = create<AppState>((set) => ({
   isSharingLocation: false,
   currentLocation: null,
   currentFix: null,
+  lastMoveHeading: null,
   emergencyContacts: null,
   activeGroupId: null,
 
@@ -67,7 +70,11 @@ export const useStore = create<AppState>((set) => ({
   setCurrentLocation: (currentLocation) => set({ currentLocation }),
   setCurrentFix: (currentFix) => {
     if (currentFix) diag('gps', { lat: +currentFix.lat.toFixed(6), lng: +currentFix.lng.toFixed(6), acc: currentFix.accuracy, vel: currentFix.speed, rumo: currentFix.heading })
-    set({ currentFix, currentLocation: currentFix ? { lat: currentFix.lat, lng: currentFix.lng } : null })
+    const h = currentFix?.heading
+    const moving = (currentFix?.speed ?? 0) > 2 && h != null && isFinite(h)
+    set(moving
+      ? { currentFix, currentLocation: { lat: currentFix!.lat, lng: currentFix!.lng }, lastMoveHeading: { deg: h as number, time: Date.now() } }
+      : { currentFix, currentLocation: currentFix ? { lat: currentFix.lat, lng: currentFix.lng } : null })
   },
   setEmergencyContacts: (emergencyContacts) => set({ emergencyContacts }),
   setActiveGroupId: (activeGroupId) => set({ activeGroupId }),

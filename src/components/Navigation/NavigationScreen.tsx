@@ -224,7 +224,7 @@ export default function NavigationScreen({
     <>
       {/* Limite da rua + velocidade (como no Google Maps). Passou do limite → número a vermelho */}
       {(speed > 0 || speedLimit) && !nearbyIncident && (
-        <div className="absolute z-[601]" style={{ bottom: 100, left: 14, display: 'flex', alignItems: 'flex-end', gap: 6 }}>
+        <div className="absolute z-[601]" style={{ bottom: 'calc(100px + env(safe-area-inset-bottom, 0px))', left: 14, display: 'flex', alignItems: 'flex-end', gap: 6 }}>
           {speedLimit ? (
             <div style={{
               width: 46, height: 46, borderRadius: '50%', background: 'white', border: '4px solid #d93025',
@@ -409,35 +409,35 @@ export default function NavigationScreen({
           dist={incidentDist}
           isMine={nearbyIncident.userId === currentUserId}
           confirmations={(nearbyIncident as any).confirmations ?? 0}
-          bottom={96}
+          bottom="calc(96px + env(safe-area-inset-bottom, 0px))"
           onVote={async v => { if (onVoteIncident) await onVoteIncident(nearbyIncident.id, v) }}
           onClose={() => onCloseIncident?.()}
         />
       )}
 
-      {/* Bottom bar */}
-      <div className="absolute z-[600]" style={{ bottom: '12px', left: '12px', right: '12px' }}>
+      {/* Barra de baixo — painel branco como no Google Maps (antes era escura e chamava muita atenção) */}
+      <div className="absolute z-[600]" style={{ bottom: 0, left: 0, right: 0 }}>
         <div style={{
-          background: 'var(--surface)',
-          border: '1px solid var(--border)',
-          borderRadius: 16,
-          overflow: 'hidden',
-          boxShadow: '0 4px 20px rgba(0,0,0,0.3)',
+          background: '#ffffff',
+          borderRadius: '18px 18px 0 0',
+          boxShadow: '0 -2px 12px rgba(0,0,0,0.18)',
+          paddingBottom: 'env(safe-area-inset-bottom, 0px)',
         }}>
-          {/* Distance / ETA / Cancel row — always visible */}
-          <div style={{ padding: '12px 16px', display: 'flex', alignItems: 'center', gap: 12 }}>
+          <div style={{ width: 36, height: 4, borderRadius: 2, background: '#dadce0', margin: '7px auto 0' }} />
+          <div style={{ padding: '6px 16px 12px', display: 'flex', alignItems: 'center', gap: 12 }}>
+            <div style={{ width: 44 }} />
             <div style={{ flex: 1, textAlign: 'center' }}>
-              <div style={{ fontSize: 24, fontWeight: 700, color: '#188038', lineHeight: 1.05 }}>
+              <div style={{ fontSize: 24, fontWeight: 700, color: '#188038', lineHeight: 1.05, letterSpacing: '-0.01em' }}>
                 {formatDuration(remainingSec ?? navEta * 60)}
               </div>
-              <div style={{ fontSize: 14, color: 'var(--muted)', marginTop: 3 }}>{formatDistance(remainingDist)} · {arrivalStr}</div>
+              <div style={{ fontSize: 14, color: '#5f6368', marginTop: 3 }}>{formatDistance(remainingDist)} · {arrivalStr}</div>
             </div>
             <button
               onClick={onCancel}
               style={{
                 background: '#d93025', border: 'none', borderRadius: 22,
-                padding: '10px 20px', color: 'white', fontWeight: 700,
-                fontSize: 15, cursor: 'pointer',
+                padding: '10px 18px', color: 'white', fontWeight: 700,
+                fontSize: 15, cursor: 'pointer', minWidth: 64,
               }}
             >
               Sair
@@ -453,7 +453,7 @@ export default function NavigationScreen({
           title="Reportar incidente"
           className="absolute z-[601]"
           style={{
-            bottom: 100, right: 14,
+            bottom: 'calc(100px + env(safe-area-inset-bottom, 0px))', right: 14,
             width: 54, height: 54, borderRadius: '50%',
             background: 'white', border: 'none',
             display: 'flex', alignItems: 'center', justifyContent: 'center',

@@ -41,3 +41,27 @@ export function reportRemovedByVotes(r: ReportLike): boolean {
 export function isReportActive(r: ReportLike, now = Date.now()): boolean {
   return now < reportExpiresAt(r) && !reportRemovedByVotes(r)
 }
+
+// ── Sentido do report ─────────────────────────────────────────────────────────
+// Reports de ESTRADA ficam num lado da pista: polícia, acidente, trânsito, obra, buraco…
+// Só avisam quem vai no MESMO sentido de quem reportou (±60°). Se alguém reportar também no
+// outro sentido, esse report novo avisa o outro lado.
+// Reports de SEGURANÇA (assalto, roubo de bike, agressão, suspeito) e alagamento avisam nos
+// dois sentidos: o perigo é para quem passa ali, de qualquer lado (o rider para, atravessa,
+// estaciona do outro lado).
+export const DIRECTIONAL_TYPES = new Set([
+  'police', 'accident', 'traffic_jam', 'construction', 'road_closed', 'pothole', 'road_hazard',
+])
+export const SAME_DIRECTION_MAX_DEG = 60
+
+const angDiff = (a: number, b: number) => Math.abs(((a - b + 540) % 360) - 180)
+
+/**
+ * O report deve avisar quem vai com este rumo?
+ * Sem rumo (report antigo, ou rider parado) → avisa (não perde avisos por falta de dados).
+ */
+export function reportAppliesToDirection(type: string, reportHeading: number | null | undefined, travelHeading: number | null | undefined): boolean {
+  if (!DIRECTIONAL_TYPES.has(type)) return true
+  if (reportHeading == null || !isFinite(reportHeading) || travelHeading == null || !isFinite(travelHeading)) return true
+  return angDiff(reportHeading, travelHeading) <= SAME_DIRECTION_MAX_DEG
+}
