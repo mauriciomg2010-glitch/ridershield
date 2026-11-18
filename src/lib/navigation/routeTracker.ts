@@ -38,6 +38,8 @@ export class RouteTracker {
   readonly length: number
   private seg = 0                 // último segmento encaixado
   private offCount = 0
+  private divCount = 0          // a afastar-se depressa da rota, noutra direção
+  private prevDist: number | null = null
   private wrongCount = 0
   private lastAlong = 0
 
@@ -163,7 +165,14 @@ export class RouteTracker {
     const limit = Math.max(35, Math.min(80, acc * 1.5))
     if (m.dist > limit) this.offCount++
     else this.offCount = 0
-    const offRoute = this.offCount >= 3 || (m.dist > limit * 2 && this.offCount >= 2)
+    // Saída clara (ex.: outra saída da rotunda): a andar, GPS bom, já a 20+ m da rota, a afastar-se
+    // e noutra direção → recalcula sem esperar pelos 35 m × 3 leituras (o Google reage em ~3 s)
+    const diverging = moving && heading != null && acc <= 20 && m.dist >= 20 &&
+      this.prevDist != null && m.dist > this.prevDist + 3 && angleDiff(heading, routeBearing) > 50
+    if (diverging) this.divCount++
+    else if (m.dist < 15) this.divCount = 0
+    this.prevDist = m.dist
+    const offRoute = this.offCount >= 3 || (m.dist > limit * 2 && this.offCount >= 2) || this.divCount >= 2
 
     // Contramão: está em cima da rota mas andando no sentido oposto
     if (moving && heading != null && m.dist < limit && angleDiff(heading, routeBearing) > 150) this.wrongCount++
@@ -180,5 +189,5 @@ export class RouteTracker {
   get currentSeg(): number { return this.seg }
 
   /** Zera contadores depois de um recálculo. */
-  resetOffRoute() { this.offCount = 0; this.wrongCount = 0 }
+  resetOffRoute() { this.offCount = 0; this.wrongCount = 0; this.divCount = 0; this.prevDist = null }
 }

@@ -17,6 +17,7 @@ import { bearing as geoBearing, distM, LngLat } from '@/lib/navigation/geo'
 import { recordTrip, overlap, simplifyTrace } from '@/lib/navigation/habits'
 import { projectAhead } from '@/lib/navigation/reportAhead'
 import { diag } from '@/lib/diagnostics'
+import { ChoiceState, newChoiceState, isDetour, registerReroute } from '@/lib/navigation/riderChoice'
 
 type LatLng = { lat: number; lng: number }
 export type LiveProgress = Progress & { time: number; speedMps: number; onRoute: boolean }
@@ -77,6 +78,8 @@ export function useNavigationCore({ isNavigating, currentFix, navDest, routeProf
   const lastRerouteRef = useRef(0)
   const rerouteBusyRef = useRef(false)
   const passIdsRef = useRef<Set<string>>(new Set())   // zonas que a rota só corta de passagem
+  const choiceRef = useRef<ChoiceState>(newChoiceState())   // rider recusou a rota segura?
+  const onDetourRef = useRef(true)   // rota atual é um desvio de segurança (a inicial costuma ser)
   const moveHeadingRef = useRef<{ deg: number; time: number } | null>(null)   // direção real do rider (GPS)
   const riskReqRef = useRef(0)
   const navDestRef = useRef<LatLng | null>(navDest)
@@ -199,6 +202,7 @@ export function useNavigationCore({ isNavigating, currentFix, navDest, routeProf
   /** Prepara uma sessão nova (chamar antes de applyRoute no início da navegação). */
   const beginSession = useCallback((dest: LatLng, profile: string, destName?: string) => {
     tripRef.current = { start: Date.now(), origin: null, trace: [], firstRoute: null, name: destName, recorded: false }
+    choiceRef.current = newChoiceState(); onDetourRef.current = true
     diag('nav-inicio', { destino: [+dest.lat.toFixed(5), +dest.lng.toFixed(5)], perfil: profile, nome: destName ?? null })
     navDestRef.current = dest
     profileRef.current = profile
@@ -249,10 +253,22 @@ export function useNavigationCore({ isNavigating, currentFix, navDest, routeProf
       const mh = moveHeadingRef.current
       const heading = mh && Date.now() - mh.time < 15000 ? mh.deg : null
       const res = await findSafeRoute(from, dest, profileRef.current || 'driving-traffic', zones, { heading })
-      const route = res.route ?? res.candidates.slice().sort(byFewestZones)[0]
+      let route = res.route ?? res.candidates.slice().sort(byFewestZones)[0]
+      // o rider saiu de novo de uma rota segura com desvio? à 2.ª vez segue o caminho dele
+      const moving = !!mh && Date.now() - mh.time < 5000
+      const antes = choiceRef.current
+      choiceRef.current = registerReroute(antes, { leftDetour: onDetourRef.current, moving, now: Date.now() })
+      const fastest = res.candidates.slice().sort((a: any, b: any) => (a.duration ?? Infinity) - (b.duration ?? Infinity))[0]
+      const desvio = isDetour(res.route, fastest)
+      let seguiuRider = false
+      if (res.route && desvio && choiceRef.current.following) { route = fastest; seguiuRider = true }
+      onDetourRef.current = !!res.route && route === res.route && desvio
       if (route && navigatingRef.current) {
         applyRoute(route)
-        if (!res.route && zones.length) toast('⚠️ Nova rota passa por zona de risco — atenção', { duration: 5000 })
+        if (seguiuRider) {
+          diag('segue-rider', { recusas: choiceRef.current.rejects, extraS: Math.round((res.route.duration ?? 0) - (fastest.duration ?? 0)) })
+          if (!antes.following) toast('A seguir o teu caminho. Atenção: passa por zona de risco', { duration: 6000 })
+        } else if (!res.route && zones.length) toast('⚠️ Nova rota passa por zona de risco — atenção', { duration: 5000 })
       }
     } catch (e) {
       console.warn('[nav] recálculo falhou (sem rede?) — mantendo rota atual', e)
@@ -266,6 +282,8 @@ export function useNavigationCore({ isNavigating, currentFix, navDest, routeProf
   /** Botão "mudar para rota segura" do modo alerta. */
   const switchToSafeRoute = useCallback(() => {
     // usa a rota segura já calculada; senão recalcula pela rota segura
+    // pediu a rota segura: volta a protegê-lo (esquece as recusas)
+    choiceRef.current = newChoiceState(); onDetourRef.current = true
     if (safeAltRef.current) { const r = safeAltRef.current; safeAltRef.current = null; applyRoute(r); return }
     const fix = useStore.getState().currentFix
     if (fix) reroute({ lat: fix.lat, lng: fix.lng })

@@ -460,3 +460,34 @@ test('recálculo manda a direção do rider ao Mapbox (bearings) e ao Valhalla (
     assert.match(decodeURIComponent(urls[2]), /"heading":90,"heading_tolerance":60/)
   } finally { globalThis.fetch = orig }
 })
+
+test('rastreador: sair pela saída errada (afastar-se noutra direção) recalcula antes dos 35 m', () => {
+  const tr = new RouteTracker(lRoute())
+  let p: any = tr.update({ lng: A[0], lat: A[1], speed: 8, heading: 90 })
+  const nearB = destination(B, 30, 270); p = tr.update({ lng: nearB[0], lat: nearB[1], accuracy: 8, speed: 8, heading: 90 })
+  // na esquina a rota vira a norte; o rider segue para sul
+  const seq = [8, 20, 30].map(d => destination(B, d, 180))
+  for (const q of seq) p = tr.update({ lng: q[0], lat: q[1], accuracy: 8, speed: 8, heading: 180 })
+  assert.ok(p.offRouteM < 35, 'ainda dentro da tolerância antiga')
+  assert.ok(p.offRoute, 'mas já recalcula')
+  // GPS fraco: não usa o atalho
+  const tr2 = new RouteTracker(lRoute()); tr2.update({ lng: A[0], lat: A[1], speed: 8, heading: 90 })
+  for (const q of seq) p = tr2.update({ lng: q[0], lat: q[1], accuracy: 40, speed: 8, heading: 180 })
+  assert.ok(!p.offRoute)
+})
+
+import { isDetour, registerReroute, newChoiceState } from '../src/lib/navigation/riderChoice'
+test('escolha do rider: à 2.ª recusa de uma rota segura com desvio passa a seguir o caminho dele', () => {
+  const fast = { duration: 600, distance: 4000, _hits: [{}] }
+  const safe = { duration: 780, distance: 5200, _hits: [] }
+  assert.ok(isDetour(safe, fast))
+  assert.ok(!isDetour(safe, { ...fast, _hits: [] }), 'sem zona na rápida não é desvio de segurança')
+  assert.ok(!isDetour({ duration: 620, distance: 4100 }, fast), 'diferença pequena não conta')
+  let s = newChoiceState()
+  s = registerReroute(s, { leftDetour: true, moving: false, now: 0 }); assert.equal(s.rejects, 0, 'parado = ruído de GPS')
+  s = registerReroute(s, { leftDetour: true, moving: true, now: 1000 }); assert.ok(!s.following)
+  s = registerReroute(s, { leftDetour: true, moving: true, now: 60000 }); assert.ok(s.following)
+  // recusas muito espaçadas não se somam
+  let t = registerReroute(newChoiceState(), { leftDetour: true, moving: true, now: 0 })
+  t = registerReroute(t, { leftDetour: true, moving: true, now: 6 * 60000 }); assert.ok(!t.following)
+})
