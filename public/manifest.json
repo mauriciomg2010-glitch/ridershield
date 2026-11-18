@@ -2,7 +2,7 @@
   "name": "ZIVO",
   "short_name": "ZIVO",
   "description": "Navigate safe. Arrive alive. Safety for delivery riders.",
-  "theme_color": "#f59e0b",
+  "theme_color": "#ffffff",
   "background_color": "#0a0e1a",
   "display": "standalone",
   "orientation": "portrait",

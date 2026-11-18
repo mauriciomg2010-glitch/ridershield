@@ -21,6 +21,7 @@ import ReportIcon, { reportIconSvg } from '@/components/Report/ReportIcon'
 import ReportPromptCard from '@/components/Report/ReportPromptCard'
 import { isReportActive, MAX_TTL_MIN, reportAppliesToDirection } from '@/lib/reportRules'
 import { sentidoAtual } from '@/lib/reportHeading'
+import { isNight } from '@/lib/sun'
 import { useLang } from '@/contexts/LangContext'
 import { useTheme } from '@/contexts/ThemeContext'
 import { Incident, IncidentType } from '@/types'
@@ -531,7 +532,25 @@ export default function MapView({ groupMembers = EMPTY_MEMBERS, currentUserId, g
     onArrived: () => mapRef.current?.easeTo({ pitch: 0, bearing: 0, duration: 600, easing: (t: number) => t }),
   })
 
-  const mapStyle = 'mapbox://styles/mapbox/streets-v12'
+  // Mapa de dia / de noite automático, como o Google Maps (escuro de madrugada e à noite,
+  // rota azul néon; clareia quando o sol nasce). Revê a cada minuto pela altura do sol.
+  const [mapaNoite, setMapaNoite] = useState(() => isNight(new Date(), currentLocation?.lat ?? 53.35, currentLocation?.lng ?? -6.26))
+  const latRef = useRef<{ lat: number; lng: number }>({ lat: 53.35, lng: -6.26 })
+  if (currentLocation) latRef.current = currentLocation
+  useEffect(() => {
+    const ver = () => setMapaNoite(isNight(new Date(), latRef.current.lat, latRef.current.lng))
+    ver()
+    const t = setInterval(ver, 60000)
+    return () => clearInterval(t)
+  }, [])
+  // barra de estado do telemóvel (hora/bateria) da mesma cor do mapa — antes ficava dourada
+  useEffect(() => {
+    const cor = mapaNoite ? '#1d2733' : '#ffffff'
+    document.querySelectorAll('meta[name="theme-color"]').forEach(m => m.setAttribute('content', cor))
+  }, [mapaNoite])
+  const mapStyle = mapaNoite ? 'mapbox://styles/mapbox/navigation-night-v1' : 'mapbox://styles/mapbox/streets-v12'
+  const rotaAzul = mapaNoite ? '#5fa8ff' : '#4285f4'
+  const rotaContorno = mapaNoite ? '#2b6fe0' : '#0b57d0'
 
   // Persist shield (zones) preference
   useEffect(() => {
@@ -2308,7 +2327,7 @@ export default function MapView({ groupMembers = EMPTY_MEMBERS, currentUserId, g
           <Source id="route" type="geojson" data={routeCongestionGeoJSON}>
             <Layer id="route-line-casing" type="line"
               layout={{ 'line-cap': 'round', 'line-join': 'round' }}
-              paint={{ 'line-color': '#0b57d0', 'line-width': ['interpolate', ['linear'], ['zoom'], 12, 7, 16, 12, 18, 18] as any }} />
+              paint={{ 'line-color': rotaContorno, 'line-width': ['interpolate', ['linear'], ['zoom'], 12, 7, 16, 12, 18, 18] as any }} />
             <Layer id="route-line" type="line"
               layout={{ 'line-cap': 'round', 'line-join': 'round' }}
               paint={{
@@ -2316,7 +2335,7 @@ export default function MapView({ groupMembers = EMPTY_MEMBERS, currentUserId, g
                   'moderate', '#f29900',
                   'heavy', '#d93025',
                   'severe', '#a50e0e',
-                  '#4285f4',
+                  rotaAzul,
                 ] as any,
                 'line-width': ['interpolate', ['linear'], ['zoom'], 12, 4.5, 16, 8.5, 18, 13] as any,
               }} />

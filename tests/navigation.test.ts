@@ -516,3 +516,14 @@ test('sentido do report: polícia só avisa o mesmo lado da avenida; assalto avi
   assert.ok(naRota(route as any, 0, 0, mk(85), 300, 35, f))
   assert.equal(naRota(route as any, 0, 0, mk(268), 300, 35, f), null)
 })
+
+import { sunAltitudeDeg, isNight } from '../src/lib/sun'
+test('sol em Dublin: meio-dia de verão alto, meia-noite e 7h de novembro escuras, 13h de novembro dia', () => {
+  const lat = 53.35, lng = -6.26
+  assert.ok(sunAltitudeDeg(new Date('2026-06-21T12:30:00Z'), lat, lng) > 55)
+  assert.ok(isNight(new Date('2026-11-18T00:00:00Z'), lat, lng))
+  assert.ok(isNight(new Date('2026-11-18T07:00:00Z'), lat, lng), 'nascer do sol ~08:10')
+  assert.ok(!isNight(new Date('2026-11-18T13:00:00Z'), lat, lng))
+  assert.ok(isNight(new Date('2026-11-18T17:15:00Z'), lat, lng), 'pôr do sol ~16:25')
+  assert.ok(!isNight(new Date('2026-11-18T16:20:00Z'), lat, lng))
+})

@@ -10,6 +10,7 @@ import { LANGUAGES } from '@/lib/i18n'
 import { getRiderID, saveEmergencyContacts, clearLocation, clearGlobalPresence, getUserReferralData } from '@/lib/firestore'
 import { db } from '@/lib/firebase'
 import { collection, query, where, onSnapshot, getDoc, doc } from 'firebase/firestore'
+import AdSlot from '@/components/Ads/AdSlot'
 import { isAdminUser, ADMIN_UID as MENU_ADMIN_UID } from '@/lib/admin'
 import { EmergencyContacts } from '@/types'
 import ReferralPanel from '@/components/Referral/ReferralPanel'
@@ -500,21 +501,8 @@ export default function SideMenu({ open, onClose, onNavigate, categories = [], a
         <div style={{ display: showAccountPanel || showReferralPanel || showShortcutPanel ? 'none' : 'block' }}>
         {/* Header */}
         <div className="relative" style={{ borderBottom: '1px solid var(--border)' }}>
-          {/* Sponsor banner — full width, no padding above */}
-          <img
-            src="/seven-bikes.JPG"
-            alt="Seven Electric Bikes - We Rent Electric Bikes"
-            style={{
-              width: '100%',
-              height: '120px',
-              objectFit: 'cover',
-              objectPosition: 'center 20%',
-              borderRadius: '0 0 12px 12px',
-              cursor: 'pointer',
-              display: 'block',
-            }}
-            onClick={() => window.open('https://wa.me/3530834153650', '_blank')}
-          />
+          {/* Espaço de anúncio (vazio, para mostrar a parceiros) */}
+          <AdSlot variante="topo" />
 
           {/* Name + rider ID */}
           <div className="px-5 pt-3 pb-4" style={{ background: 'linear-gradient(135deg, rgba(245,158,11,0.1), var(--surface))' }}>
@@ -719,25 +707,8 @@ export default function SideMenu({ open, onClose, onNavigate, categories = [], a
             </div>
           </div>
 
-          {/* Alpha Van sponsor banner */}
-          <div
-            className="relative cursor-pointer"
-            style={{ borderRadius: '12px', overflow: 'hidden' }}
-            onClick={() => window.open('https://wa.me/3530872180548', '_blank')}
-          >
-            <img
-              src="/images/Publicidade_ALPHAVAN.png"
-              alt="Alpha Van — Patrocinado"
-              style={{ width: '100%', maxHeight: '160px', objectFit: 'cover', display: 'block' }}
-            />
-            <span style={{
-              position: 'absolute', top: '8px', right: '8px',
-              background: 'rgba(0,0,0,0.5)', color: 'white',
-              fontSize: '10px', padding: '2px 6px', borderRadius: '20px',
-            }}>
-              Patrocinado
-            </span>
-          </div>
+          {/* Espaço de anúncio (vazio, para mostrar a parceiros) */}
+          <AdSlot />
 
           {/* Sign out */}
           <button onClick={handleSignOut}

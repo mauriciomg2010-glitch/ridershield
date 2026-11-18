@@ -86,10 +86,10 @@
   <header>
     <div>
       <h1><span>ZIVO</span> — plano até à Play Store</h1>
-      <div class="sub">Atualizado a 18 nov 2026, 15h30 · datas estimadas, ajustam-se com os testes de rua</div>
+      <div class="sub">Atualizado a 18 nov 2026, 16h45 · datas estimadas, ajustam-se com os testes de rua</div>
     </div>
     <div class="kpis">
-      <div class="kpi"><small>Projeto total</small><b>78%</b><div class="bar"><i style="width:78%"></i></div></div>
+      <div class="kpi"><small>Projeto total</small><b>79%</b><div class="bar"><i style="width:79%"></i></div></div>
       <div class="kpi"><small>Lançamento previsto</small><b>início fev</b><small>2027</small></div>
       <div class="kpi"><small>Tarefas até à loja</small><b id="kcount">–</b><small id="kdone"></small></div>
     </div>
@@ -258,7 +258,7 @@ document.getElementById('antes').innerHTML = card(ANTES,'t-antes','Antes do lan�
 document.getElementById('depois').innerHTML = card(DEPOIS,'t-depois','Depois do lançamento');
 document.getElementById('desc').innerHTML = card(DESC,'t-desc','Não fazer agora');
 
-const FEITO = ['Login, perfil e eliminação da própria conta','Mapa com zonas de risco em polígono, círculo e rua','Zonas só por horário (ex.: canal à noite)','Navegação estilo Google: banner verde, câmara, voz PT','Faixas, limite de velocidade e ícone de rotunda com saída','Rota alternativa com tempo e rota segura que evita zonas','Travessia curta de zona sem aviso','Recálculo que segue a direção do rider','Aviso de destino dentro de zona de risco','Aprender caminhos habituais do rider','Pesquisa por Eircode (falta a chave HERE)','Reports com 12 tipos e ícones desenhados','Aviso de report à frente e "ainda está aí?"','Regras de duração e votos dos reports','Report de 1 toque na navegação, fecha sozinho','Zonas automáticas a partir de reports','Grupos com localização ao vivo e chat','SOS com alarme persistente e "Ver no mapa"','Indicação: link, 1 mês PRO + €3, mínimo €5','Regras de segurança do Firestore','Modo diagnóstico com exportação','Marca dourado/preto e ícone novo','Ganhos, turnos e €/hora','Onboarding e instalação como PWA','Editor de zonas abre onde estás (botão de localização)','Respeita o caminho do rider: à 2.ª recusa da rota segura segue o caminho dele','Deteção mais rápida de saída errada (rotunda/cruzamento)','Barra de baixo branca na navegação (estilo Google)','Reports com sentido: polícia/trânsito/obra só avisam o mesmo lado da pista'];
+const FEITO = ['Login, perfil e eliminação da própria conta','Mapa com zonas de risco em polígono, círculo e rua','Zonas só por horário (ex.: canal à noite)','Navegação estilo Google: banner verde, câmara, voz PT','Faixas, limite de velocidade e ícone de rotunda com saída','Rota alternativa com tempo e rota segura que evita zonas','Travessia curta de zona sem aviso','Recálculo que segue a direção do rider','Aviso de destino dentro de zona de risco','Aprender caminhos habituais do rider','Pesquisa por Eircode (falta a chave HERE)','Reports com 12 tipos e ícones desenhados','Aviso de report à frente e "ainda está aí?"','Regras de duração e votos dos reports','Report de 1 toque na navegação, fecha sozinho','Zonas automáticas a partir de reports','Grupos com localização ao vivo e chat','SOS com alarme persistente e "Ver no mapa"','Indicação: link, 1 mês PRO + €3, mínimo €5','Regras de segurança do Firestore','Modo diagnóstico com exportação','Marca dourado/preto e ícone novo','Ganhos, turnos e €/hora','Onboarding e instalação como PWA','Editor de zonas abre onde estás (botão de localização)','Respeita o caminho do rider: à 2.ª recusa da rota segura segue o caminho dele','Deteção mais rápida de saída errada (rotunda/cruzamento)','Barra de baixo branca na navegação (estilo Google)','Reports com sentido: polícia/trânsito/obra só avisam o mesmo lado da pista','Mapa noturno automático (pelo sol) com rota azul néon','Barra de estado do telemóvel branca (sem faixa dourada)','Menu: anúncios trocados por "Anuncie aqui" para parceiros'];
 document.getElementById('donelist').innerHTML = FEITO.map(f=>`<li>${f}</li>`).join('');
 
 document.querySelectorAll('.tabs button').forEach(b=>b.onclick=()=>{
