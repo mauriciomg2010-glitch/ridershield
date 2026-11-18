@@ -1,6 +1,6 @@
 // src/components/Report/ReportModal.tsx
 'use client'
-import { useState, useRef } from 'react'
+import { useState, useRef, useEffect } from 'react'
 import { useStore } from '@/lib/store'
 import { reportIncident, getRiderScore } from '@/lib/firestore'
 import { REPORT_MENU_TYPES, IncidentTypeDef } from '@/data/incidentTypes'
@@ -20,7 +20,12 @@ interface FrozenLocation {
 interface Props {
   onClose: () => void
   initialLocation?: FrozenLocation | null
+  /** Durante a navegação: 1 toque envia (sem ecrã de detalhes). */
+  quick?: boolean
 }
+
+/** Tempo até o ecrã "Reporte enviado" fechar sozinho. */
+const AUTO_CLOSE_MS = 3000
 
 type Screen = 'type' | 'details' | 'confirm'
 
@@ -46,15 +51,23 @@ function ScoreBar({ score }: { score: number }) {
   )
 }
 
-export default function ReportModal({ onClose, initialLocation }: Props) {
+export default function ReportModal({ onClose, initialLocation, quick = false }: Props) {
   const user = useStore((s) => s.user)
   const [screen, setScreen] = useState<Screen>('type')
   const [selectedType, setSelectedType] = useState<IncidentTypeDef | null>(null)
+  const selectedTypeState = selectedType
   const [selectedSub, setSelectedSub] = useState<string | null>(null)
   const [description, setDescription] = useState('')
   const [loading, setLoading] = useState(false)
   const [confidenceScore, setConfidenceScore] = useState(0)
   const startY = useRef(0)
+
+  // "Reporte enviado" fecha sozinho (antes ficava à espera do botão Fechar)
+  useEffect(() => {
+    if (screen !== 'confirm') return
+    const t = setTimeout(onClose, AUTO_CLOSE_MS)
+    return () => clearTimeout(t)
+  }, [screen, onClose])
 
   function onTouchStart(e: React.TouchEvent) { startY.current = e.touches[0].clientY }
   function onTouchEnd(e: React.TouchEvent) {
@@ -75,6 +88,7 @@ export default function ReportModal({ onClose, initialLocation }: Props) {
       (isPeak ? 5 : 0)
     )
     setConfidenceScore(base)
+    if (quick) { await handleSubmit(typeDef); return }
     setScreen('details')
   }
 
@@ -89,7 +103,8 @@ export default function ReportModal({ onClose, initialLocation }: Props) {
     })
   }
 
-  async function handleSubmit() {
+  async function handleSubmit(typeArg?: IncidentTypeDef) {
+    const selectedType = typeArg ?? selectedTypeState
     if (!selectedType || !initialLocation) return
     if (!user) return toast.error('Não autenticado')
     setLoading(true)
@@ -189,7 +204,7 @@ export default function ReportModal({ onClose, initialLocation }: Props) {
                     <button
                       key={item.id}
                       onClick={() => handleTypeSelect(item)}
-                      disabled={!initialLocation}
+                      disabled={!initialLocation || loading}
                       className="flex flex-col items-center py-3 px-1 rounded-xl border text-center transition-all active:scale-95 disabled:opacity-40"
                       style={{ background: 'var(--card)', borderColor: 'var(--border)' }}
                     >
@@ -264,7 +279,7 @@ export default function ReportModal({ onClose, initialLocation }: Props) {
             />
 
             <button
-              onClick={handleSubmit}
+              onClick={() => handleSubmit()}
               disabled={loading}
               className="w-full text-white font-bold py-4 rounded-xl text-base disabled:opacity-50"
               style={{ background: `linear-gradient(135deg, ${selectedType.color} 0%, ${selectedType.color}cc 100%)` }}
@@ -296,11 +311,14 @@ export default function ReportModal({ onClose, initialLocation }: Props) {
             )}
             <button
               onClick={onClose}
-              className="w-full font-bold py-4 rounded-xl text-base"
+              className="relative w-full font-bold py-4 rounded-xl text-base overflow-hidden"
               style={{ background: 'var(--card)', color: 'var(--text)', border: '1px solid var(--border)' }}
             >
-              Fechar
+              {/* barra a esvaziar: fecha sozinho em 3 s */}
+              <span className="absolute left-0 bottom-0 h-1" style={{ background: selectedType.color, animation: `zivoShrink ${AUTO_CLOSE_MS}ms linear forwards` }} />
+              OK
             </button>
+            <style>{`@keyframes zivoShrink { from { width: 100% } to { width: 0% } }`}</style>
             <p className="text-xs mt-3" style={{ color: 'var(--muted)' }}>+{selectedType.affectsMap ? '2-3' : '2'} pts no teu rider score</p>
           </div>
         )}

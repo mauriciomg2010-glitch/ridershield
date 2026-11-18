@@ -11,7 +11,7 @@ import { useStore, GpsFix } from '@/lib/store'
 import { RouteTracker, Progress } from '@/lib/navigation/routeTracker'
 import { fetchMapboxRoutes, findSafeRoute, flattenCongestion, flattenMaxspeed } from '@/lib/navigation/routing'
 import { loadAvoidZones, toZoneHit } from '@/lib/navigation/zoneSource'
-import { zonesOnRoute, pointInZone, AvoidZone } from '@/lib/navigation/zones'
+import { zonesOnRoute, shortCrossingsOnRoute, pointInZone, AvoidZone } from '@/lib/navigation/zones'
 import { ZoneAlertGuide, ZoneAlertState, zoneSpansOnRoute } from '@/lib/navigation/zoneAlert'
 import { bearing as geoBearing, distM, LngLat } from '@/lib/navigation/geo'
 import { recordTrip, overlap, simplifyTrace } from '@/lib/navigation/habits'
@@ -76,6 +76,8 @@ export function useNavigationCore({ isNavigating, currentFix, navDest, routeProf
   const prevFixRef = useRef<{ lat: number; lng: number; time: number } | null>(null)
   const lastRerouteRef = useRef(0)
   const rerouteBusyRef = useRef(false)
+  const passIdsRef = useRef<Set<string>>(new Set())   // zonas que a rota só corta de passagem
+  const moveHeadingRef = useRef<{ deg: number; time: number } | null>(null)   // direção real do rider (GPS)
   const riskReqRef = useRef(0)
   const navDestRef = useRef<LatLng | null>(navDest)
   const profileRef = useRef(routeProfile)
@@ -107,6 +109,9 @@ export function useNavigationCore({ isNavigating, currentFix, navDest, routeProf
       .then(zs => guard('updateRiskForRoute', () => {
         if (id !== riskReqRef.current) return
         const hits = zonesOnRoute(coords, zs)
+        const passagem = shortCrossingsOnRoute(coords, zs)
+        passIdsRef.current = new Set(passagem.map(z => z.id))
+        if (passagem.length) diag('zona-so-passagem', { zonas: passagem.map(z => z.name) })
         setRiskOnRoute(hits.length > 0)
         setActiveRouteZones(hits.map(toZoneHit))
         allZonesRef.current = zs
@@ -212,6 +217,7 @@ export function useNavigationCore({ isNavigating, currentFix, navDest, routeProf
     progressRef.current = null
     prevFixRef.current = null
     riskReqRef.current++
+    passIdsRef.current = new Set()
     setRouteTrim(null)
     setRouteGeoJSON(null)
     setRouteCongestion([])
@@ -234,11 +240,15 @@ export function useNavigationCore({ isNavigating, currentFix, navDest, routeProf
     if (!dest || rerouteBusyRef.current || hasArrivedRef.current) return
     rerouteBusyRef.current = true
     lastRerouteRef.current = Date.now()
-    diag('recalculo', { de: [+from.lat.toFixed(5), +from.lng.toFixed(5)], fora: Math.round(progressRef.current?.offRouteM ?? -1), contramao: !!progressRef.current?.wrongWay })
+    diag('recalculo', { direcao: moveHeadingRef.current ? Math.round(moveHeadingRef.current.deg) : null, de: [+from.lat.toFixed(5), +from.lng.toFixed(5)], fora: Math.round(progressRef.current?.offRouteM ?? -1), contramao: !!progressRef.current?.wrongWay })
     setIsRecalculating(true)
     try {
       const zones = await loadAvoidZones()
-      const res = await findSafeRoute(from, dest, profileRef.current || 'driving-traffic', zones)
+      // manda a direção em que o rider já vai: assim a rota nova segue pelo caminho que ele escolheu
+      // (antes saía da rotunda por outra saída e a rota nova mandava voltar)
+      const mh = moveHeadingRef.current
+      const heading = mh && Date.now() - mh.time < 15000 ? mh.deg : null
+      const res = await findSafeRoute(from, dest, profileRef.current || 'driving-traffic', zones, { heading })
       const route = res.route ?? res.candidates.slice().sort(byFewestZones)[0]
       if (route && navigatingRef.current) {
         applyRoute(route)
@@ -279,6 +289,7 @@ export function useNavigationCore({ isNavigating, currentFix, navDest, routeProf
         prevFixRef.current = { lat: currentFix.lat, lng: currentFix.lng, time: currentFix.time }
       }
       const v = speedMps ?? 0
+      if (headingGps != null && isFinite(headingGps) && v > 2) moveHeadingRef.current = { deg: headingGps, time: Date.now() }
       // trajeto real (para aprender os caminhos do rider) — só leituras com boa precisão
       const trip = tripRef.current
       if (trip && (currentFix.accuracy == null || currentFix.accuracy <= 40)) {
@@ -311,7 +322,10 @@ export function useNavigationCore({ isNavigating, currentFix, navDest, routeProf
         const guide = alertGuideRef.current
         if (!guide || hasArrivedRef.current) return
         const here: [number, number] = [currentFix.lng, currentFix.lat]
-        const inside = new Set(allZonesRef.current.filter(z => pointInZone(here, z)).map(z => z.id))
+        // zona que a rota só corta de passagem (ex.: ponte sobre o canal): enquanto segue a rota, não avisa
+        const naRota = p.offRouteM < 40
+        const inside = new Set(allZonesRef.current
+          .filter(z => !(naRota && passIdsRef.current.has(z.id)) && pointInZone(here, z)).map(z => z.id))
         const r = guide.update(p.along, inside, v, Date.now(), allZonesRef.current)
         const prevA = zoneAlertRef.current
         const st = r.state

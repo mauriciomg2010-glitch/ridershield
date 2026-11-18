@@ -1,6 +1,6 @@
 ﻿// src/app/page.tsx
 'use client'
-import { useState, useEffect, useRef } from 'react'
+import { useState, useEffect, useRef, useCallback } from 'react'
 import { useAuth } from '@/contexts/AuthContext'
 import { useStore } from '@/lib/store'
 import { useGeolocation } from '@/hooks/useGeolocation'
@@ -66,6 +66,7 @@ export default function Home() {
   const currentLocation = useStore((s) => s.currentLocation)
   const [activeTab, setActiveTab] = useState<Tab>('map')
   const [showReport, setShowReport] = useState(false)
+  const closeReport = useCallback(() => setShowReport(false), [])
   const [reportLocation, setReportLocation] = useState<{ lat: number; lng: number; timestamp?: number } | null>(null)
   const [showFeedback, setShowFeedback] = useState(false)
   const [showSideMenu, setShowSideMenu] = useState(false)
@@ -279,7 +280,7 @@ export default function Home() {
       )}
       <SafeBoundary name="sobreposicoes">
       {showUpgradeScreen && <UpgradeScreen onClose={() => setShowUpgradeScreen(false)} />}
-      {showReport && <ReportModal onClose={() => setShowReport(false)} initialLocation={reportLocation} />}
+      {showReport && <ReportModal onClose={closeReport} initialLocation={reportLocation} quick={isNavigating} />}
       {user && <MechanicAlertOverlay onNavigate={(tab) => setActiveTab(tab as Tab)} />}
       {user && <GroupSosListener onOpenGroups={() => setActiveTab('groups' as Tab)} onShowOnMap={p => { setActiveTab('map' as Tab); setSearchDest({ lat: p.lat, lng: p.lng }) }} />}
       </SafeBoundary>

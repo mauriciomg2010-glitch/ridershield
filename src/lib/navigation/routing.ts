@@ -33,7 +33,14 @@ async function getJSON(url: string, signal?: AbortSignal, timeoutMs = 15000): Pr
 
 // ─── Mapbox ──────────────────────────────────────────────────────────────────
 
-export interface MapboxOpts { alternatives?: boolean; vias?: LatLng[]; signal?: AbortSignal }
+export interface MapboxOpts {
+  alternatives?: boolean; vias?: LatLng[]; signal?: AbortSignal
+  /** direção em que o rider já está a andar (graus). No recálculo evita a rota começar com retorno. */
+  heading?: number | null
+}
+
+/** Direção válida para mandar à API (null quando desconhecida). */
+const validHeading = (h?: number | null) => (h != null && isFinite(h) ? Math.round(((h % 360) + 360) % 360) : null)
 
 /**
  * Rotas do Mapbox com instruções em português do Brasil.
@@ -56,8 +63,18 @@ export async function fetchMapboxRoutes(origin: LatLng, dest: LatLng, profile: s
   if (opts.alternatives && vias.length === 0) params.set('alternatives', 'true')
   if (vias.length) params.set('waypoints', `0;${pts.length - 1}`)
   if (prof === 'cycling') params.set('continue_straight', 'false')
+  const hd = validHeading(opts.heading)
+  if (hd != null) params.set('bearings', [`${hd},60`, ...pts.slice(1).map(() => '')].join(';'))
   const coords = pts.map(p => `${p.lng.toFixed(6)},${p.lat.toFixed(6)}`).join(';')
-  const data = await getJSON(`${MAPBOX}/${prof}/${coords}?${params}`, opts.signal)
+  let data: any
+  try {
+    data = await getJSON(`${MAPBOX}/${prof}/${coords}?${params}`, opts.signal)
+  } catch (e: any) {
+    // com direção às vezes não encontra rua compatível (ex.: parado num beco) → tenta sem direção
+    if (hd == null || e?.name === 'AbortError') throw e
+    return fetchMapboxRoutes(origin, dest, profile, { ...opts, heading: null })
+  }
+  if (hd != null && data?.code && data.code !== 'Ok') return fetchMapboxRoutes(origin, dest, profile, { ...opts, heading: null })
   if (data?.code && data.code !== 'Ok') {
     const err: any = new Error(data.message || data.code); err.code = data.code; throw err
   }
@@ -154,10 +171,14 @@ async function waitValhallaSlot(signal?: AbortSignal) {
   })
 }
 
-export async function fetchValhallaRoutes(origin: LatLng, dest: LatLng, profile: string, exclude: AvoidZone[], signal?: AbortSignal): Promise<NavRoute[]> {
+export async function fetchValhallaRoutes(origin: LatLng, dest: LatLng, profile: string, exclude: AvoidZone[], signal?: AbortSignal, heading?: number | null): Promise<NavRoute[]> {
   await waitValhallaSlot(signal)
+  const hd = validHeading(heading)
   const body: any = {
-    locations: [{ lat: origin.lat, lon: origin.lng }, { lat: dest.lat, lon: dest.lng }],
+    locations: [
+      hd != null ? { lat: origin.lat, lon: origin.lng, heading: hd, heading_tolerance: 60 } : { lat: origin.lat, lon: origin.lng },
+      { lat: dest.lat, lon: dest.lng },
+    ],
     costing: VAL_COSTING[profile] ?? 'auto',
     directions_options: { units: 'kilometers', language: 'pt-BR' },
     alternates: 2,
@@ -217,6 +238,7 @@ export interface SafeRouteOpts {
   baseRoutes?: NavRoute[]      // rotas já obtidas (evita refazer a consulta)
   signal?: AbortSignal
   maxDetourRequests?: number
+  heading?: number | null      // direção atual do rider (recálculo em movimento)
 }
 
 const duration = (r: NavRoute) => r?.duration ?? Infinity
@@ -238,7 +260,7 @@ export async function findSafeRoute(origin: LatLng, dest: LatLng, profile: strin
 
   let base = opts.baseRoutes
   if (!base || !base.length) {
-    try { base = await fetchMapboxRoutes(origin, dest, profile, { alternatives: true, signal: opts.signal }) }
+    try { base = await fetchMapboxRoutes(origin, dest, profile, { alternatives: true, signal: opts.signal, heading: opts.heading }) }
     catch (e: any) { if (e?.name === 'AbortError') throw e; base = [] }
   }
   add(base)
@@ -250,7 +272,7 @@ export async function findSafeRoute(origin: LatLng, dest: LatLng, profile: strin
   if (!excl.length) excl = zones.slice(0, 12)
   try {
     for (let it = 0; it < 4 && !best(); it++) {
-      const rs = await fetchValhallaRoutes(origin, dest, profile, excl, opts.signal)
+      const rs = await fetchValhallaRoutes(origin, dest, profile, excl, opts.signal, opts.heading)
       if (!rs.length) break
       add(rs)
       if (best()) return { route: best(), candidates, unavoidable, method: 'valhalla' }
@@ -346,7 +368,7 @@ async function ringDetour(
         tried.add(key)
         used++
         let r: NavRoute | undefined
-        try { r = (await fetchMapboxRoutes(origin, dest, profile, { vias, signal: opts.signal }))[0] }
+        try { r = (await fetchMapboxRoutes(origin, dest, profile, { vias, signal: opts.signal, heading: opts.heading }))[0] }
         catch (e: any) { if (e?.name === 'AbortError') throw e }
         if (!r) { next.push({ ...c, levels: { ...c.levels, [z.id]: lvl + 1 } }); continue }
         add([r])
@@ -368,7 +390,7 @@ async function ringDetour(
       const test = vias.filter((_, k) => k !== i)
       pruneBudget--
       let r: NavRoute | undefined
-      try { r = (await fetchMapboxRoutes(origin, dest, profile, { vias: test, signal: opts.signal }))[0] }
+      try { r = (await fetchMapboxRoutes(origin, dest, profile, { vias: test, signal: opts.signal, heading: opts.heading }))[0] }
       catch (e: any) { if (e?.name === 'AbortError') throw e }
       if (!r) continue
       add([r])

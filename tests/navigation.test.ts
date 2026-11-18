@@ -424,3 +424,39 @@ test('Eircode: reconhece e normaliza', async () => {
   assert.equal(normalizeEircode('D24 XB12'), null, 'B não existe no Eircode')
   assert.ok(isEircodeRoutingKey('d24'))
 })
+
+// ── Travessia curta: avenida que só corta o canal não conta como "passar pela zona" ──
+import { isShortCrossing, shortCrossingsOnRoute, insideRuns } from '../src/lib/navigation/zones'
+test('travessia curta de um canal (polígono estreito) é ignorada; percorrer o canal conta', () => {
+  // canal: faixa de 2 km (leste-oeste) com 60 m de largura
+  const c: LngLat = [-6.26, 53.33]
+  const w = destination(c, 1000, 270), e = destination(c, 1000, 90)
+  const ring = [destination(w, 30, 0), destination(e, 30, 0), destination(e, 30, 180), destination(w, 30, 180)]
+  const canal = fromFirestoreZone({ id: 'canal', areaName: 'Canal', riskLevel: 'high', polygon: ring.map(p => ({ lng: p[0], lat: p[1] })) })!
+  // avenida norte-sul que atravessa o canal
+  const cruza: LngLat[] = [destination(c, 500, 0), destination(c, 500, 180)]
+  assert.ok(isShortCrossing(cruza, canal))
+  assert.equal(zonesOnRoute(cruza, [canal]).length, 0)
+  assert.equal(zonesOnRoute(cruza, [canal], { includeShortCrossings: true }).length, 1)
+  assert.equal(shortCrossingsOnRoute(cruza, [canal]).length, 1)
+  // rota que segue ao longo do canal 800 m
+  const aoLongo: LngLat[] = [destination(c, 500, 0), c, destination(c, 800, 90), destination(destination(c, 800, 90), 500, 0)]
+  assert.ok(insideRuns(aoLongo, canal).some(r => r.exit - r.entry > 500))
+  assert.equal(zonesOnRoute(aoLongo, [canal]).length, 1)
+  assert.equal(shortCrossingsOnRoute(aoLongo, [canal]).length, 0)
+})
+
+test('recálculo manda a direção do rider ao Mapbox (bearings) e ao Valhalla (heading)', async () => {
+  const urls: string[] = []
+  const orig = globalThis.fetch
+  globalThis.fetch = (async (u: any) => { urls.push(String(u)); return new Response(JSON.stringify({ code: 'Ok', routes: [] }), { status: 200 }) }) as any
+  try {
+    const { fetchMapboxRoutes, fetchValhallaRoutes } = await import('../src/lib/navigation/routing')
+    await fetchMapboxRoutes({ lat: 53.33, lng: -6.26 }, { lat: 53.34, lng: -6.25 }, 'driving-traffic', { heading: 271.6 })
+    assert.match(decodeURIComponent(urls[0]), /bearings=272,60;(&|$)/)
+    await fetchMapboxRoutes({ lat: 53.33, lng: -6.26 }, { lat: 53.34, lng: -6.25 }, 'driving-traffic', {})
+    assert.ok(!urls[1].includes('bearings'))
+    await fetchValhallaRoutes({ lat: 53.33, lng: -6.26 }, { lat: 53.34, lng: -6.25 }, 'driving', [], undefined, 90)
+    assert.match(decodeURIComponent(urls[2]), /"heading":90,"heading_tolerance":60/)
+  } finally { globalThis.fetch = orig }
+})

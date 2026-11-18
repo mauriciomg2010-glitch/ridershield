@@ -171,8 +171,62 @@ function segmentHitsZone(a: LngLat, b: LngLat, z: AvoidZone): boolean {
   return false
 }
 
-/** Zonas atravessadas pela rota (verificação por segmento — não deixa passar zonas pequenas). */
-export function zonesOnRoute(coords: LngLat[], zones: AvoidZone[]): AvoidZone[] {
+/**
+ * Travessia curta: a rota só CORTA a zona (ex.: avenida que atravessa o canal por uma ponte).
+ * Se cada pedaço da rota dentro da zona tem no máximo isto, não conta como "passar pela zona":
+ * não há aviso e não se procura desvio.
+ */
+export const CROSSING_MAX_M = 120
+
+/** Pedaços contínuos da rota dentro da zona: [início, fim] em metros ao longo da rota. */
+export function insideRuns(coords: LngLat[], z: AvoidZone): { entry: number; exit: number }[] {
+  const runs: { entry: number; exit: number }[] = []
+  let acc = 0, cur: { entry: number; exit: number } | null = null
+  const zb = bboxPad(z.bbox, 5)
+  for (let i = 1; i < coords.length; i++) {
+    const a = coords[i - 1], b = coords[i]
+    const len = distM(a, b)
+    const far = Math.max(a[0], b[0]) < zb[0] || Math.min(a[0], b[0]) > zb[2] || Math.max(a[1], b[1]) < zb[1] || Math.min(a[1], b[1]) > zb[3]
+    const n = far ? 1 : Math.max(1, Math.ceil(len / 8))
+    for (let k = i === 1 ? 0 : 1; k <= n; k++) {
+      const t = k / n
+      const at = acc + len * t
+      const inside = !far && pointInZone([a[0] + (b[0] - a[0]) * t, a[1] + (b[1] - a[1]) * t], z)
+      if (inside) { if (!cur) cur = { entry: at, exit: at }; else cur.exit = at }
+      else if (cur) { runs.push(cur); cur = null }
+    }
+    acc += len
+  }
+  if (cur) runs.push(cur)
+  return runs
+}
+
+/**
+ * A rota só atravessa a zona de passagem? Cada pedaço dentro tem de ser curto (≤ 120 m) E pequeno
+ * perto do tamanho da zona (≤ 35% do diâmetro). Assim cortar o canal (2 km de comprido) por uma
+ * avenida é passagem, mas atravessar uma zona pequena marcada num cruzamento continua a contar.
+ */
+export function isShortCrossing(coords: LngLat[], z: AvoidZone, maxM = CROSSING_MAX_M): boolean {
+  const lim = Math.min(maxM, 0.35 * 2 * z.radiusM)
+  const runs = insideRuns(coords, z)
+  return runs.length > 0 && runs.every(r => r.exit - r.entry <= lim)
+}
+
+/**
+ * Zonas atravessadas pela rota (verificação por segmento — não deixa passar zonas pequenas).
+ * Por defeito ignora as travessias curtas (só cortar a zona por uma rua).
+ */
+export function zonesOnRoute(coords: LngLat[], zones: AvoidZone[], opts: { includeShortCrossings?: boolean } = {}): AvoidZone[] {
+  const all = zonesTouchedByRoute(coords, zones)
+  return opts.includeShortCrossings ? all : all.filter(z => !isShortCrossing(coords, z))
+}
+
+/** Zonas que a rota apenas corta de passagem (para não avisar quando o GPS entra nelas). */
+export function shortCrossingsOnRoute(coords: LngLat[], zones: AvoidZone[]): AvoidZone[] {
+  return zonesTouchedByRoute(coords, zones).filter(z => isShortCrossing(coords, z))
+}
+
+function zonesTouchedByRoute(coords: LngLat[], zones: AvoidZone[]): AvoidZone[] {
   if (coords.length < 2 || zones.length === 0) return []
   const rb = bboxPad(bboxOf(coords), 50)
   const cand = zones.filter(z => bboxOverlap(rb, z.bbox))
