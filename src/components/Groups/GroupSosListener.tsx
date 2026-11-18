@@ -45,7 +45,22 @@ function haQuanto(ts: number) {
   return m < 60 ? `há ${m} min` : `há ${Math.round(m / 60)} h`
 }
 
-export default function GroupSosListener({ onOpenGroups, onShowOnMap }: {
+/** Aviso falado uma vez (durante a navegação não toca a sirene, que atrapalha a condução). */
+function falarAlerta(texto: string) {
+  try {
+    const ss = window.speechSynthesis
+    if (!ss) return
+    const u = new SpeechSynthesisUtterance(texto)
+    u.lang = 'pt-BR'; u.rate = 1; u.volume = 1
+    ss.speak(u)
+  } catch {}
+}
+
+export default function GroupSosListener({ onOpenGroups, onShowOnMap, navegando = false, onIrAjudar }: {
+  /** o rider está a navegar: alerta discreto (voz 1×, vibração, cartão) em vez da sirene */
+  navegando?: boolean
+  /** troca o destino da navegação para a posição do amigo */
+  onIrAjudar?: (p: { lat: number; lng: number }) => void
   onOpenGroups?: () => void
   onShowOnMap?: (p: { lat: number; lng: number }) => void
 }) {
@@ -101,8 +116,20 @@ export default function GroupSosListener({ onOpenGroups, onShowOnMap }: {
   // som: toca enquanto houver um SOS recente não silenciado
   const lista = Object.values(alerts).sort((a, b) => b.timestamp - a.timestamp)
   const tocando = lista.find(a => !silenced.has(a.id) && !dismissedSosIds.has(a.id) && Date.now() - a.timestamp < RING_MS) ?? null
+  const [adiados, setAdiados] = useState<Set<string>>(new Set())   // "Depois da entrega" (só durante a navegação)
+  const faladoRef = useRef<string | null>(null)
   useEffect(() => {
-    if (tocando && ringingRef.current !== tocando.id) {
+    if (tocando && navegando) {
+      // a navegar: sem sirene. Voz uma vez + vibração; o cartão vermelho fica no ecrã
+      if (ringingRef.current) { ringingRef.current = null; stopEmergencySound() }
+      if (faladoRef.current !== tocando.id) {
+        faladoRef.current = tocando.id
+        diag('sos', { fase: 'aviso-navegacao', de: tocando.userName })
+        try { navigator.vibrate?.([400, 150, 400, 150, 400]) } catch {}
+        falarAlerta(`Alerta do grupo. ${tocando.userName} precisa de ajuda.`)
+      }
+    } else if (tocando && ringingRef.current !== tocando.id) {
+      // fora da navegação (ou acabou a entrega e o pedido continua ativo): alarme completo
       ringingRef.current = tocando.id
       diag('sos', { fase: 'tocar', de: tocando.userName })
       ensureAudioUnlocked().catch(() => {}).finally(() => { playEmergencySound(); vibrateEmergency() })
@@ -110,7 +137,9 @@ export default function GroupSosListener({ onOpenGroups, onShowOnMap }: {
       ringingRef.current = null
       stopEmergencySound()
     }
-  }, [tocando?.id])  // eslint-disable-line react-hooks/exhaustive-deps
+  }, [tocando?.id, navegando])  // eslint-disable-line react-hooks/exhaustive-deps
+  // ao acabar a navegação, os pedidos adiados voltam a aparecer em grande
+  useEffect(() => { if (!navegando) setAdiados(new Set()) }, [navegando])
 
   useEffect(() => { const t = setInterval(() => tick(x => x + 1), 30_000); return () => clearInterval(t) }, [])
   useEffect(() => {
@@ -132,6 +161,40 @@ export default function GroupSosListener({ onOpenGroups, onShowOnMap }: {
     const p = posDe(a)
     if (p && onShowOnMap) onShowOnMap(p)
     else onOpenGroups?.()
+  }
+
+  // ── a navegar: cartão vermelho por cima da barra de baixo (não tapa a próxima manobra) ──
+  if (navegando && tocando && !adiados.has(tocando.id)) {
+    const p = posDe(tocando)
+    return (
+      <div style={{ position: 'fixed', left: 10, right: 10, bottom: 'calc(100px + env(safe-area-inset-bottom, 0px))', zIndex: 3000, background: '#b91c1c', color: 'white', borderRadius: 16, padding: '12px 14px', boxShadow: '0 8px 26px rgba(0,0,0,0.45)', animation: 'sosPulse 1.2s ease-in-out infinite' }}>
+        <style>{`@keyframes sosPulse{0%,100%{box-shadow:0 0 0 0 rgba(239,68,68,.7)}50%{box-shadow:0 0 0 10px rgba(239,68,68,0)}}`}</style>
+        <div style={{ fontWeight: 900, fontSize: 16 }}>🚨 {tocando.userName} precisa de ajuda</div>
+        <div style={{ fontSize: 12, opacity: 0.9, marginTop: 2 }}>grupo {tocando.groupName} · {haQuanto(tocando.timestamp)}</div>
+        <div style={{ display: 'flex', gap: 8, marginTop: 10 }}>
+          {p && onIrAjudar && (
+            <button onClick={() => { silenciar(tocando); diag('sos', { fase: 'ir-ajudar', de: tocando.userName }); onIrAjudar(p) }}
+              style={{ flex: 1.2, background: 'white', color: '#b91c1c', border: 'none', borderRadius: 11, padding: '10px 0', fontWeight: 900, fontSize: 14 }}>
+              🧭 Ir ajudar
+            </button>
+          )}
+          <button onClick={() => { setAdiados(s => new Set(s).add(tocando.id)); diag('sos', { fase: 'depois-da-entrega', de: tocando.userName }) }}
+            style={{ flex: 1, background: 'rgba(255,255,255,0.18)', color: 'white', border: '1px solid rgba(255,255,255,0.6)', borderRadius: 11, padding: '10px 0', fontWeight: 800, fontSize: 14 }}>
+            Depois da entrega
+          </button>
+        </div>
+      </div>
+    )
+  }
+
+  // ── a navegar e adiado: etiqueta vermelha pequena (lembra sem atrapalhar) ──
+  if (navegando) {
+    const a = lista[0]
+    return (
+      <div style={{ position: 'fixed', left: 12, bottom: 'calc(100px + env(safe-area-inset-bottom, 0px))', zIndex: 2999, background: '#b91c1c', color: 'white', borderRadius: 20, padding: '6px 12px', fontSize: 12, fontWeight: 800, boxShadow: '0 3px 10px rgba(0,0,0,0.35)', pointerEvents: 'none' }}>
+        🚨 {a.userName} precisa de ajuda{lista.length > 1 ? ` (+${lista.length - 1})` : ''}
+      </div>
+    )
   }
 
   // ── alarme a tocar: cartão grande ──

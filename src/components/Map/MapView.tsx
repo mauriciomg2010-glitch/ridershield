@@ -1908,6 +1908,8 @@ export default function MapView({ groupMembers = EMPTY_MEMBERS, currentUserId, g
   useEffect(() => {
     if (!requestNavTo) return
     const { lat, lng } = requestNavTo
+    // "Ir ajudar" (SOS do grupo) durante uma navegação: termina a atual e abre a rota até ao amigo
+    if (isNavigating) { cancelNavigation(); setAltRoutes([]); setSafeRouteData(null) }
     mapRef.current?.flyTo({ center: [lng, lat], zoom: 15, duration: 800 })
     setPendingNavDest({ lat, lng })
     setShowModeSelector(true)
