@@ -317,10 +317,27 @@ export default function TransportModeSelector({
   }
 
   const isMinimized = heightState === 'minimized'
-  const currentMaxHeight =
-    heightState === 'minimized' ? '72px' :
-    heightState === 'expanded' ? '85vh' :
-    '65vh'
+  const [detalhes, setDetalhes] = useState(false)
+
+  // ── Estilo Google Maps: painel branco e baixo; o mapa é que mostra as rotas ──
+  const C = { text: '#202124', muted: '#5f6368', line: '#e8eaed', blue: '#1a73e8', safe: '#188038', fast: '#e37400', warn: '#b06000' }
+  const temEscolha = tipoAnalise === 'tem_rota_segura' && hasZones && !!safeRoute
+  const usandoSegura = temEscolha ? routeChoice === 'safe' : !!(safeRoute && tipoAnalise === 'destino_em_zona')
+  const rotaAtual = temEscolha ? (routeChoice === 'safe' ? safeRoute : fastRoute) : (tipoAnalise === 'destino_em_zona' ? (safeRoute ?? fastRoute) : routes[localIdx])
+  const corTempo = temEscolha ? (routeChoice === 'safe' ? C.safe : C.fast) : (rotaAtual && hasCongestion(rotaAtual) ? '#d93025' : C.safe)
+  const nomeVia = rotaAtual ? getRouteName(rotaAtual) : ''
+
+  let linhaInfo: { txt: string; cor: string } | null = null
+  if (tipoAnalise === 'loading' || safeRouteLoading) linhaInfo = { txt: 'A verificar zonas de risco…', cor: C.muted }
+  else if (tipoAnalise === 'destino_em_zona') linhaInfo = { txt: `⚠️ Destino em zona de atenção${destZonaInfo?.areaName ? ` · ${destZonaInfo.areaName}` : ''}`, cor: C.warn }
+  else if (tipoAnalise === 'todas_passam_por_zona') linhaInfo = { txt: `⚠️ Todas as rotas passam por zona de atenção (${zonasTxt})`, cor: C.warn }
+  else if (temEscolha && routeChoice === 'safe') linhaInfo = { txt: `🛡️ Evita ${zonasTxt}${extraMinutos > 0 ? ` · +${extraMinutos} min` : ' · mesmo tempo'}`, cor: C.safe }
+  else if (temEscolha) linhaInfo = { txt: `⚠️ Passa por ${zonasTxt}${fastRiskMeters >= 50 ? ` (${fmtDist(fastRiskMeters)} dentro)` : ''}`, cor: C.fast }
+  else if (origemZona) linhaInfo = { txt: `📍 Estás dentro de ${origemZona.name} — a navegação avisa até saíres`, cor: C.warn }
+  else if (tipoAnalise === 'sem_zonas') linhaInfo = { txt: '✓ Sem zonas de atenção', cor: C.safe }
+
+  const podeIniciar = !isLoading && routes.length > 0 && !(temEscolha && routeChoice === 'safe' && safeRouteLoading)
+  const corBotao = !podeIniciar ? '#9aa0a6' : temEscolha && routeChoice === 'fast' ? C.fast : '#0b6e63'
 
   return (
     <div
@@ -330,387 +347,134 @@ export default function TransportModeSelector({
       onTouchEnd={handleDragEnd}
       style={{
         position: 'fixed', bottom: 0, left: 0, right: 0, zIndex: 9999,
-        background: 'var(--surface)',
-        borderRadius: '16px 16px 0 0',
-        boxShadow: '0 -4px 24px rgba(0,0,0,0.4)',
-        display: 'flex', flexDirection: 'column',
-        overflow: 'hidden',
-        maxHeight: currentMaxHeight,
-        transition: 'max-height 0.28s ease',
+        background: '#ffffff', color: C.text,
+        borderRadius: '18px 18px 0 0',
+        boxShadow: '0 -2px 14px rgba(0,0,0,0.22)',
+        display: 'flex', flexDirection: 'column', overflow: 'hidden',
+        maxHeight: isMinimized ? 64 : detalhes ? '70vh' : '46vh',
+        transition: 'max-height 0.25s ease',
         animation: 'slideUp 0.22s ease-out',
       }}
     >
-      {/* Drag handle + isMinimized hint */}
-      <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', padding: '10px 16px 6px', cursor: 'grab', flexShrink: 0 }}
+      {/* pega */}
+      <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', padding: '8px 16px 2px', flexShrink: 0 }}
         onClick={() => isMinimized && setHeightState('normal')}>
-        <div style={{ width: 36, height: 4, background: 'var(--border)', borderRadius: 2 }} />
-        {isMinimized && (
-          <span style={{ fontSize: 11, color: 'var(--muted)', marginTop: 6 }}>↑ Desliza para ver opções</span>
-        )}
+        <div style={{ width: 36, height: 4, background: '#dadce0', borderRadius: 2 }} />
+        {isMinimized && <span style={{ fontSize: 11, color: C.muted, marginTop: 6 }}>↑ Desliza para ver a rota</span>}
       </div>
 
-      {/* Collapsible content — hidden when isMinimized */}
       {!isMinimized && (<>
-
-      {/* Origin / Destination */}
-      <div style={{ padding: '12px 16px 10px', borderBottom: '1px solid var(--border)', flexShrink: 0 }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-          <div style={{ width: 10, height: 10, borderRadius: '50%', flexShrink: 0, background: '#4285f4', boxShadow: '0 0 0 2px rgba(66,133,244,0.25)' }} />
-          <span style={{ fontSize: 14, color: 'var(--muted)', flex: 1 }}>A tua localização</span>
-          <button onClick={onClose} style={{ background: 'none', border: 'none', color: 'var(--muted)', cursor: 'pointer', fontSize: 18, padding: '0 6px', lineHeight: 1 }}>✕</button>
-        </div>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginTop: 8 }}>
-          <div style={{ width: 10, height: 10, borderRadius: 2, flexShrink: 0, background: 'var(--accent)' }} />
-          <span style={{ fontSize: 14, fontWeight: 600, color: 'var(--text)' }}>Destino selecionado</span>
-        </div>
-      </div>
-
-      {/* Mode tabs */}
-      <div style={{ display: 'flex', flexShrink: 0, borderBottom: '1px solid var(--border)' }}>
+      {/* modos pequenos numa linha + fechar (como o Google: 🚗 11 min  🚲 16 min …) */}
+      <div style={{ display: 'flex', alignItems: 'center', padding: '2px 8px 0 12px', borderBottom: `1px solid ${C.line}`, flexShrink: 0 }}>
         {ACTIVE_TABS.map(tab => {
-          const isSel = tab.key === selectedMode
-          const tabRoutes = routesByMode[tab.key]
-          const tabLoading = loadingModes.includes(tab.key)
-          const tabLabel = tabLoading ? '…' : tabRoutes?.[0] ? `${fmtEta(tabRoutes[0].duration)} min` : '--'
+          const sel = tab.key === selectedMode
+          const tr = routesByMode[tab.key]
+          const lbl = loadingModes.includes(tab.key) ? '…' : tr?.[0] ? `${fmtEta(tr[0].duration)} min` : '--'
           return (
-            <button key={tab.key} onClick={() => switchMode(tab.key)} style={{
-              flex: 1, padding: '12px 4px 8px', border: 'none', background: 'none',
-              borderBottom: isSel ? '2px solid #4285f4' : '2px solid transparent',
-              cursor: 'pointer', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 4,
+            <button key={tab.key} onClick={() => switchMode(tab.key)} aria-label={tab.label} style={{
+              display: 'flex', alignItems: 'center', gap: 5, padding: '9px 10px 8px', marginRight: 2,
+              background: 'none', border: 'none', cursor: 'pointer',
+              borderBottom: sel ? `3px solid ${C.blue}` : '3px solid transparent',
+              color: sel ? C.blue : C.muted, fontWeight: sel ? 700 : 500, fontSize: 14,
             }}>
-              <span style={{ fontSize: 22 }}>{tab.icon}</span>
-              <span style={{ fontSize: 11, fontWeight: 600, color: isSel ? '#1a73e8' : 'var(--muted)' }}>{tab.label}</span>
-              <span style={{ fontSize: 12, fontWeight: 700, color: isSel ? '#1a73e8' : 'var(--muted)' }}>{tabLabel}</span>
+              <span style={{ fontSize: 16, filter: sel ? 'none' : 'grayscale(0.6)' }}>{tab.icon}</span>{lbl}
             </button>
           )
         })}
+        <button onClick={onClose} aria-label="Fechar" style={{ marginLeft: 'auto', width: 34, height: 34, borderRadius: 17, border: 'none', background: '#f1f3f4', color: C.muted, fontSize: 16, cursor: 'pointer' }}>✕</button>
       </div>
 
-      {/* Scrollable content */}
-      <div style={{ flex: 1, overflowY: 'auto', WebkitOverflowScrolling: 'touch', padding: '12px 16px' } as React.CSSProperties}>
-
+      {/* resumo da rota */}
+      <div style={{ flex: 1, overflowY: 'auto', WebkitOverflowScrolling: 'touch', padding: '10px 16px 4px' } as React.CSSProperties}>
         {isLoading ? (
-          <div style={{ padding: '28px 0', textAlign: 'center', color: 'var(--muted)', fontSize: 14 }}>
-            A calcular rotas...
-          </div>
+          <div style={{ padding: '14px 0', color: C.muted, fontSize: 14 }}>A calcular rotas…</div>
         ) : routes.length === 0 ? (
-          <div style={{ padding: '24px 0', textAlign: 'center', color: '#f87171', fontSize: 14 }}>
-            Rota não disponível
+          <div style={{ padding: '14px 0', color: '#d93025', fontSize: 14 }}>Rota não disponível</div>
+        ) : (<>
+          <div style={{ display: 'flex', alignItems: 'baseline', gap: 8 }}>
+            <span style={{ fontSize: 24, fontWeight: 600, color: corTempo }}>{rotaAtual ? `${fmtEta(rotaAtual.duration)} min` : '--'}</span>
+            <span style={{ fontSize: 16, color: C.muted }}>{rotaAtual ? `(${fmtDist(rotaAtual.distance)})` : ''}</span>
+            <span style={{ marginLeft: 'auto', fontSize: 13, color: C.muted }}>{rotaAtual ? `Chega às ${fmtArrival(rotaAtual.duration)}` : ''}</span>
           </div>
+          <div style={{ fontSize: 13, color: C.muted, marginTop: 2 }}>
+            {usandoSegura ? 'Rota segura' : temEscolha ? 'Rota mais rápida' : rotaAtual?._habitual ? '⭐ O teu caminho habitual' : 'Rota mais rápida'}
+            {nomeVia ? ` · via ${nomeVia}` : ''}
+          </div>
+          {linhaInfo && <div style={{ fontSize: 13, fontWeight: 600, color: linhaInfo.cor, marginTop: 5 }}>{linhaInfo.txt}</div>}
 
-        ) : tipoAnalise === 'destino_em_zona' ? (
-          // ── CASO 1: Destino está dentro de zona de risco ──────────────────────
-          <>
-            <div style={{
-              background: 'rgba(230,81,0,0.15)', borderRadius: 12,
-              padding: '14px 16px', fontSize: 13, color: '#e65100', fontWeight: 600, marginBottom: 14,
-              border: '1px solid rgba(230,81,0,0.3)',
-            }}>
-              ⚠️ Destino em zona de atenção
+          {/* escolha segura / rápida em pastilhas pequenas */}
+          {temEscolha && (
+            <div style={{ display: 'flex', gap: 8, marginTop: 10 }}>
+              {([['safe', '🛡️ Segura', safeRoute, C.safe], ['fast', '⚡ Rápida', fastRoute, C.fast]] as const).map(([k, lbl, r, cor]) => {
+                const sel = routeChoice === k
+                return (
+                  <button key={k} onClick={() => setRouteChoice(k)} style={{
+                    flex: 1, padding: '7px 0', borderRadius: 18, cursor: 'pointer', fontSize: 13, fontWeight: 700,
+                    border: sel ? `2px solid ${cor}` : `1px solid ${C.line}`,
+                    background: sel ? (k === 'safe' ? '#e6f4ea' : '#fef3e8') : '#fff', color: sel ? cor : C.muted,
+                  }}>{lbl} · {r ? `${fmtEta(r.duration)} min` : '--'}</button>
+                )
+              })}
             </div>
-            <div style={{
-              borderRadius: 14, padding: '14px 16px',
-              border: '1px solid var(--border)',
-              background: 'var(--card)',
-            }}>
-              <div style={{ fontSize: 14, fontWeight: 800, color: 'var(--text)', marginBottom: 8 }}>
-                {(safeRoute ?? fastRoute) && `${fmtEta((safeRoute ?? fastRoute).duration)} min · ${fmtDist((safeRoute ?? fastRoute).distance)}`}
-              </div>
-              <div style={{ fontSize: 12, color: 'var(--muted)' }}>
-                O teu destino está localizado numa zona de atenção{destZonaInfo?.areaName ? ` (${destZonaInfo.areaName})` : ''}. Procede com cuidado.
-                {safeRoute && zonesOnRoute.length > 0 && ` 🛡️ A rota evita ${zonesOnRoute.length} zona${zonesOnRoute.length !== 1 ? 's' : ''} no caminho.`}
-              </div>
-            </div>
-          </>
+          )}
 
-        ) : tipoAnalise === 'todas_passam_por_zona' ? (
-          // ── CASO 3: Todas as rotas passam por zonas ───────────────────────────
-          <>
-            <div style={{
-              background: 'rgba(230,81,0,0.15)', borderRadius: 12,
-              padding: '14px 16px', fontSize: 13, color: '#e65100', fontWeight: 600, marginBottom: 14,
-              border: '1px solid rgba(230,81,0,0.3)',
-            }}>
-              ⚠️ Todas as rotas passam por zona de atenção
+          {/* sem zonas: alternativas em pastilhas (o mapa mostra-as) */}
+          {!temEscolha && tipoAnalise !== 'destino_em_zona' && routes.length > 1 && (
+            <div style={{ display: 'flex', gap: 8, marginTop: 10, overflowX: 'auto' }}>
+              {routes.map((r: any, i: number) => (
+                <button key={i} onClick={() => pickRoute(i)} style={{
+                  padding: '6px 12px', borderRadius: 16, whiteSpace: 'nowrap', cursor: 'pointer', fontSize: 13, fontWeight: 600,
+                  border: i === localIdx ? `2px solid ${C.blue}` : `1px solid ${C.line}`,
+                  background: i === localIdx ? '#e8f0fe' : '#fff', color: i === localIdx ? C.blue : C.muted,
+                }}>{fmtEta(r.duration)} min{r._habitual ? ' ⭐' : ''}</button>
+              ))}
             </div>
-            <div style={{
-              borderRadius: 14, padding: '14px 16px', marginBottom: 12,
-              border: '1px solid var(--border)',
-              background: 'var(--card)',
-            }}>
-              <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8 }}>
-                <span style={{ fontSize: 17 }}>⚡</span>
-                <span style={{ fontSize: 14, fontWeight: 800, color: 'var(--text)' }}>Rota mais curta</span>
-              </div>
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-end', marginBottom: 6 }}>
-                <span style={{ fontSize: 26, fontWeight: 800, color: 'var(--text)', lineHeight: 1 }}>
-                  {fastRoute && fmtEta(fastRoute.duration)} <span style={{ fontSize: 14, fontWeight: 500 }}>min</span>
-                </span>
-                <span style={{ fontSize: 13, color: 'var(--muted)' }}>{fastRoute && fmtDist(fastRoute.distance)}</span>
-              </div>
-              <div style={{ fontSize: 12, color: 'var(--muted)', marginBottom: 10 }}>
-                {fastRoute && `Chega às ${fmtArrival(fastRoute.duration)}`}
-              </div>
-              <div style={{ background: 'rgba(230,81,0,0.1)', borderRadius: 8, padding: '8px 10px' }}>
-                <div style={{ fontSize: 11, fontWeight: 700, color: '#e65100', marginBottom: 5 }}>
-                  ⚠️ Passa por {zonesOnRoute.length} zona{zonesOnRoute.length !== 1 ? 's' : ''} de atenção
-                </div>
-                {zonesOnRoute.map((zona, i) => (
-                  <div key={zona.id} style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 12, color: 'var(--text)', marginTop: i > 0 ? 4 : 0 }}>
-                    <span style={{ width: 8, height: 8, borderRadius: '50%', background: levelColor(zona.actualLevel), flexShrink: 0, display: 'inline-block' }} />
-                    <span style={{ flex: 1 }}>{zona.name}</span>
-                    {zona.isPicoAgora && <span style={{ fontSize: 10, color: levelColor(zona.actualLevel), fontWeight: 700 }}>hora de pico</span>}
-                  </div>
-                ))}
-              </div>
-            </div>
-          </>
+          )}
 
-        ) : hasZones && tipoAnalise === 'tem_rota_segura' ? (
-          // ── CASO 2: Tem rota segura e rota com zonas ──────────────────────────
-          <>
-            {/* Comparação direta: quanto custa evitar as zonas */}
-            {safeRoute && fastRoute && !safeRouteLoading && (
-              <div style={{
-                display: 'flex', alignItems: 'center', gap: 10, marginBottom: 12,
-                background: 'var(--card)', border: '1px solid var(--border)', borderRadius: 12, padding: '10px 12px',
-              }}>
-                <span style={{ fontSize: 20 }}>⚖️</span>
-                <div style={{ fontSize: 12, color: 'var(--text)', lineHeight: 1.4 }}>
+          {/* detalhes só quando o rider quer */}
+          {detalhes && (
+            <div style={{ marginTop: 12, paddingTop: 10, borderTop: `1px solid ${C.line}`, fontSize: 13, color: C.text, lineHeight: 1.45 }}>
+              {temEscolha && fastRoute && (
+                <p style={{ margin: '0 0 8px' }}>
                   A rota segura leva <b>{extraMinutos > 0 ? `+${extraMinutos} min` : 'o mesmo tempo'}</b>
-                  {Math.abs(extraKm) >= 0.1 && <> e <b>{extraKm > 0 ? '+' : ''}{extraKm.toFixed(1).replace('.', ',')} km</b></>}
-                  {' '}e evita <b>{zonasTxt}</b>
+                  {Math.abs(extraKm) >= 0.1 && <> e <b>{extraKm > 0 ? '+' : ''}{extraKm.toFixed(1).replace('.', ',')} km</b></>} e evita <b>{zonasTxt}</b>
                   {fastRiskMeters >= 50 && <> ({fmtDist(fastRiskMeters)} dentro de zonas na rota rápida)</>}.
+                </p>
+              )}
+              {zonesOnRoute.length > 0 && zonesOnRoute.map(z => (
+                <div key={z.id} style={{ display: 'flex', alignItems: 'center', gap: 6, marginTop: 4 }}>
+                  <span style={{ width: 8, height: 8, borderRadius: '50%', background: levelColor(z.actualLevel), display: 'inline-block' }} />
+                  <span style={{ flex: 1 }}>{z.name}</span>
+                  {z.isPicoAgora && <span style={{ fontSize: 11, color: levelColor(z.actualLevel), fontWeight: 700 }}>hora de pico</span>}
                 </div>
-              </div>
-            )}
-            {/* SAFE ROUTE CARD */}
-            <div
-              onClick={() => !safeRouteLoading && safeRoute && setRouteChoice('safe')}
-              style={{
-                borderRadius: 14, padding: '14px 16px', marginBottom: 12,
-                border: routeChoice === 'safe' ? '2px solid #1a6b4a' : '1px solid var(--border)',
-                background: routeChoice === 'safe' ? 'rgba(26,107,74,0.08)' : 'var(--card)',
-                cursor: safeRoute && !safeRouteLoading ? 'pointer' : 'default',
-                position: 'relative',
-              }}
-            >
-              {/* RECOMENDADA badge */}
-              <div style={{
-                position: 'absolute', top: 0, right: 14,
-                background: '#1a6b4a', color: 'white', fontSize: 9, fontWeight: 800,
-                padding: '3px 10px', borderRadius: '0 0 8px 8px', letterSpacing: 0.7,
-              }}>
-                RECOMENDADA
-              </div>
-
-              <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8 }}>
-                <span style={{ fontSize: 17 }}>🛡️</span>
-                <span style={{ fontSize: 14, fontWeight: 800, color: '#1a6b4a' }}>Rota segura</span>
-                {routeChoice === 'safe' && <span style={{ marginLeft: 'auto', fontSize: 14, color: '#1a6b4a' }}>✓</span>}
-              </div>
-
-              {safeRouteLoading ? (
-                <div style={{ display: 'flex', alignItems: 'center', gap: 8, color: 'var(--muted)', fontSize: 13 }}>
-                  <div style={{ width: 14, height: 14, borderRadius: '50%', border: '2px solid #1a6b4a', borderTopColor: 'transparent', animation: 'spin 0.7s linear infinite' }} />
-                  A calcular rota segura...
-                </div>
-              ) : safeRoute ? (
-                <>
-                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-end', marginBottom: 6 }}>
-                    <span style={{ fontSize: 26, fontWeight: 800, color: '#1a6b4a', lineHeight: 1 }}>
-                      {fmtEta(safeRoute.duration)} <span style={{ fontSize: 14, fontWeight: 500 }}>min</span>
-                    </span>
-                    <span style={{ fontSize: 13, color: 'var(--muted)' }}>{fmtDist(safeRoute.distance)}</span>
-                  </div>
-                  <div style={{ fontSize: 12, color: 'var(--muted)', marginBottom: 8 }}>
-                    Chega às {fmtArrival(safeRoute.duration)}
-                    {extraMinutos > 0 && <span style={{ color: '#1a6b4a', fontWeight: 600 }}> · +{extraMinutos} min</span>}
-                  </div>
-                  <div style={{ background: 'rgba(26,107,74,0.12)', borderRadius: 8, padding: '7px 10px', fontSize: 12, color: '#1a6b4a', fontWeight: 600 }}>
-                    {origemZona ? `✓ Sem outras zonas (estás dentro de ${origemZona.name})` : '✓ Sem zonas de atenção no percurso'}
-                  </div>
-                </>
-              ) : (
-                <div style={{ fontSize: 12, color: 'var(--muted)' }}>Não foi possível calcular rota segura</div>
+              ))}
+              {temEscolha && routeChoice === 'fast' && (
+                <p style={{ margin: '8px 0 0', color: C.fast }}>Na rota rápida o ZIVO fica em modo alerta (ecrã e voz) até saíres das zonas, e podes trocar para a segura a qualquer momento.</p>
+              )}
+              {tipoAnalise === 'destino_em_zona' && (
+                <p style={{ margin: '8px 0 0', color: C.warn }}>O destino fica numa zona de atenção. Procede com cuidado.</p>
               )}
             </div>
-
-            {/* FAST ROUTE CARD */}
-            {fastRoute && (
-              <div
-                onClick={() => setRouteChoice('fast')}
-                style={{
-                  borderRadius: 14, padding: '14px 16px', marginBottom: 12,
-                  border: routeChoice === 'fast' ? '2px solid #e65100' : '1px solid var(--border)',
-                  background: routeChoice === 'fast' ? 'rgba(230,81,0,0.07)' : 'var(--card)',
-                  cursor: 'pointer',
-                }}
-              >
-                <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8 }}>
-                  <span style={{ fontSize: 17 }}>⚡</span>
-                  <span style={{ fontSize: 14, fontWeight: 800, color: '#e65100' }}>Rota rápida</span>
-                  {routeChoice === 'fast' && <span style={{ marginLeft: 'auto', fontSize: 14, color: '#e65100' }}>✓</span>}
-                </div>
-                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-end', marginBottom: 6 }}>
-                  <span style={{ fontSize: 26, fontWeight: 800, color: '#e65100', lineHeight: 1 }}>
-                    {fmtEta(fastRoute.duration)} <span style={{ fontSize: 14, fontWeight: 500 }}>min</span>
-                  </span>
-                  <span style={{ fontSize: 13, color: 'var(--muted)' }}>{fmtDist(fastRoute.distance)}</span>
-                </div>
-                <div style={{ fontSize: 12, color: 'var(--muted)', marginBottom: 8 }}>
-                  Chega às {fmtArrival(fastRoute.duration)}
-                </div>
-                {/* Zones list */}
-                <div style={{ background: 'rgba(230,81,0,0.1)', borderRadius: 8, padding: '8px 10px' }}>
-                  <div style={{ fontSize: 11, fontWeight: 700, color: '#e65100', marginBottom: 5 }}>
-                    ⚠️ Passa por {zonesOnRoute.length} zona{zonesOnRoute.length !== 1 ? 's' : ''} de atenção
-                  </div>
-                  {zonesOnRoute.map((zona, i) => (
-                    <div key={zona.id} style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 12, color: 'var(--text)', marginTop: i > 0 ? 4 : 0 }}>
-                      <span style={{ width: 8, height: 8, borderRadius: '50%', background: levelColor(zona.actualLevel), flexShrink: 0, display: 'inline-block' }} />
-                      <span style={{ flex: 1 }}>{zona.name}</span>
-                      {zona.isPicoAgora && <span style={{ fontSize: 10, color: levelColor(zona.actualLevel), fontWeight: 700 }}>hora de pico</span>}
-                    </div>
-                  ))}
-                </div>
-              </div>
-            )}
-          </>
-
-        ) : tipoAnalise === 'sem_zonas' || !hasZones ? (
-          // ── CASO 4: Sem zonas no percurso ─────────────────────────────────────
-          <>
-            {origemZona && (
-              <div style={{ background: 'rgba(217,119,6,0.12)', borderRadius: 10, padding: '8px 12px', fontSize: 12, color: '#b45309', fontWeight: 600, marginBottom: 10 }}>
-                📍 Estás dentro de uma zona de risco ({origemZona.name}). A rota leva-te para fora dela — a navegação avisa até saíres.
-              </div>
-            )}
-            <div style={{
-              background: 'rgba(26,107,74,0.1)', borderRadius: 10,
-              padding: '8px 12px', fontSize: 12, color: '#1a6b4a', fontWeight: 600, marginBottom: 10,
-            }}>
-              {origemZona ? '✓ Sem outras zonas no percurso' : '✓ Sem zonas de atenção'}
-            </div>
-            {routes.map((route, i) => {
-              const isSel = i === localIdx
-              const heavy = hasCongestion(route)
-              const name = getRouteName(route)
-              const timeColor = heavy ? '#e65100' : '#1a73e8'
-              return (
-                <div key={i} onClick={() => pickRoute(i)} style={{
-                  padding: '14px 0', borderBottom: i < routes.length - 1 ? '1px solid var(--border)' : 'none',
-                  cursor: 'pointer', display: 'flex', gap: 14, alignItems: 'flex-start',
-                  background: isSel ? 'rgba(66,133,244,0.07)' : 'transparent',
-                  borderRadius: isSel ? 8 : 0,
-                }}>
-                  <div style={{ minWidth: 54, flexShrink: 0, paddingTop: 2 }}>
-                    <span style={{ fontSize: 28, fontWeight: 800, lineHeight: 1, color: isSel ? timeColor : 'var(--muted)' }}>{fmtEta(route.duration)}</span>
-                    <span style={{ fontSize: 12, color: 'var(--muted)', marginLeft: 2 }}>min</span>
-                  </div>
-                  <div style={{ flex: 1, minWidth: 0 }}>
-                    <div style={{ fontSize: 13, color: isSel ? 'var(--text)' : 'var(--muted)', fontWeight: isSel ? 500 : 400, marginBottom: 3 }}>
-                      Chega às {fmtArrival(route.duration)}{heavy ? ' · ⚠️ Trânsito' : ''}
-                    </div>
-                    <div style={{ fontSize: 13, color: 'var(--muted)' }}>
-                      {fmtDist(route.distance)}{name ? ` · Via ${name}` : ''}
-                    </div>
-                    {route._habitual ? (
-                      <span style={{ display: 'inline-block', marginTop: 5, background: 'rgba(245,158,11,0.14)', color: '#d97706', fontSize: 11, fontWeight: 700, padding: '2px 8px', borderRadius: 10 }}>
-                        ⭐ O teu caminho habitual
-                      </span>
-                    ) : route.duration === Math.min(...routes.map((r: any) => r.duration)) && (
-                      <span style={{ display: 'inline-block', marginTop: 5, background: 'rgba(66,133,244,0.12)', color: '#4285f4', fontSize: 11, fontWeight: 700, padding: '2px 8px', borderRadius: 10 }}>
-                        Mais rápido
-                      </span>
-                    )}
-                  </div>
-                </div>
-              )
-            })}
-          </>
-        ) : (
-          // Fallback — loading state
-          <div style={{ padding: '28px 0', textAlign: 'center', color: 'var(--muted)', fontSize: 14 }}>
-            A preparar rotas...
-          </div>
-        )}
+          )}
+        </>)}
       </div>
+      </>)}
 
-      </>)} {/* end !isMinimized */}
-
-      {/* Footer — always visible */}
-      <div style={{
-        flexShrink: 0, padding: '12px 16px',
-        paddingBottom: 'calc(12px + env(safe-area-inset-bottom, 0px))',
-        borderTop: '1px solid var(--border)',
-        display: 'flex', flexDirection: 'column', gap: 8,
-        background: 'var(--surface)',
-      }}>
-        {tipoAnalise === 'tem_rota_segura' && hasZones ? (
-          // Buttons for CASO 2: safe route available
-          <>
-            <button
-              onClick={confirm}
-              disabled={routeChoice === 'safe' ? (!safeRoute || safeRouteLoading) : !fastRoute}
-              style={{
-                width: '100%', padding: '14px 0',
-                background: routeChoice === 'safe'
-                  ? (safeRoute && !safeRouteLoading ? '#1a6b4a' : '#374151')
-                  : '#e65100',
-                border: 'none', borderRadius: 12, color: 'white',
-                fontWeight: 800, fontSize: 16, cursor: 'pointer',
-                display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8, minHeight: 50,
-              }}
-            >
-              {routeChoice === 'safe' ? (
-                safeRouteLoading ? 'A calcular…' : '🛡️ Usar rota segura'
-              ) : (
-                '⚡ Usar rota rápida'
-              )}
-            </button>
-            {routeChoice === 'fast' && (
-              <div style={{ fontSize: 12, color: '#e65100', background: 'rgba(230,81,0,0.1)', borderRadius: 10, padding: '8px 10px', lineHeight: 1.4 }}>
-                ⚠️ Esta rota passa por {zonasTxt} de atenção. O app vai ficar em <b>modo alerta</b> (aviso na tela e por voz) até você sair de todas elas — e você pode trocar para a rota segura a qualquer momento.
-              </div>
-            )}
-            <button
-              onClick={() => setRouteChoice(c => c === 'safe' ? 'fast' : 'safe')}
-              disabled={safeRouteLoading || !safeRoute}
-              style={{
-                width: '100%', padding: '10px 0',
-                background: 'none', border: '1px solid var(--border)',
-                borderRadius: 10, fontSize: 13, color: 'var(--muted)', cursor: 'pointer',
-              }}
-            >
-              {routeChoice === 'safe'
-                ? `⚡ Ver rota rápida${extraMinutos > 0 ? ` (−${extraMinutos} min)` : ''}`
-                : `🛡️ Ver rota segura${extraMinutos > 0 ? ` (+${extraMinutos} min)` : ''}`}
-            </button>
-          </>
-        ) : (
-          // Single button for other cases (CASO 1, 3, 4)
-          // CASO 1: Destino em zona
-          // CASO 3: Todas as rotas passam por zona
-          // CASO 4: Sem zonas
-          <button
-            onClick={confirm}
-            disabled={routes.length === 0 || isLoading}
-            style={{
-              flex: 1, padding: '13px 0',
-              background: (routes.length > 0 && !isLoading) ? '#1a6b4a' : '#374151',
-              border: 'none', borderRadius: 10, color: 'white',
-              fontWeight: 800, fontSize: 16,
-              cursor: (routes.length > 0 && !isLoading) ? 'pointer' : 'not-allowed',
-              display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8, minHeight: 48,
-            }}
-          >
-            <span style={{ fontSize: 14 }}>▲</span> Iniciar
+      {/* botões, como no Google: [Iniciar] [Detalhes] */}
+      <div style={{ flexShrink: 0, display: 'flex', gap: 10, padding: '8px 16px', paddingBottom: 'calc(10px + env(safe-area-inset-bottom, 0px))' }}>
+        <button onClick={confirm} disabled={!podeIniciar} style={{
+          display: 'flex', alignItems: 'center', gap: 8, padding: '11px 22px', borderRadius: 24, border: 'none',
+          background: corBotao, color: '#fff', fontWeight: 700, fontSize: 16, cursor: podeIniciar ? 'pointer' : 'not-allowed',
+        }}>
+          <span style={{ fontSize: 13 }}>▲</span> Iniciar
+        </button>
+        {!isMinimized && routes.length > 0 && (hasZones || tipoAnalise === 'destino_em_zona' || tipoAnalise === 'todas_passam_por_zona') && (
+          <button onClick={() => setDetalhes(d => !d)} style={{
+            padding: '11px 18px', borderRadius: 24, border: 'none', background: '#e8f0fe', color: '#0b57d0', fontWeight: 600, fontSize: 15, cursor: 'pointer',
+          }}>
+            {detalhes ? 'Menos' : 'Detalhes'}
           </button>
         )}
-        <button style={{ background: 'none', border: 'none', fontSize: 12, color: 'var(--muted)', cursor: 'pointer', padding: '2px 0' }}>
-          Sair mais tarde
-        </button>
       </div>
     </div>
   )

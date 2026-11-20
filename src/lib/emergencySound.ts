@@ -9,6 +9,21 @@ declare global {
 let sosAudio: HTMLAudioElement | null = null
 let audioUnlocked = false
 
+let sirenUrl: string | null = null
+const sirenSrc = () => (sirenUrl ??= sirenWavUrl())
+
+/** 0,2 s de silêncio: serve só para desbloquear o <audio> no 1º toque sem se ouvir nada. */
+function silentWavUrl(): string {
+  const rate = 8000, n = Math.floor(rate * 0.2)
+  const buf = new ArrayBuffer(44 + n * 2), v = new DataView(buf)
+  const w = (o: number, t: string) => { for (let i = 0; i < t.length; i++) v.setUint8(o + i, t.charCodeAt(i)) }
+  w(0, 'RIFF'); v.setUint32(4, 36 + n * 2, true); w(8, 'WAVE'); w(12, 'fmt ')
+  v.setUint32(16, 16, true); v.setUint16(20, 1, true); v.setUint16(22, 1, true)
+  v.setUint32(24, rate, true); v.setUint32(28, rate * 2, true); v.setUint16(32, 2, true); v.setUint16(34, 16, true)
+  w(36, 'data'); v.setUint32(40, n * 2, true)
+  return URL.createObjectURL(new Blob([buf], { type: 'audio/wav' }))
+}
+
 function sirenWavUrl(): string {
   const rate = 16000, secs = 4.5, n = Math.floor(rate * secs)
   const buf = new ArrayBuffer(44 + n * 2), v = new DataView(buf)
@@ -42,7 +57,7 @@ function getSosAudio(): HTMLAudioElement | null {
   if (typeof window === 'undefined') return null
   if (!sosAudio) {
     try {
-      sosAudio = new Audio(sirenWavUrl())
+      sosAudio = new Audio(sirenSrc())
       sosAudio.loop = true
       sosAudio.preload = 'auto'
       ;(sosAudio as any).playsInline = true
@@ -57,13 +72,18 @@ export function installAudioUnlock() {
   ;(window as any).__zivoAudioUnlock = true
   const unlock = () => {
     const a = getSosAudio()
-    if (a && !audioUnlocked) {
-      a.muted = true
+    if (a && !audioUnlocked && !isEmergencySoundPlaying()) {
+      // Antes tocava a própria sirene "em mudo" — o iPhone ignora o mudo e ouvia-se o 1.º bip
+      // ao abrir a app. Agora toca silêncio no MESMO elemento (o desbloqueio fica nele) e
+      // depois volta a pôr a sirene.
+      a.loop = false
+      a.src = silentWavUrl()
       a.play().then(() => {
-        if (!isEmergencySoundPlaying()) { a.pause(); a.currentTime = 0 }
-        a.muted = false
+        a.pause()
         audioUnlocked = true
-      }).catch(() => { a.muted = false })
+      }).catch(() => {}).finally(() => {
+        if (!isEmergencySoundPlaying()) { a.src = sirenSrc(); a.loop = true; try { a.load() } catch {} }
+      })
     }
     getCtx()
     if (audioUnlocked) {
@@ -147,6 +167,7 @@ export function playEmergencySound() {
   // 1º tenta o <audio> (funciona no iPhone em modo silêncio); se falhar, usa o Web Audio
   const a = getSosAudio()
   if (a) {
+    if (a.src !== sirenSrc()) { a.src = sirenSrc(); a.loop = true }   // ainda estava com o silêncio do desbloqueio
     a.currentTime = 0
     a.muted = false
     a.play().then(() => {

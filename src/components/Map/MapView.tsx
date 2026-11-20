@@ -548,6 +548,16 @@ export default function MapView({ groupMembers = EMPTY_MEMBERS, currentUserId, g
     const cor = mapaNoite ? '#1d2733' : '#ffffff'
     document.querySelectorAll('meta[name="theme-color"]').forEach(m => m.setAttribute('content', cor))
   }, [mapaNoite])
+  // abre onde o rider estava da última vez (antes: sempre no centro de Dublin até chegar o GPS)
+  const [vistaInicial] = useState(() => {
+    const cur = useStore.getState().currentLocation
+    if (cur) return { longitude: cur.lng, latitude: cur.lat, zoom: 15 }
+    try {
+      const u = JSON.parse(localStorage.getItem('zivo_last_pos') || 'null')
+      if (u && typeof u.lat === 'number' && typeof u.lng === 'number') return { longitude: u.lng, latitude: u.lat, zoom: 15 }
+    } catch {}
+    return { longitude: DUBLIN_LNG, latitude: DUBLIN_LAT, zoom: 14 }
+  })
   const mapStyle = mapaNoite ? 'mapbox://styles/mapbox/navigation-night-v1' : 'mapbox://styles/mapbox/streets-v12'
   const rotaAzul = mapaNoite ? '#5fa8ff' : '#4285f4'
   const rotaContorno = mapaNoite ? '#2b6fe0' : '#0b57d0'
@@ -1093,7 +1103,7 @@ export default function MapView({ groupMembers = EMPTY_MEMBERS, currentUserId, g
       const lats = allCoords.map((c: number[]) => c[1])
       mapRef.current?.fitBounds(
         [[Math.min(...lngs), Math.min(...lats)], [Math.max(...lngs), Math.max(...lats)]],
-        { padding: { top: 80, bottom: 420, left: 40, right: 40 }, duration: 800, maxZoom: 15 }
+        { padding: { top: 80, bottom: 300, left: 40, right: 40 }, duration: 800, maxZoom: 15 }
       )
     } else {
       mapRef.current?.easeTo({ pitch: 0, bearing: 0, zoom: 14, duration: 800, easing: (t: number) => t })
@@ -1280,7 +1290,7 @@ export default function MapView({ groupMembers = EMPTY_MEMBERS, currentUserId, g
     const lats = allCoords.map((c: number[]) => c[1])
     mapRef.current.fitBounds(
       [[Math.min(...lngs), Math.min(...lats)], [Math.max(...lngs), Math.max(...lats)]],
-      { padding: { top: 80, bottom: 420, left: 40, right: 40 }, duration: 800, maxZoom: 15 }
+      { padding: { top: 80, bottom: 300, left: 40, right: 40 }, duration: 800, maxZoom: 15 }
     )
   }, [updateRiskForRoute])
 
@@ -1302,7 +1312,7 @@ export default function MapView({ groupMembers = EMPTY_MEMBERS, currentUserId, g
         const lats = allCoords.map(c => c[1])
         mapRef.current.fitBounds(
           [[Math.min(...lngs), Math.min(...lats)], [Math.max(...lngs), Math.max(...lats)]],
-          { padding: { top: 80, bottom: 460, left: 40, right: 40 }, duration: 600, maxZoom: 16 }
+          { padding: { top: 80, bottom: 320, left: 40, right: 40 }, duration: 600, maxZoom: 16 }
         )
       }
     }
@@ -1948,7 +1958,7 @@ export default function MapView({ groupMembers = EMPTY_MEMBERS, currentUserId, g
       <Map
         ref={mapRef}
         onLoad={(e: any) => registarIconesReport(e.target)}
-        initialViewState={{ longitude: DUBLIN_LNG, latitude: DUBLIN_LAT, zoom: 14 }}
+        initialViewState={vistaInicial}
         style={{ width: '100%', height: '100%' }}
         mapStyle={mapStyle}
         mapboxAccessToken={process.env.NEXT_PUBLIC_MAPBOX_TOKEN}

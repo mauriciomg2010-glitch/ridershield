@@ -68,8 +68,23 @@ export function useGeolocation({
       setError('Geolocation not supported')
       return
     }
+    // Arranque rápido: posição aproximada (rede/última conhecida, até 5 min) enquanto o GPS de
+    // alta precisão ainda está a aquecer — antes o mapa ficava vários segundos à espera.
+    let temFix = false
+    navigator.geolocation.getCurrentPosition(
+      (pos) => { if (!temFix) setCurrentFix(toFix(pos)) },
+      () => {},
+      { enableHighAccuracy: false, maximumAge: 5 * 60 * 1000, timeout: 4000 },
+    )
+    let gravadoEm = 0
     watchIdRef.current = navigator.geolocation.watchPosition(
       (pos) => {
+        temFix = true
+        // última posição guardada: na próxima abertura o mapa já começa aqui
+        if (Date.now() - gravadoEm > 30000) {
+          gravadoEm = Date.now()
+          try { localStorage.setItem('zivo_last_pos', JSON.stringify({ lat: pos.coords.latitude, lng: pos.coords.longitude, t: Date.now() })) } catch {}
+        }
         setCurrentFix(toFix(pos))
         setHeading(pos.coords.heading ?? null)
         setSpeed(pos.coords.speed ?? null)
