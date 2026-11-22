@@ -3,6 +3,7 @@
 // só este componente pequeno é redesenhado a cada quadro, não o mapa inteiro.
 import { MutableRefObject, ReactNode, useEffect, useState } from 'react'
 import { Marker } from 'react-map-gl/mapbox'
+import { paleta } from '@/lib/googleLook'
 
 interface Props {
   navigating: boolean
@@ -11,9 +12,10 @@ interface Props {
   northLocked: boolean
   fallback: { lat: number; lng: number } | null
   idlePin: ReactNode
+  noite?: boolean
 }
 
-export default function UserPuck({ navigating, posRef, headingRef, northLocked, fallback, idlePin }: Props) {
+export default function UserPuck({ navigating, posRef, headingRef, northLocked, fallback, idlePin, noite = false }: Props) {
   const [pos, setPos] = useState<{ lat: number; lng: number } | null>(null)
   const [heading, setHeading] = useState(0)
 
@@ -38,17 +40,27 @@ export default function UserPuck({ navigating, posRef, headingRef, northLocked, 
 
   const where = navigating ? (pos ?? fallback) : fallback
   if (!where) return null
+  const P = paleta(noite)
   return (
-    <Marker longitude={where.lng} latitude={where.lat} anchor={navigating ? 'center' : 'bottom'}>
+    // Seta como a do Google Maps: disco deitado no chão (acompanha a inclinação) com a seta azul
+    // (de dia, disco branco) ou branca (à noite, disco azul)
+    <Marker longitude={where.lng} latitude={where.lat} anchor={navigating ? 'center' : 'bottom'}
+      pitchAlignment={navigating ? 'map' : 'auto'} rotationAlignment={navigating ? 'viewport' : 'auto'}>
       {navigating ? (
         <div style={{
-          width: 48, height: 48,
-          filter: 'drop-shadow(0 3px 6px rgba(0,0,0,0.4))',
+          width: 58, height: 58,
           transform: northLocked ? `rotate(${heading}deg)` : 'rotate(0deg)',
           pointerEvents: 'none',
         }}>
-          <svg width="48" height="48" viewBox="0 0 48 48">
-            <polygon points="24,4 38,40 24,33 10,40" fill="#f59e0b" stroke="rgba(0,0,0,0.3)" strokeWidth="1.5" strokeLinejoin="round"/>
+          <svg width="58" height="58" viewBox="0 0 58 58">
+            <defs>
+              <filter id="zivoPuckSombra" x="-30%" y="-30%" width="160%" height="160%">
+                <feDropShadow dx="0" dy="1.5" stdDeviation="2" floodColor="#000" floodOpacity="0.35" />
+              </filter>
+            </defs>
+            <circle cx="29" cy="29" r="25" fill={P.setaFundo} fillOpacity={noite ? 0.92 : 1} filter="url(#zivoPuckSombra)" />
+            {!noite && <circle cx="29" cy="29" r="25" fill="none" stroke="rgba(0,0,0,0.08)" strokeWidth="1" />}
+            <polygon points="29,10 42,42 29,35 16,42" fill={P.seta} strokeLinejoin="round" stroke={P.seta} strokeWidth="2" />
           </svg>
         </div>
       ) : idlePin}

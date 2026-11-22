@@ -592,11 +592,13 @@ import { zoneExposureM } from '../src/lib/navigation/zones'
 import { escolherPorExposicao } from '../src/lib/navigation/routing'
 
 test('zoom: mais perto que antes e aproxima perto da rotunda e do destino', () => {
-  assert.ok(zoomPorVelocidade(25) >= 16.2)
+  assert.ok(zoomPorVelocidade(25) >= 16.9)
+  // a acelerar não afasta muito (Google ≈ z16,4 a 60 km/h)
+  assert.ok(zoomPorVelocidade(60) >= 16.4)
   const longe = navZoom({ speedKmh: 25, distToManeuverM: 600, maneuverType: 'turn', remainingM: 3000 })
   const perto = navZoom({ speedKmh: 20, distToManeuverM: 40, maneuverType: 'turn', remainingM: 3000 })
   const rotunda = navZoom({ speedKmh: 20, distToManeuverM: 40, maneuverType: 'roundabout', remainingM: 3000 })
-  assert.ok(perto > longe + 0.6, `${perto} vs ${longe}`)
+  assert.ok(perto > longe + 0.4, `${perto} vs ${longe}`)
   assert.ok(rotunda > perto)
   // "siga em frente" não aproxima; via rápida também não
   assert.equal(zoomBoost({ speedKmh: 20, distToManeuverM: 40, maneuverType: 'continue' }), 0)
@@ -643,4 +645,32 @@ test('zona pequena que dá para evitar de todo continua evitada (mostra a rápid
   const r = escolherPorExposicao(segura, [segura, rapida], [z])
   assert.equal(r.route, segura)
   assert.equal(r.fastAlt, rapida)
+})
+
+import { viragemRecusada, passaPor } from '../src/lib/navigation/skippedTurn'
+
+test('entrada fechada: viragem recusada é guardada e a rota que volta a ela é detetada', () => {
+  // estrada reta para leste 400 m, vira à esquerda (norte) numa entrada aos 200 m
+  const a: LngLat = DUB, cruz = destination(DUB, 200, 90), fim = destination(cruz, 150, 0)
+  const coords = [...line(a, cruz), ...line(cruz, fim).slice(1)]
+  const tr = {
+    steps: [{ maneuver: { type: 'depart' } }, { maneuver: { type: 'turn', modifier: 'left', location: cruz } }, { maneuver: { type: 'arrive' } }],
+    maneuverAt: [0, 200, 350], length: 350,
+    pointAt: (d: number): LngLat => d <= 200 ? destination(a, d, 90) : destination(cruz, d - 200, 0),
+  }
+  // estava a 30 m da viragem e seguiu em frente (60 m depois do cruzamento)
+  const aqui = destination(cruz, 60, 90)
+  const p = viragemRecusada(tr, { stepIdx: 1, distToManeuver: 30, along: 170 }, aqui)
+  assert.ok(p, 'devia guardar o ponto')
+  assert.ok(distM(p!, destination(cruz, 20, 0)) < 3)
+  // rota nova que manda voltar e entrar na mesma entrada → passa pelo ponto
+  assert.equal(passaPor([aqui, cruz, fim], [p!]), true)
+  // rota pela outra entrada (mais à frente) → não passa
+  const outra = destination(cruz, 250, 90)
+  assert.equal(passaPor([aqui, outra, destination(outra, 150, 0)], [p!]), false)
+  // fez a viragem → não é recusa
+  assert.equal(viragemRecusada(tr, { stepIdx: 1, distToManeuver: 10, along: 190 }, destination(cruz, 25, 0)), null)
+  // longe da viragem → não é recusa
+  assert.equal(viragemRecusada(tr, { stepIdx: 1, distToManeuver: 150, along: 50 }, aqui), null)
+  void coords
 })

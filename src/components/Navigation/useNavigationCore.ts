@@ -6,6 +6,7 @@
 //  • toda lógica roda dentro de `guard()`: um erro é registrado e a navegação continua;
 //  • a lógica pura (rastreador, voz, rota segura) fica em src/lib/navigation e tem testes.
 import { useCallback, useEffect, useRef, useState } from 'react'
+import { viragemRecusada, passaPor, UltimaNaRota } from '@/lib/navigation/skippedTurn'
 import toast from 'react-hot-toast'
 import { useStore, GpsFix } from '@/lib/store'
 import { RouteTracker, Progress } from '@/lib/navigation/routeTracker'
@@ -77,6 +78,8 @@ export function useNavigationCore({ isNavigating, currentFix, navDest, routeProf
   const progressRef = useRef<LiveProgress | null>(null)
   const prevFixRef = useRef<{ lat: number; lng: number; time: number } | null>(null)
   const lastRerouteRef = useRef(0)
+  const bloqueadosRef = useRef<LngLat[]>([])            // entradas/viragens recusadas nesta viagem
+  const ultimaNaRotaRef = useRef<UltimaNaRota | null>(null)
   const rerouteBusyRef = useRef(false)
   const passIdsRef = useRef<Set<string>>(new Set())   // zonas que a rota só corta de passagem
   const altStateRef = useRef<AltCheckState | null>(null)   // quando procurar alternativas (poupa pedidos)
@@ -179,6 +182,7 @@ export function useNavigationCore({ isNavigating, currentFix, navDest, routeProf
 
   const applyRoute = useCallback((route: any) => {
     setAltRoute(null)
+    ultimaNaRotaRef.current = null   // a "última posição na rota" passa a ser desta rota nova
     altStateRef.current = newAltState(Date.now(), Number(route?.duration) || 0)
     guard('applyRoute', () => {
       if (tripRef.current && !tripRef.current.firstRoute && Array.isArray(route?.geometry?.coordinates)) {
@@ -213,6 +217,8 @@ export function useNavigationCore({ isNavigating, currentFix, navDest, routeProf
     lastRerouteRef.current = Date.now()
     hasArrivedRef.current = false
     setHasArrived(false)
+    bloqueadosRef.current = []
+    ultimaNaRotaRef.current = null
   }, [])
 
   /** Limpa tudo ao cancelar a navegação. */
@@ -280,7 +286,27 @@ export function useNavigationCore({ isNavigating, currentFix, navDest, routeProf
       // (antes saía da rotunda por outra saída e a rota nova mandava voltar)
       const mh = moveHeadingRef.current
       const heading = mh && Date.now() - mh.time < 15000 ? mh.deg : null
-      const res = await findSafeRoute(from, dest, profileRef.current || 'driving-traffic', zones, { heading })
+      // passou uma viragem sem a fazer (ex.: entrada fechada)? não mandar voltar a ela
+      const trAntigo = trackerRef.current
+      const recusada = trAntigo ? viragemRecusada(trAntigo as any, ultimaNaRotaRef.current, [from.lng, from.lat]) : null
+      const perfil = profileRef.current || 'driving-traffic'
+      const bloq = bloqueadosRef.current
+      let res = await findSafeRoute(from, dest, perfil, zones, { heading, excludePoints: bloq.length ? bloq : undefined })
+      if (bloq.length && !res.route && !res.candidates.length) res = await findSafeRoute(from, dest, perfil, zones, { heading })
+      const escolhidaAntes = res.route ?? res.candidates.slice().sort(byFewestZones)[0]
+      if (recusada && escolhidaAntes && passaPor(escolhidaAntes.geometry.coordinates, [recusada])) {
+        try {
+          const res2 = await findSafeRoute(from, dest, perfil, zones, { heading, excludePoints: [...bloq, recusada] })
+          const r2 = res2.route ?? res2.candidates.slice().sort(byFewestZones)[0]
+          // usa o outro acesso se existir e não for uma volta enorme (até +10 min)
+          if (r2 && !passaPor(r2.geometry.coordinates, [recusada]) && (r2.duration ?? Infinity) <= (escolhidaAntes.duration ?? 0) + 600) {
+            bloqueadosRef.current = [...bloq, recusada]
+            diag('entrada-evitada', { ponto: [+recusada[1].toFixed(5), +recusada[0].toFixed(5)], extraS: Math.round((r2.duration ?? 0) - (escolhidaAntes.duration ?? 0)) })
+            res = res2
+            toast('Outro caminho: evitando a entrada que não fizeste', { duration: 4000 })
+          } else diag('entrada-sem-alternativa', { ponto: [+recusada[1].toFixed(5), +recusada[0].toFixed(5)] })
+        } catch { /* fica com a rota normal */ }
+      }
       let route = res.route ?? res.candidates.slice().sort(byFewestZones)[0]
       // o rider saiu de novo de uma rota segura com desvio? à 2.ª vez segue o caminho dele
       const moving = !!mh && Date.now() - mh.time < 5000
@@ -353,6 +379,7 @@ export function useNavigationCore({ isNavigating, currentFix, navDest, routeProf
       }
       const p = tr.update({ ...currentFix, speed: v, heading: headingGps })
       progressRef.current = { ...p, time: Date.now(), speedMps: v, onRoute: p.offRouteM < 40 }
+      if (p.offRouteM < 20) ultimaNaRotaRef.current = { stepIdx: p.stepIdx, distToManeuver: p.distToManeuver, along: p.along }
       if (altRouteRef.current && p.along > altRouteRef.current.divAlong + 40) setAltRoute(null)
       {
         const lim = p.offRoute ? null : (maxspeedRef.current[tr.currentSeg] ?? null)

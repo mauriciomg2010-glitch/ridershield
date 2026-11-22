@@ -9,6 +9,7 @@ import { Incident } from '@/types'
 import { VoiceGuide, bannerText, formatDistance, formatDuration, spokenDistance } from '@/lib/navigation/instructions'
 import type { ZoneAlertState } from '@/lib/navigation/zoneAlert'
 import ZoneAlertBanner from './ZoneAlertBanner'
+import { paleta } from '@/lib/googleLook'
 
 function timeAgo(d: Date): string {
   const mins = Math.floor((Date.now() - d.getTime()) / 60000)
@@ -28,6 +29,8 @@ interface Props {
   nextGap?: number          // metros entre a próxima manobra e a seguinte
   speedMps?: number
   hasArrived?: boolean
+  /** mapa noturno: painéis escuros como o Google Maps à noite */
+  noite?: boolean
   distToNext: number
   remainingDist: number
   remainingSec?: number
@@ -70,6 +73,7 @@ export default function NavigationScreen({
   nextGap,
   speedMps = 0,
   hasArrived = false,
+  noite = false,
   distToNext,
   remainingDist,
   remainingSec,
@@ -220,6 +224,10 @@ export default function NavigationScreen({
   const arrivalTime = new Date(Date.now() + (remainingSec ?? navEta * 60) * 1000)
   const arrivalStr = arrivalTime.toLocaleTimeString('pt-PT', { hour: '2-digit', minute: '2-digit' })
 
+  const T = paleta(noite)
+  // nome da rua onde o rider está (pílula por baixo da seta, como o Google)
+  const ruaAtual = ((steps[stepIdx]?.name as string) || '').split(/[;,]/)[0].trim()
+
   return (
     <>
       {/* Limite da rua + velocidade (como no Google Maps). Passou do limite → número a vermelho */}
@@ -233,12 +241,12 @@ export default function NavigationScreen({
             }}>{speedLimit}</div>
           ) : null}
           <div style={{
-            width: 54, height: 54, borderRadius: '50%', background: 'white',
-            color: speedLimit && speed > speedLimit + 4 ? '#d93025' : '#202124', boxShadow: '0 1px 4px rgba(0,0,0,0.3)',
+            width: 54, height: 54, borderRadius: '50%', background: T.botao,
+            color: speedLimit && speed > speedLimit + 4 ? '#f28b82' : T.painelTexto, boxShadow: '0 1px 4px rgba(0,0,0,0.3)',
             display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', lineHeight: 1,
           }}>
             <span style={{ fontSize: 19, fontWeight: 700 }}>{speed > 0 ? speed : '--'}</span>
-            <span style={{ fontSize: 9, fontWeight: 600, color: '#5f6368', marginTop: 2 }}>km/h</span>
+            <span style={{ fontSize: 9, fontWeight: 600, color: T.painelSub, marginTop: 2 }}>km/h</span>
           </div>
         </div>
       )}
@@ -268,7 +276,7 @@ export default function NavigationScreen({
         return (
           <div className="absolute z-[600]" style={{ top: 'calc(env(safe-area-inset-top, 0px) + 6px)', left: 8, right: 8 }}>
             <div style={{
-              background: '#0f5446', borderRadius: 16, padding: '12px 14px',
+              background: T.banner, borderRadius: 16, padding: '12px 14px',
               boxShadow: '0 4px 16px rgba(0,0,0,0.35)', display: 'flex', alignItems: 'center', gap: 12,
             }}>
               <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', minWidth: 56 }}>
@@ -294,7 +302,7 @@ export default function NavigationScreen({
               </div>
             </div>
             {mostrarFaixas && (
-              <div style={{ background: '#0b3f35', borderRadius: '0 0 14px 14px', margin: '-8px 10px 0', padding: '10px 10px 6px', display: 'flex', justifyContent: 'center', gap: 4 }}>
+              <div style={{ background: T.bannerEscuro, borderRadius: '0 0 14px 14px', margin: '-8px 10px 0', padding: '10px 10px 6px', display: 'flex', justifyContent: 'center', gap: 4 }}>
                 {faixas.map((l, i) => {
                   const ind = setaFaixa(l)
                   const isU = ind === 'uturn'
@@ -307,14 +315,14 @@ export default function NavigationScreen({
             {(mostrarDepois || isRecalculating || (riskOnRoute && !zoneAlert)) && (
               <div style={{ display: 'flex', gap: 6, marginTop: 4 }}>
                 {mostrarDepois && (
-                  <div style={{ background: '#0b3f35', borderRadius: 12, padding: '6px 12px', display: 'flex', alignItems: 'center', gap: 6, boxShadow: '0 2px 8px rgba(0,0,0,0.3)' }}>
+                  <div style={{ background: T.bannerEscuro, borderRadius: 12, padding: '6px 12px', display: 'flex', alignItems: 'center', gap: 6, boxShadow: '0 2px 8px rgba(0,0,0,0.3)' }}>
                     <span style={{ color: 'white', fontSize: 15, fontWeight: 600 }}>Depois</span>
                     <ManeuverIcon type={nextStep.maneuver?.type} modifier={nextStep.maneuver?.modifier} size={24}
                       exitAngle={/roundabout|rotary/.test(nextStep.maneuver?.type ?? '') ? roundaboutExitAngle(nextStep) : null} />
                   </div>
                 )}
                 {isRecalculating && (
-                  <div style={{ background: '#0b3f35', borderRadius: 12, padding: '6px 12px', color: 'white', fontSize: 13, fontWeight: 600 }}>A recalcular…</div>
+                  <div style={{ background: T.bannerEscuro, borderRadius: 12, padding: '6px 12px', color: 'white', fontSize: 13, fontWeight: 600 }}>A recalcular…</div>
                 )}
                 {riskOnRoute && !zoneAlert && !isRecalculating && (
                   <div style={{ background: '#7c2d12', borderRadius: 12, padding: '6px 12px', color: 'white', fontSize: 13, fontWeight: 600 }}>⚠️ Zona de risco à frente</div>
@@ -337,7 +345,7 @@ export default function NavigationScreen({
           title={northLocked ? 'Norte fixo' : 'Norte livre'}
           style={{
             width: 44, height: 44, borderRadius: '50%',
-            background: northLocked ? '#e8f0fe' : 'white', border: 'none',
+            background: northLocked ? (noite ? '#2b3a55' : '#e8f0fe') : T.botao, border: 'none',
             display: 'flex', alignItems: 'center', justifyContent: 'center',
             cursor: 'pointer', boxShadow: '0 1px 4px rgba(0,0,0,0.3)',
             padding: 0,
@@ -366,14 +374,14 @@ export default function NavigationScreen({
           }}
           style={{
             width: 44, height: 44, borderRadius: '50%',
-            background: 'white', border: 'none',
+            background: T.botao, border: 'none',
             display: 'flex', alignItems: 'center', justifyContent: 'center',
             cursor: 'pointer', boxShadow: '0 1px 4px rgba(0,0,0,0.3)',
           }}
           title={muted ? 'Voz desligada' : 'Voz ligada'}
         >
-          <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="#3c4043" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-            <path d="M4 9h4l5-4v14l-5-4H4z" fill="#3c4043" />
+          <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke={T.botaoIcone} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+            <path d="M4 9h4l5-4v14l-5-4H4z" fill={T.botaoIcone} />
             {muted
               ? <path d="M17 9l5 6M22 9l-5 6" stroke="#d93025" />
               : <path d="M16.5 8.5a5 5 0 0 1 0 7M19 6a8.5 8.5 0 0 1 0 12" />}
@@ -384,7 +392,7 @@ export default function NavigationScreen({
             onClick={onSOS}
             style={{
               width: 44, height: 44, borderRadius: '50%',
-              background: 'white', border: 'none',
+              background: T.botao, border: 'none',
               display: 'flex', alignItems: 'center', justifyContent: 'center',
               cursor: 'pointer', boxShadow: '0 1px 4px rgba(0,0,0,0.3)',
             }}
@@ -398,6 +406,17 @@ export default function NavigationScreen({
         )}
         {/* Report button moved to bottom-right standalone position below */}
       </div>}
+
+      {/* Nome da rua atual por baixo da seta (como o Google Maps) */}
+      {ruaAtual && !hasArrived && !nearbyIncident && (
+        <div className="absolute z-[599]" style={{ bottom: 'calc(98px + env(safe-area-inset-bottom, 0px))', left: '50%', transform: 'translateX(-50%)', maxWidth: '46%', pointerEvents: 'none' }}>
+          <div style={{
+            background: noite ? '#2a3b52' : '#ffffff', color: noite ? '#ffffff' : '#191a59',
+            borderRadius: 14, padding: '4px 12px', fontSize: 14, fontWeight: 600,
+            boxShadow: '0 1px 4px rgba(0,0,0,0.3)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis',
+          }}>{ruaAtual}</div>
+        </div>
+      )}
 
       {/* Report à frente / "ainda está aí?" — cartão grande por cima do rodapé */}
       {nearbyIncident && (
@@ -418,19 +437,19 @@ export default function NavigationScreen({
       {/* Barra de baixo — painel branco como no Google Maps (antes era escura e chamava muita atenção) */}
       <div className="absolute z-[600]" style={{ bottom: 0, left: 0, right: 0, display: hasArrived ? 'none' : undefined }}>
         <div style={{
-          background: '#ffffff',
+          background: T.painel,
           borderRadius: '18px 18px 0 0',
           boxShadow: '0 -2px 12px rgba(0,0,0,0.18)',
           paddingBottom: 'env(safe-area-inset-bottom, 0px)',
         }}>
-          <div style={{ width: 36, height: 4, borderRadius: 2, background: '#dadce0', margin: '7px auto 0' }} />
+          <div style={{ width: 36, height: 4, borderRadius: 2, background: noite ? '#5f6368' : '#dadce0', margin: '7px auto 0' }} />
           <div style={{ padding: '6px 16px 12px', display: 'flex', alignItems: 'center', gap: 12 }}>
             <div style={{ width: 44 }} />
             <div style={{ flex: 1, textAlign: 'center' }}>
-              <div style={{ fontSize: 24, fontWeight: 700, color: '#188038', lineHeight: 1.05, letterSpacing: '-0.01em' }}>
+              <div style={{ fontSize: 24, fontWeight: 700, color: T.minutos, lineHeight: 1.05, letterSpacing: '-0.01em' }}>
                 {formatDuration(remainingSec ?? navEta * 60)}
               </div>
-              <div style={{ fontSize: 14, color: '#5f6368', marginTop: 3 }}>{formatDistance(remainingDist)} · {arrivalStr}</div>
+              <div style={{ fontSize: 14, color: T.painelSub, marginTop: 3 }}>{formatDistance(remainingDist)} · {arrivalStr}</div>
             </div>
             <button
               onClick={onCancel}
@@ -455,7 +474,7 @@ export default function NavigationScreen({
           style={{
             bottom: 'calc(100px + env(safe-area-inset-bottom, 0px))', right: 14,
             width: 54, height: 54, borderRadius: '50%',
-            background: 'white', border: 'none',
+            background: T.botao, border: 'none',
             display: 'flex', alignItems: 'center', justifyContent: 'center',
             cursor: 'pointer',
             boxShadow: '0 1px 6px rgba(0,0,0,0.3)',

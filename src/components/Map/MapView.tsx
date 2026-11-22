@@ -44,6 +44,7 @@ import SafeBoundary from '@/components/SafeBoundary'
 import UserPuck from './UserPuck'
 import { formatDistance } from '@/lib/navigation/instructions'
 import { navZoom, zoomPorVelocidade, numeroDaPorta } from '@/lib/navigation/cameraZoom'
+import { aplicarVisualGoogle, paleta } from '@/lib/googleLook'
 
 const DUBLIN_LNG = -6.2603
 const DUBLIN_LAT = 53.3498
@@ -124,8 +125,8 @@ const zonesGeoJSON = {
 }
 
 // ─── Camera constants — tune here if rider position needs adjustment ──────────
-const NAV_ZOOM    = 16.6  // zoom inicial da navegação (parado) — igual ao Google: vê as ruas à volta
-const NAV_PITCH   = 60    // inclinação 3D estilo Google Maps (visão de quem dirige)
+const NAV_ZOOM    = 17.3  // zoom inicial da navegação (parado) — igual ao Google: vê as ruas à volta
+const NAV_PITCH   = 48    // inclinação como o Google Maps: vê a rua à frente sem chegar ao horizonte
 const NAV_RIDER_Y = 0.80  // seta no terço de baixo do ecrã (0=topo, 1=base) — mais rua à frente
 const NAV_ZOOM_BIAS_KEY = 'zivo_nav_zoom_bias'
 
@@ -136,9 +137,9 @@ const calcularZoomPorVelocidade = zoomPorVelocidade
 // Ajuste de zoom escolhido pelo rider (pinça + "re-centralizar") — fica guardado no aparelho
 function lerZoomBias(): number {
   try {
-    // v3: zoom base mais perto (nov 2026) — zera o ajuste antigo para o novo padrão valer
-    if (localStorage.getItem('zivo_nav_zoom_bias_v') !== '3') {
-      localStorage.removeItem(NAV_ZOOM_BIAS_KEY); localStorage.setItem('zivo_nav_zoom_bias_v', '3')
+    // v4: zoom base como o Google (22 nov 2026) — zera o ajuste antigo para o novo padrão valer
+    if (localStorage.getItem('zivo_nav_zoom_bias_v') !== '4') {
+      localStorage.removeItem(NAV_ZOOM_BIAS_KEY); localStorage.setItem('zivo_nav_zoom_bias_v', '4')
     }
     const v = Number(localStorage.getItem(NAV_ZOOM_BIAS_KEY))
     return Number.isFinite(v) ? Math.max(-1.5, Math.min(1, v)) : 0
@@ -492,6 +493,9 @@ export default function MapView({ groupMembers = EMPTY_MEMBERS, currentUserId, g
   const zoomAtualRef = useRef(NAV_ZOOM)
   const zoomBiasRef = useRef(0)
   const maneuverRef = useRef<{ type: string | null; modifier: string | null }>({ type: null, modifier: null })
+  const pendingNavDestRef = useRef<{ lat: number; lng: number } | null>(null)
+  const enquadrarPreviewRef = useRef<((l: [number, number][][], d?: number) => void) | null>(null)
+  const modeSelectorAbertoRef = useRef(false)
   const compassInfoRef = useRef<{ t: number; acc: number | null }>({ t: 0, acc: null })
   const userPinchedRef = useRef(false)
   useEffect(() => { zoomBiasRef.current = lerZoomBias() }, [])
@@ -556,8 +560,12 @@ export default function MapView({ groupMembers = EMPTY_MEMBERS, currentUserId, g
     return { longitude: DUBLIN_LNG, latitude: DUBLIN_LAT, zoom: 14 }
   })
   const mapStyle = mapaNoite ? 'mapbox://styles/mapbox/navigation-night-v1' : 'mapbox://styles/mapbox/streets-v12'
-  const rotaAzul = mapaNoite ? '#5fa8ff' : '#4285f4'
-  const rotaContorno = mapaNoite ? '#2b6fe0' : '#0b57d0'
+  // cores do Google Maps (medidas nos vídeos de 22 nov 2026) — ver lib/googleLook.ts
+  const cores = paleta(mapaNoite)
+  const rotaAzul = cores.rota
+  const rotaContorno = cores.rotaBorda
+  const mapaNoiteRef = useRef(mapaNoite)
+  mapaNoiteRef.current = mapaNoite
 
   // Persist shield (zones) preference
   useEffect(() => {
@@ -741,6 +749,8 @@ export default function MapView({ groupMembers = EMPTY_MEMBERS, currentUserId, g
   useEffect(() => {
     if (isNavigating) return
     if (!currentLocation || !autoFollowRef.current) return
+    // painel de rotas aberto: o mapa mostra o percurso todo, não segue o GPS
+    if (modeSelectorAbertoRef.current) return
     const center: [number, number] = [currentLocation.lng, currentLocation.lat]
     if (!firstFixRef.current) {
       mapRef.current?.flyTo({ center, zoom: 14, pitch: 0, duration: 1000 })
@@ -824,8 +834,9 @@ export default function MapView({ groupMembers = EMPTY_MEMBERS, currentUserId, g
           remainingM: pr?.onRoute ? pr.remainingM : null,
           maneuverType: mv.type, maneuverModifier: mv.modifier,
         }, zoomBiasRef.current)
-        // aproximar é mais rápido (a manobra está a chegar); afastar é suave
-        const tau = zAlvo > zoomAtualRef.current ? 900 : 1800
+        // aproximar é mais rápido (a manobra está a chegar); afastar é bem lento, como o Google:
+        // uma aceleração curta depois do semáforo não afasta a câmara
+        const tau = zAlvo > zoomAtualRef.current ? 900 : 4500
         zoomAtualRef.current += (zAlvo - zoomAtualRef.current) * (1 - Math.exp(-dt / tau))
         const zoom = zoomAtualRef.current
         const heading = headingAtualRef.current
@@ -1104,13 +1115,7 @@ export default function MapView({ groupMembers = EMPTY_MEMBERS, currentUserId, g
       setShowModeSelector(true)
       autoFollowRef.current = false
       setAutoFollow(false)
-      const allCoords = restoreRoutes.flatMap((r: any) => r.geometry.coordinates as [number, number][])
-      const lngs = allCoords.map((c: number[]) => c[0])
-      const lats = allCoords.map((c: number[]) => c[1])
-      mapRef.current?.fitBounds(
-        [[Math.min(...lngs), Math.min(...lats)], [Math.max(...lngs), Math.max(...lats)]],
-        { padding: { top: 80, bottom: 300, left: 40, right: 40 }, duration: 800, maxZoom: 15 }
-      )
+      enquadrarPreviewRef.current?.(restoreRoutes.map((r: any) => r.geometry.coordinates as [number, number][]))
     } else {
       mapRef.current?.easeTo({ pitch: 0, bearing: 0, zoom: 14, duration: 800, easing: (t: number) => t })
       autoFollowRef.current = true
@@ -1317,20 +1322,41 @@ export default function MapView({ groupMembers = EMPTY_MEMBERS, currentUserId, g
     return () => clearTimeout(timer)
   }, [searchText, showSearch, suggestPlaces])
 
+  // Enquadra o percurso todo (origem, destino e alternativas) entre a barra de pesquisa e o painel
+  // de rotas — antes ficava perto demais e o GPS puxava o mapa de volta para o rider.
+  const enquadrarPreview = useCallback((linhas: [number, number][][], duration = 800) => {
+    const m = mapRef.current
+    if (!m) return
+    const pts: [number, number][] = linhas.flat()
+    const cl = useStore.getState().currentLocation
+    if (cl) pts.push([cl.lng, cl.lat])
+    const pd = pendingNavDestRef.current
+    if (pd) pts.push([pd.lng, pd.lat])
+    if (!pts.length) return
+    const lngs = pts.map(c => c[0]), lats = pts.map(c => c[1])
+    const H = typeof window !== 'undefined' ? window.innerHeight : 844
+    const top = Math.round(Math.min(200, H * 0.2)) + 20      // pesquisa + botões Zonas/Trânsito
+    const bottom = Math.round(Math.min(380, H * 0.38)) + 20  // painel de rotas
+    autoFollowRef.current = false
+    try {
+      m.stop()
+      m.fitBounds([[Math.min(...lngs), Math.min(...lats)], [Math.max(...lngs), Math.max(...lats)]],
+        { padding: { top, bottom, left: 50, right: 50 }, duration, maxZoom: 16, pitch: 0, bearing: 0 } as any)
+    } catch { /* bounds inválidos */ }
+  }, [])
+
+  enquadrarPreviewRef.current = enquadrarPreview
+  pendingNavDestRef.current = pendingNavDest
+  modeSelectorAbertoRef.current = showModeSelector
+
   const handleRoutesLoaded = useCallback((routes: any[]) => {
     setAltRoutes(routes)
     setSelectedAltIdx(0)
     // Re-evaluate risk any time routes change (catches mode switches: moto→bike→walk)
     if (routes.length > 0) updateRiskForRoute(routes[0].geometry.coordinates)
     if (routes.length === 0 || !mapRef.current) return
-    const allCoords = routes.flatMap((r: any) => r.geometry.coordinates as [number, number][])
-    const lngs = allCoords.map((c: number[]) => c[0])
-    const lats = allCoords.map((c: number[]) => c[1])
-    mapRef.current.fitBounds(
-      [[Math.min(...lngs), Math.min(...lats)], [Math.max(...lngs), Math.max(...lats)]],
-      { padding: { top: 80, bottom: 300, left: 40, right: 40 }, duration: 800, maxZoom: 15 }
-    )
-  }, [updateRiskForRoute])
+    enquadrarPreview(routes.map((r: any) => r.geometry.coordinates as [number, number][]))
+  }, [updateRiskForRoute, enquadrarPreview])
 
   const handleRouteSelected = useCallback((idx: number) => {
     setSelectedAltIdx(idx)
@@ -1341,20 +1367,9 @@ export default function MapView({ groupMembers = EMPTY_MEMBERS, currentUserId, g
     setActiveRouteZones(zones)
     // Extend fitBounds to include safe route geometry if available
     if (safe && mapRef.current) {
-      const allCoords: [number, number][] = [
-        ...(altRoutes[0]?.geometry?.coordinates ?? []),
-        ...safe.geometry.coordinates,
-      ]
-      if (allCoords.length > 0) {
-        const lngs = allCoords.map(c => c[0])
-        const lats = allCoords.map(c => c[1])
-        mapRef.current.fitBounds(
-          [[Math.min(...lngs), Math.min(...lats)], [Math.max(...lngs), Math.max(...lats)]],
-          { padding: { top: 80, bottom: 320, left: 40, right: 40 }, duration: 600, maxZoom: 16 }
-        )
-      }
+      enquadrarPreview([...altRoutes.map((r: any) => r.geometry?.coordinates ?? []), safe.geometry.coordinates], 600)
     }
-  }, [altRoutes])
+  }, [altRoutes, enquadrarPreview])
 
   useEffect(() => {
     const tl = tappedLocation
@@ -2053,7 +2068,13 @@ export default function MapView({ groupMembers = EMPTY_MEMBERS, currentUserId, g
     <div className="relative w-full h-full">
       <Map
         ref={mapRef}
-        onLoad={(e: any) => registarIconesReport(e.target)}
+        onLoad={(e: any) => {
+          const m = e.target
+          registarIconesReport(m)
+          aplicarVisualGoogle(m, mapaNoiteRef.current)
+          // a cada troca dia/noite o estilo recarrega: volta a pôr as cores do Google
+          m.on('style.load', () => aplicarVisualGoogle(m, mapaNoiteRef.current))
+        }}
         initialViewState={vistaInicial}
         style={{ width: '100%', height: '100%' }}
         mapStyle={mapStyle}
@@ -2335,16 +2356,16 @@ export default function MapView({ groupMembers = EMPTY_MEMBERS, currentUserId, g
               <Layer id={`alt-casing-${i}`} type="line"
                 layout={{ 'line-cap': 'round', 'line-join': 'round' }}
                 paint={{
-                  'line-color': isSel ? '#1a3a6e' : '#666666',
+                  'line-color': isSel ? cores.rotaBorda : cores.alternativaBorda,
                   'line-width': isSel ? 10 : 7,
-                  'line-opacity': isSel ? 1 : 0.45,
+                  'line-opacity': isSel ? 1 : 0.9,
                 }} />
               <Layer id={`alt-line-${i}`} type="line"
                 layout={{ 'line-cap': 'round', 'line-join': 'round' }}
                 paint={{
-                  'line-color': isSel ? '#4f8ef7' : '#aaaaaa',
+                  'line-color': isSel ? cores.rota : cores.alternativa,
                   'line-width': isSel ? 6 : 4,
-                  'line-opacity': isSel ? 1 : 0.6,
+                  'line-opacity': 1,
                 }} />
             </Source>
           )
@@ -2412,9 +2433,9 @@ export default function MapView({ groupMembers = EMPTY_MEMBERS, currentUserId, g
         {isNavigating && altRoute && (
           <Source id="alt-route" type="geojson" data={asFeature(altRoute.route.geometry)}>
             <Layer id="alt-route-casing" type="line" layout={{ 'line-cap': 'round', 'line-join': 'round' }}
-              paint={{ 'line-color': '#80868b', 'line-width': ['interpolate', ['linear'], ['zoom'], 12, 6, 16, 10, 18, 15] as any }} />
+              paint={{ 'line-color': cores.alternativaBorda, 'line-width': ['interpolate', ['linear'], ['zoom'], 12, 6, 16, 10, 18, 15] as any }} />
             <Layer id="alt-route-line" type="line" layout={{ 'line-cap': 'round', 'line-join': 'round' }}
-              paint={{ 'line-color': '#bdc1c6', 'line-width': ['interpolate', ['linear'], ['zoom'], 12, 4, 16, 7, 18, 11] as any }} />
+              paint={{ 'line-color': cores.alternativa, 'line-width': ['interpolate', ['linear'], ['zoom'], 12, 4, 16, 7, 18, 11] as any }} />
           </Source>
         )}
         {isNavigating && altRoute && (() => {
@@ -2437,7 +2458,7 @@ export default function MapView({ groupMembers = EMPTY_MEMBERS, currentUserId, g
           <Source id="route" type="geojson" data={routeCongestionGeoJSON}>
             <Layer id="route-line-casing" type="line"
               layout={{ 'line-cap': 'round', 'line-join': 'round' }}
-              paint={{ 'line-color': rotaContorno, 'line-width': ['interpolate', ['linear'], ['zoom'], 12, 7, 16, 12, 18, 18] as any }} />
+              paint={{ 'line-color': rotaContorno, 'line-width': ['interpolate', ['linear'], ['zoom'], 12, 7, 16, 14, 18, 23] as any }} />
             <Layer id="route-line" type="line"
               layout={{ 'line-cap': 'round', 'line-join': 'round' }}
               paint={{
@@ -2447,7 +2468,7 @@ export default function MapView({ groupMembers = EMPTY_MEMBERS, currentUserId, g
                   'severe', '#a50e0e',
                   rotaAzul,
                 ] as any,
-                'line-width': ['interpolate', ['linear'], ['zoom'], 12, 4.5, 16, 8.5, 18, 13] as any,
+                'line-width': ['interpolate', ['linear'], ['zoom'], 12, 4.5, 16, 10, 18, 17] as any,
               }} />
           </Source>
         )}
@@ -2506,6 +2527,7 @@ export default function MapView({ groupMembers = EMPTY_MEMBERS, currentUserId, g
 
         {/* Usuário — seta com animação própria durante a navegação */}
         <UserPuck
+          noite={mapaNoite}
           navigating={isNavigating}
           posRef={posAtualRef}
           headingRef={headingAtualRef}
@@ -2610,10 +2632,10 @@ export default function MapView({ groupMembers = EMPTY_MEMBERS, currentUserId, g
               data={asFeature(route.geometry)}>
               <Layer id={`nav-alt-casing-${i}`} type="line"
                 layout={{ 'line-cap': 'round', 'line-join': 'round' }}
-                paint={{ 'line-color': '#555', 'line-width': 7, 'line-opacity': 0.4 }} />
+                paint={{ 'line-color': cores.alternativaBorda, 'line-width': 7, 'line-opacity': 0.9 }} />
               <Layer id={`nav-alt-line-${i}`} type="line"
                 layout={{ 'line-cap': 'round', 'line-join': 'round' }}
-                paint={{ 'line-color': '#aaa', 'line-width': 5, 'line-opacity': 0.6 }} />
+                paint={{ 'line-color': cores.alternativa, 'line-width': 5, 'line-opacity': 1 }} />
             </Source>
           )
         })}
@@ -2740,6 +2762,7 @@ export default function MapView({ groupMembers = EMPTY_MEMBERS, currentUserId, g
         </div>
       ) : null}>
       <NavigationScreen
+        noite={mapaNoite}
         isNavigating={isNavigating}
         currentStep={currentStep}
         nextStep={navSteps[currentStepIdx + 1]}

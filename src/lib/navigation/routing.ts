@@ -37,6 +37,8 @@ export interface MapboxOpts {
   alternatives?: boolean; vias?: LatLng[]; signal?: AbortSignal
   /** direção em que o rider já está a andar (graus). No recálculo evita a rota começar com retorno. */
   heading?: number | null
+  /** pontos que a rota não pode atravessar (ex.: entrada fechada que o rider passou). Só carro. */
+  excludePoints?: LngLat[]
 }
 
 /** Direção válida para mandar à API (null quando desconhecida). */
@@ -60,6 +62,8 @@ export async function fetchMapboxRoutes(origin: LatLng, dest: LatLng, profile: s
     exclude: 'ferry',
     access_token: token ?? '',
   })
+  const exPts = prof.startsWith('driving') ? (opts.excludePoints ?? []).slice(0, 20) : []
+  if (exPts.length) params.set('exclude', ['ferry', ...exPts.map(p => `point(${p[0].toFixed(6)} ${p[1].toFixed(6)})`)].join(','))
   if (opts.alternatives && vias.length === 0) params.set('alternatives', 'true')
   if (vias.length) params.set('waypoints', `0;${pts.length - 1}`)
   if (prof === 'cycling') params.set('continue_straight', 'false')
@@ -171,7 +175,7 @@ async function waitValhallaSlot(signal?: AbortSignal) {
   })
 }
 
-export async function fetchValhallaRoutes(origin: LatLng, dest: LatLng, profile: string, exclude: AvoidZone[], signal?: AbortSignal, heading?: number | null): Promise<NavRoute[]> {
+export async function fetchValhallaRoutes(origin: LatLng, dest: LatLng, profile: string, exclude: AvoidZone[], signal?: AbortSignal, heading?: number | null, excludePoints?: LngLat[]): Promise<NavRoute[]> {
   await waitValhallaSlot(signal)
   const hd = validHeading(heading)
   const body: any = {
@@ -184,6 +188,7 @@ export async function fetchValhallaRoutes(origin: LatLng, dest: LatLng, profile:
     alternates: 2,
   }
   if (exclude.length) body.exclude_polygons = exclude.map(exclusionRing)
+  if (excludePoints?.length) body.exclude_locations = excludePoints.map(p => ({ lon: p[0], lat: p[1] }))
   const data = await getJSON(`${VALHALLA_URL}/route?json=${encodeURIComponent(JSON.stringify(body))}`, signal, 15000)
   if (!data?.trip) return []
   return [data.trip, ...(data.alternates ?? []).map((a: any) => a.trip)].filter(Boolean).map(valhallaTripToRoute)
@@ -266,6 +271,7 @@ export interface SafeRouteOpts {
   signal?: AbortSignal
   maxDetourRequests?: number
   heading?: number | null      // direção atual do rider (recálculo em movimento)
+  excludePoints?: LngLat[]     // entradas fechadas / viragens que o rider recusou
 }
 
 const duration = (r: NavRoute) => r?.duration ?? Infinity
@@ -287,7 +293,7 @@ export async function findSafeRoute(origin: LatLng, dest: LatLng, profile: strin
 
   let base = opts.baseRoutes
   if (!base || !base.length) {
-    try { base = await fetchMapboxRoutes(origin, dest, profile, { alternatives: true, signal: opts.signal, heading: opts.heading }) }
+    try { base = await fetchMapboxRoutes(origin, dest, profile, { alternatives: true, signal: opts.signal, heading: opts.heading, excludePoints: opts.excludePoints }) }
     catch (e: any) { if (e?.name === 'AbortError') throw e; base = [] }
   }
   add(base)
@@ -304,7 +310,7 @@ export async function findSafeRoute(origin: LatLng, dest: LatLng, profile: strin
   if (!excl.length) excl = zones.slice(0, 12)
   try {
     for (let it = 0; it < 4 && !best(); it++) {
-      const rs = await fetchValhallaRoutes(origin, dest, profile, excl, opts.signal, opts.heading)
+      const rs = await fetchValhallaRoutes(origin, dest, profile, excl, opts.signal, opts.heading, opts.excludePoints)
       if (!rs.length) break
       add(rs)
       if (best()) return finalizar(best(), 'valhalla')
@@ -400,7 +406,7 @@ async function ringDetour(
         tried.add(key)
         used++
         let r: NavRoute | undefined
-        try { r = (await fetchMapboxRoutes(origin, dest, profile, { vias, signal: opts.signal, heading: opts.heading }))[0] }
+        try { r = (await fetchMapboxRoutes(origin, dest, profile, { vias, signal: opts.signal, heading: opts.heading, excludePoints: opts.excludePoints }))[0] }
         catch (e: any) { if (e?.name === 'AbortError') throw e }
         if (!r) { next.push({ ...c, levels: { ...c.levels, [z.id]: lvl + 1 } }); continue }
         add([r])
@@ -422,7 +428,7 @@ async function ringDetour(
       const test = vias.filter((_, k) => k !== i)
       pruneBudget--
       let r: NavRoute | undefined
-      try { r = (await fetchMapboxRoutes(origin, dest, profile, { vias: test, signal: opts.signal, heading: opts.heading }))[0] }
+      try { r = (await fetchMapboxRoutes(origin, dest, profile, { vias: test, signal: opts.signal, heading: opts.heading, excludePoints: opts.excludePoints }))[0] }
       catch (e: any) { if (e?.name === 'AbortError') throw e }
       if (!r) continue
       add([r])
