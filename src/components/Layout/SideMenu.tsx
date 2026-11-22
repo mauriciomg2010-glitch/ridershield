@@ -11,6 +11,7 @@ import { getRiderID, saveEmergencyContacts, clearLocation, clearGlobalPresence, 
 import { db } from '@/lib/firebase'
 import { collection, query, where, onSnapshot, getDoc, doc } from 'firebase/firestore'
 import AdSlot from '@/components/Ads/AdSlot'
+import { VERSAO } from '@/lib/version'
 import { isAdminUser, ADMIN_UID as MENU_ADMIN_UID } from '@/lib/admin'
 import { EmergencyContacts } from '@/types'
 import ReferralPanel from '@/components/Referral/ReferralPanel'
@@ -718,7 +719,7 @@ export default function SideMenu({ open, onClose, onNavigate, categories = [], a
           </button>
 
           <p className="text-center text-xs pb-6" style={{ color: 'var(--muted)' }}>
-            ZIVO v0.2.0 · Dublin, Ireland
+            ZIVO {VERSAO}
           </p>
         </div>
         </div>{/* end show-when-no-panel wrapper */}

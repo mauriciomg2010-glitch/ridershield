@@ -1,5 +1,6 @@
 ﻿// src/app/page.tsx
 'use client'
+import { VERSAO } from '@/lib/version'
 import { useState, useEffect, useRef, useCallback } from 'react'
 import { useAuth } from '@/contexts/AuthContext'
 import { useStore } from '@/lib/store'
@@ -191,6 +192,8 @@ export default function Home() {
         <h1 style={{ fontSize: 52, fontWeight: 900, color: 'white', letterSpacing: -2, margin: 0, lineHeight: 1 }}>ZIVO</h1>
         <p style={{ fontSize: 15, color: 'rgba(255,255,255,0.45)', marginTop: 10, letterSpacing: 1.5, textTransform: 'uppercase', fontWeight: 500 }}>Ride smart. Go home.</p>
         <div className="animate-spin" style={{ marginTop: 52, width: 28, height: 28, borderRadius: '50%', border: '2.5px solid rgba(245,158,11,0.25)', borderTopColor: '#f59e0b' }} />
+        {/* versão: dois telemóveis com o mesmo texto = mesma versão */}
+        <p style={{ position: 'absolute', bottom: 'calc(22px + env(safe-area-inset-bottom, 0px))', fontSize: 12, color: 'rgba(255,255,255,0.35)', letterSpacing: 0.5, margin: 0 }}>{VERSAO}</p>
       </div>
     )
   }
