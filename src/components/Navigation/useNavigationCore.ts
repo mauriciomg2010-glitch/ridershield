@@ -88,7 +88,7 @@ export function useNavigationCore({ isNavigating, currentFix, navDest, routeProf
   const profileRef = useRef(routeProfile)
   const hasArrivedRef = useRef(false)
   // Rota alternativa mostrada a cinzento durante a navegação (como o Google Maps)
-  const [altRoute, setAltRoute] = useState<{ route: any; deltaS: number; divAlong: number; label: [number, number] } | null>(null)
+  const [altRoute, setAltRoute] = useState<{ route: any; deltaS: number; divAlong: number; label: [number, number]; zoneM?: number } | null>(null)
   const altRouteRef = useRef(altRoute)
   altRouteRef.current = altRoute
   const navigatingRef = useRef(isNavigating)
@@ -240,6 +240,31 @@ export function useNavigationCore({ isNavigating, currentFix, navDest, routeProf
     setZoneSpeech(null)
   }, [finishTrip])
 
+  /** Mostra a cinzento a 1.ª rota da lista que segue por outro caminho (com a diferença de tempo). */
+  const mostrarAlternativa = useCallback((lista: any[], zoneM?: number): boolean => {
+    const tr = trackerRef.current
+    const cur = progressRef.current
+    if (!tr || !cur || !navigatingRef.current) return false
+    const restante = tr.remainingCoords(cur.along) as [number, number][]
+    let escolhida: any = null
+    for (const r of lista) {
+      const g = r.geometry.coordinates as [number, number][]
+      if (overlap(simplifyTrace(g, 40), restante, 40) < 0.65) { escolhida = r; break }
+    }
+    if (!escolhida) return false
+    const g = escolhida.geometry.coordinates as [number, number][]
+    // onde se separa da rota atual (para sumir depois de passar esse ponto) e onde pôr a etiqueta
+    let divIdx = g.findIndex(p => overlap([p], restante, 40) === 0)
+    if (divIdx < 0) divIdx = 0
+    const divPt = g[divIdx]
+    const proj = projectAhead({ coords: tr.coords as any, cum: tr.cum }, divPt, tr.currentSeg, cur.along, 5000)
+    const label = g[Math.min(g.length - 1, divIdx + Math.floor((g.length - divIdx) / 3))]
+    const restS = cur.remainingS ?? tr.length
+    setAltRoute({ route: escolhida, deltaS: Math.round(escolhida.duration - restS), divAlong: proj?.along ?? cur.along, label, zoneM })
+    diag('alternativa', { delta: Math.round(escolhida.duration - restS), zonaM: zoneM ?? 0 })
+    return true
+  }, [])
+
   /** Recalcula SEMPRE pela rota segura. */
   const reroute = useCallback(async (from: LatLng) => {
     const dest = navDestRef.current
@@ -272,6 +297,13 @@ export function useNavigationCore({ isNavigating, currentFix, navDest, routeProf
           diag('segue-rider', { recusas: choiceRef.current.rejects, extraS: Math.round((res.route.duration ?? 0) - (fastest.duration ?? 0)) })
           if (!antes.following) toast('A seguir o teu caminho. Atenção: passa por zona de risco', { duration: 6000 })
         } else if (!res.route && zones.length) toast('⚠️ Nova rota passa por zona de risco — atenção', { duration: 5000 })
+        if (res.method === 'mesma-exposicao') diag('rota-mesma-exposicao', { zonaM: route._exposureM ?? 0 })
+        // a rota segura dá uma volta grande? mostra também a mais rápida (cruza zona) para o rider escolher
+        else if (!seguiuRider && res.fastAlt && res.fastAlt !== route) {
+          // espera o tracker da rota nova ter a 1.ª posição
+          const fa = res.fastAlt
+          setTimeout(() => { if (navigatingRef.current) mostrarAlternativa([fa], fa._exposureM ?? undefined) }, 1500)
+        }
       }
     } catch (e) {
       console.warn('[nav] recálculo falhou (sem rede?) — mantendo rota atual', e)
@@ -280,7 +312,7 @@ export function useNavigationCore({ isNavigating, currentFix, navDest, routeProf
       trackerRef.current?.resetOffRoute()
       setIsRecalculating(false)
     }
-  }, [applyRoute])
+  }, [applyRoute, mostrarAlternativa])
 
   /** Botão "mudar para rota segura" do modo alerta. */
   const switchToSafeRoute = useCallback(() => {
@@ -406,30 +438,13 @@ export function useNavigationCore({ isNavigating, currentFix, navDest, routeProf
           return
         }
         // alternativa segura que segue por outro caminho → mostrada a cinzento com a diferença de tempo
-        const tr = trackerRef.current
-        if (!tr || !cur || !navigatingRef.current) return
-        const restante = tr.remainingCoords(cur.along) as [number, number][]
-        let escolhida: any = null
-        for (const r of seguras) {
-          const g = r.geometry.coordinates as [number, number][]
-          if (overlap(simplifyTrace(g, 40), restante, 40) < 0.65) { escolhida = r; break }
-        }
-        if (!escolhida) { setAltRoute(null); return }
-        const g = escolhida.geometry.coordinates as [number, number][]
-        // onde se separa da rota atual (para sumir depois de passar esse ponto) e onde pôr a etiqueta
-        let divIdx = g.findIndex(p => overlap([p], restante, 40) === 0)
-        if (divIdx < 0) divIdx = 0
-        const divPt = g[divIdx]
-        const proj = projectAhead({ coords: tr.coords as any, cum: tr.cum }, divPt, tr.currentSeg, cur.along, 5000)
-        const label = g[Math.min(g.length - 1, divIdx + Math.floor((g.length - divIdx) / 3))]
-        setAltRoute({ route: escolhida, deltaS: Math.round(escolhida.duration - cur.remainingS), divAlong: proj?.along ?? cur.along, label })
-        diag('alternativa', { delta: Math.round(escolhida.duration - cur.remainingS) })
+        if (!mostrarAlternativa(seguras)) setAltRoute(null)
       } catch { /* sem rede: tenta no próximo ciclo */ }
     }
     // avalia a cada 15 s (sem custo); só pede rotas quando shouldCheckAlt diz que vale a pena
     const interval = setInterval(check, FASTER_ROUTE_EVERY_MS)
     return () => { clearInterval(interval); setAltRoute(null) }
-  }, [isNavigating, applyRoute])
+  }, [isNavigating, applyRoute, mostrarAlternativa])
 
   /** Rider tocou na alternativa cinzenta: passa a navegar por ela. */
   const switchToAlt = useCallback(() => {

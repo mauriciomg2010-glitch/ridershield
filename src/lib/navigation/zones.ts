@@ -259,3 +259,10 @@ export function entryExitAlong(coords: LngLat[], z: AvoidZone): { entry: number;
   }
   return entry < 0 ? null : { entry, exit, entryPt, exitPt }
 }
+
+/** Metros da rota dentro de zonas de risco (soma de todas, incluindo a zona onde o rider já está). */
+export function zoneExposureM(coords: LngLat[], zones: AvoidZone[]): number {
+  let total = 0
+  for (const z of zones) for (const r of insideRuns(coords, z)) total += Math.max(0, r.exit - r.entry)
+  return Math.round(total)
+}

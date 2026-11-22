@@ -585,3 +585,62 @@ test('alternativas: corrida curta sem trânsito não gasta pedidos; atraso dispa
   for (let t = 15; t <= 1800; t += 15) { const r = 1800 - t; if (shouldCheckAlt(s3, t * 1000, r, r * 8)) { n++; s3.lastCheck = t * 1000; s3.checks++ } }
   assert.ok(n >= 3 && n <= ALT.MAX_CHECKS, `n=${n}`)
 })
+
+// ── nov 2026: zoom dinâmico, chegada e exposição a zonas ──
+import { navZoom, zoomPorVelocidade, zoomBoost, numeroDaPorta } from '../src/lib/navigation/cameraZoom'
+import { zoneExposureM } from '../src/lib/navigation/zones'
+import { escolherPorExposicao } from '../src/lib/navigation/routing'
+
+test('zoom: mais perto que antes e aproxima perto da rotunda e do destino', () => {
+  assert.ok(zoomPorVelocidade(25) >= 16.2)
+  const longe = navZoom({ speedKmh: 25, distToManeuverM: 600, maneuverType: 'turn', remainingM: 3000 })
+  const perto = navZoom({ speedKmh: 20, distToManeuverM: 40, maneuverType: 'turn', remainingM: 3000 })
+  const rotunda = navZoom({ speedKmh: 20, distToManeuverM: 40, maneuverType: 'roundabout', remainingM: 3000 })
+  assert.ok(perto > longe + 0.6, `${perto} vs ${longe}`)
+  assert.ok(rotunda > perto)
+  // "siga em frente" não aproxima; via rápida também não
+  assert.equal(zoomBoost({ speedKmh: 20, distToManeuverM: 40, maneuverType: 'continue' }), 0)
+  assert.equal(zoomBoost({ speedKmh: 70, distToManeuverM: 40, maneuverType: 'turn' }), 0)
+  // a chegar: até ver as casas, sem passar o máximo
+  const chegada = navZoom({ speedKmh: 10, distToManeuverM: 30, maneuverType: 'arrive', remainingM: 30 })
+  assert.ok(chegada >= 17.6 && chegada <= 18.2, String(chegada))
+})
+
+test('número da porta a partir da morada', () => {
+  assert.equal(numeroDaPorta('12 Main Street, Dublin 8'), '12')
+  assert.equal(numeroDaPorta('Apartment 4, Spencer Dock'), '4')
+  assert.equal(numeroDaPorta('Rua das Flores 27, Lisboa'), '27')
+  assert.equal(numeroDaPorta('14B Clanbrassil St'), '14B')
+  assert.equal(numeroDaPorta('Tesco Express'), null)
+  assert.equal(numeroDaPorta(null), null)
+})
+
+test('rota rápida que cruza a mesma zona que a "segura" é escolhida', () => {
+  const c: LngLat = DUB
+  const z = fromFirestoreZone({ id: 'ex', areaName: 'Zona', lat: c[1], lng: c[0], radius: 300 })!
+  const mk = (coords: LngLat[], dur: number) => ({ geometry: { coordinates: coords }, duration: dur, distance: 0 })
+  // segura: corta 200 m da zona e dá a volta (12 min); rápida: corta 260 m e segue (5 min)
+  const a = destination(c, 250, 180), b = destination(c, 250, 90)
+  const segura = mk([...line(destination(c, 400, 200), a), ...line(a, destination(c, 150, 120)), ...line(destination(c, 150, 120), destination(c, 900, 120))], 720)
+  const rapida = mk([...line(destination(c, 400, 200), a), ...line(a, b), ...line(b, destination(c, 600, 80))], 300)
+  const eS = zoneExposureM(segura.geometry.coordinates as LngLat[], [z])
+  const eR = zoneExposureM(rapida.geometry.coordinates as LngLat[], [z])
+  assert.ok(eS >= 40, `segura ${eS}`)
+  const r = escolherPorExposicao(segura, [segura, rapida], [z])
+  console.log('exposicao', eS, eR)
+  assert.ok(eR <= eS * 1.5 + 80, `eS=${eS} eR=${eR}`)
+  assert.equal(r.route, rapida); assert.ok(r.trocou)
+})
+
+test('zona pequena que dá para evitar de todo continua evitada (mostra a rápida só como alternativa)', () => {
+  const c: LngLat = DUB
+  const z = fromFirestoreZone({ id: 'pq', areaName: 'Cruzamento', lat: c[1], lng: c[0], radius: 80 })!
+  const mk = (coords: LngLat[], dur: number) => ({ geometry: { coordinates: coords }, duration: dur, distance: 0 })
+  const rapida = mk(line(destination(c, 500, 270), destination(c, 500, 90)), 200)
+  const p1 = destination(c, 300, 0)
+  const segura = mk([...line(destination(c, 500, 270), p1), ...line(p1, destination(c, 500, 90))], 330)
+  assert.equal(zoneExposureM(segura.geometry.coordinates as LngLat[], [z]), 0)
+  const r = escolherPorExposicao(segura, [segura, rapida], [z])
+  assert.equal(r.route, segura)
+  assert.equal(r.fastAlt, rapida)
+})

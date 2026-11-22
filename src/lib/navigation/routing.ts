@@ -3,7 +3,7 @@
 // Todas as rotas saem no formato do Mapbox Directions (geometry/legs/steps), para o resto
 // do app tratar Mapbox e Valhalla da mesma forma.
 import { LngLat, LatLng, distM, bearing, destination, decodePolyline6 } from './geo'
-import { AvoidZone, zonesOnRoute, pointInZone, entryExitAlong } from './zones'
+import { AvoidZone, zonesOnRoute, pointInZone, entryExitAlong, zoneExposureM } from './zones'
 
 export type NavRoute = any // formato Mapbox Directions (com campos extras opcionais _source, _vias)
 
@@ -231,7 +231,34 @@ export interface SafeRouteResult {
   route: NavRoute | null       // melhor rota que não passa por nenhuma zona evitável
   candidates: NavRoute[]       // todas as rotas obtidas (para mostrar alternativas)
   unavoidable: AvoidZone[]     // zonas onde está a origem ou o destino (impossível evitar)
-  method: 'direct' | 'valhalla' | 'detour' | 'none'
+  method: 'direct' | 'valhalla' | 'detour' | 'none' | 'mesma-exposicao'
+  /** Rota mais rápida que cruza zona, para mostrar como alternativa (cinzento) quando poupa tempo. */
+  fastAlt?: NavRoute | null
+}
+
+/**
+ * A rota "segura" também atravessa zona (de passagem, ou porque o rider já está dentro dela)?
+ * Então uma rota mais rápida que atravessa mais ou menos o mesmo não é mais perigosa — e é o que o
+ * Google manda. Caso real (Maurício, nov 2026): dentro da zona, o ZIVO mandava virar à esquerda e
+ * dar a volta; pela direita cruzava a mesma zona uns metros e saía logo, bem mais curto.
+ * Só troca quando a segura já tem exposição (≥ 40 m): zonas pequenas que dá para evitar de todo
+ * continuam a ser evitadas.
+ */
+export const EXPO_MIN_M = 40
+export function escolherPorExposicao(safe: NavRoute | null, candidates: NavRoute[], allZones: AvoidZone[]):
+  { route: NavRoute | null; fastAlt: NavRoute | null; trocou: boolean } {
+  if (!candidates.length) return { route: safe, fastAlt: null, trocou: false }
+  for (const r of candidates) if (r._exposureM == null) r._exposureM = zoneExposureM(r.geometry.coordinates, allZones)
+  const fastest = candidates.slice().sort((a, b) => duration(a) - duration(b))[0]
+  if (!safe) return { route: null, fastAlt: null, trocou: false }
+  if (safe._exposureM == null) safe._exposureM = zoneExposureM(safe.geometry.coordinates, allZones)
+  if (fastest === safe) return { route: safe, fastAlt: null, trocou: false }
+  const ganho = duration(safe) - duration(fastest)
+  const expS = safe._exposureM as number, expF = fastest._exposureM as number
+  if (expS >= EXPO_MIN_M && expF <= expS * 1.5 + 80 && ganho >= Math.max(30, 0.1 * duration(fastest))) {
+    return { route: fastest, fastAlt: null, trocou: true }
+  }
+  return { route: safe, fastAlt: ganho >= 60 ? fastest : null, trocou: false }
 }
 
 export interface SafeRouteOpts {
@@ -264,8 +291,13 @@ export async function findSafeRoute(origin: LatLng, dest: LatLng, profile: strin
     catch (e: any) { if (e?.name === 'AbortError') throw e; base = [] }
   }
   add(base)
-  if (!zones.length) return { route: best(), candidates, unavoidable, method: 'direct' }
-  if (best()) return { route: best(), candidates, unavoidable, method: 'direct' }
+  // a decisão final compara também os metros dentro de zona (ver escolherPorExposicao)
+  const finalizar = (r: NavRoute | null, method: SafeRouteResult['method']): SafeRouteResult => {
+    const e = escolherPorExposicao(r, candidates, allZones)
+    return { route: e.route, candidates, unavoidable, method: e.trocou ? 'mesma-exposicao' : method, fastAlt: e.fastAlt }
+  }
+  if (!zones.length) return finalizar(best(), 'direct')
+  if (best()) return finalizar(best(), 'direct')
 
   // 2) Valhalla
   let excl = Array.from(new Set(candidates.flatMap(r => r._hits as AvoidZone[])))
@@ -275,7 +307,7 @@ export async function findSafeRoute(origin: LatLng, dest: LatLng, profile: strin
       const rs = await fetchValhallaRoutes(origin, dest, profile, excl, opts.signal, opts.heading)
       if (!rs.length) break
       add(rs)
-      if (best()) return { route: best(), candidates, unavoidable, method: 'valhalla' }
+      if (best()) return finalizar(best(), 'valhalla')
       const novas = Array.from(new Set(rs.flatMap(r => r._hits as AvoidZone[]))).filter(z => !excl.includes(z))
       if (!novas.length) break
       excl = excl.concat(novas)
@@ -292,7 +324,7 @@ export async function findSafeRoute(origin: LatLng, dest: LatLng, profile: strin
     if (e?.name === 'AbortError') throw e
   }
   const r = best()
-  return { route: r, candidates, unavoidable, method: r ? 'detour' : 'none' }
+  return finalizar(r, r ? 'detour' : 'none')
 }
 
 interface Via extends LatLng { zoneId: string }

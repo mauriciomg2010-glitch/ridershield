@@ -43,6 +43,7 @@ import { useNavigationCore, guard } from '@/components/Navigation/useNavigationC
 import SafeBoundary from '@/components/SafeBoundary'
 import UserPuck from './UserPuck'
 import { formatDistance } from '@/lib/navigation/instructions'
+import { navZoom, zoomPorVelocidade, numeroDaPorta } from '@/lib/navigation/cameraZoom'
 
 const DUBLIN_LNG = -6.2603
 const DUBLIN_LAT = 53.3498
@@ -123,30 +124,21 @@ const zonesGeoJSON = {
 }
 
 // ─── Camera constants — tune here if rider position needs adjustment ──────────
-const NAV_ZOOM    = 16.2  // zoom inicial da navegação (parado) — igual ao Google: vê as ruas à volta
+const NAV_ZOOM    = 16.6  // zoom inicial da navegação (parado) — igual ao Google: vê as ruas à volta
 const NAV_PITCH   = 60    // inclinação 3D estilo Google Maps (visão de quem dirige)
 const NAV_RIDER_Y = 0.80  // seta no terço de baixo do ecrã (0=topo, 1=base) — mais rua à frente
 const NAV_ZOOM_BIAS_KEY = 'zivo_nav_zoom_bias'
 
 // ---- Navigation helpers ----
 
-// Zoom conforme a velocidade (estilo Google Maps): parado/devagar mostra o quarteirão e as
-// ruas vizinhas; mais rápido afasta para ver mais estrada à frente.
-function calcularZoomPorVelocidade(speedKmh: number): number {
-  if (!speedKmh || speedKmh < 5) return 16.2   // parado / a pé
-  if (speedKmh < 15)             return 16.0   // bicicleta / trânsito lento
-  if (speedKmh < 30)             return 15.8   // cidade
-  if (speedKmh < 50)             return 15.5   // avenidas
-  if (speedKmh < 80)             return 15.1
-  return 14.7                                  // via rápida
-}
+const calcularZoomPorVelocidade = zoomPorVelocidade
 
 // Ajuste de zoom escolhido pelo rider (pinça + "re-centralizar") — fica guardado no aparelho
 function lerZoomBias(): number {
   try {
-    // v2: zera o zoom guardado pela versão antiga (gravava −2 sozinho no início da navegação)
-    if (localStorage.getItem('zivo_nav_zoom_bias_v') !== '2') {
-      localStorage.removeItem(NAV_ZOOM_BIAS_KEY); localStorage.setItem('zivo_nav_zoom_bias_v', '2')
+    // v3: zoom base mais perto (nov 2026) — zera o ajuste antigo para o novo padrão valer
+    if (localStorage.getItem('zivo_nav_zoom_bias_v') !== '3') {
+      localStorage.removeItem(NAV_ZOOM_BIAS_KEY); localStorage.setItem('zivo_nav_zoom_bias_v', '3')
     }
     const v = Number(localStorage.getItem(NAV_ZOOM_BIAS_KEY))
     return Number.isFinite(v) ? Math.max(-1.5, Math.min(1, v)) : 0
@@ -426,6 +418,8 @@ export default function MapView({ groupMembers = EMPTY_MEMBERS, currentUserId, g
   const [navBearing, setNavBearing] = useState(0)
   const [northLocked, setNorthLocked] = useState(false)
   const [navTotalDist, setNavTotalDist] = useState(0)
+  const [navDestName, setNavDestName] = useState<string | null>(null)
+  const [arrivalMin, setArrivalMin] = useState(false)
   const [navSpeed, setNavSpeed] = useState(0)
   const [heading, setHeading] = useState(0)
   const [compassActive, setCompassActive] = useState(false)
@@ -497,6 +491,7 @@ export default function MapView({ groupMembers = EMPTY_MEMBERS, currentUserId, g
 
   const zoomAtualRef = useRef(NAV_ZOOM)
   const zoomBiasRef = useRef(0)
+  const maneuverRef = useRef<{ type: string | null; modifier: string | null }>({ type: null, modifier: null })
   const compassInfoRef = useRef<{ t: number; acc: number | null }>({ t: 0, acc: null })
   const userPinchedRef = useRef(false)
   useEffect(() => { zoomBiasRef.current = lerZoomBias() }, [])
@@ -821,10 +816,17 @@ export default function MapView({ groupMembers = EMPTY_MEMBERS, currentUserId, g
       // (a seta é desenhada pelo UserPuck com animação própria — sem redesenhar o mapa inteiro)
 
       if (nav.isNavigating && !navMapFreeRef.current && posAtualRef.current.lat !== 0) {
-        // perto de uma curva aproxima um pouco (como o Google) para mostrar a manobra
-        const pertoDaCurva = !!pr && pr.distToManeuver < 120 && nav.navSpeed < 45
-        const zAlvo = calcularZoomPorVelocidade(nav.navSpeed) + zoomBiasRef.current + (pertoDaCurva ? 0.35 : 0)
-        zoomAtualRef.current += (zAlvo - zoomAtualRef.current) * (1 - Math.exp(-dt / 1500))
+        // perto de uma curva/rotunda e do destino aproxima aos poucos (como o Google) — ver cameraZoom.ts
+        const mv = maneuverRef.current
+        const zAlvo = navZoom({
+          speedKmh: nav.navSpeed,
+          distToManeuverM: pr?.onRoute ? pr.distToManeuver : null,
+          remainingM: pr?.onRoute ? pr.remainingM : null,
+          maneuverType: mv.type, maneuverModifier: mv.modifier,
+        }, zoomBiasRef.current)
+        // aproximar é mais rápido (a manobra está a chegar); afastar é suave
+        const tau = zAlvo > zoomAtualRef.current ? 900 : 1800
+        zoomAtualRef.current += (zAlvo - zoomAtualRef.current) * (1 - Math.exp(-dt / tau))
         const zoom = zoomAtualRef.current
         const heading = headingAtualRef.current
         mapRef.current?.getMap()?.jumpTo({ center: [newLng, newLat], bearing: heading, pitch: NAV_PITCH, zoom, padding: navPadding() } as any)
@@ -1019,6 +1021,8 @@ export default function MapView({ groupMembers = EMPTY_MEMBERS, currentUserId, g
       const destName = lp && metersBetweenLocal(lp, dest) < 80 ? lp.name
         : tl && (tl.name || tl.address) && metersBetweenLocal(tl, dest) < 80 ? (tl.name || tl.address) : undefined
       beginSession(dest, p, destName)
+      setNavDestName(destName ?? null)
+      setArrivalMin(false)
       applyRoute(route)
       const b0 = Math.round(trackerRef.current?.bearingAt(0) ?? navBearing)
       setNavBearing(b0)
@@ -1117,6 +1121,30 @@ export default function MapView({ groupMembers = EMPTY_MEMBERS, currentUserId, g
   // Single source of truth for resuming follow-mode after any free-camera interaction.
   // All paths that need to re-engage the RAF camera (re-center button, post-route-switch,
   // etc.) must call this — never inline the logic again.
+  // Chegada: em vez de tapar o mapa, aproxima no ponto de entrega (vêem-se os números das casas)
+  // e mostra um cartão pequeno em baixo. Enquadra o rider e a porta.
+  useEffect(() => {
+    if (!hasArrived || !isNavigating || !navDest) return
+    const pos = posAtualRef.current.lat !== 0 ? posAtualRef.current : currentLocation
+    navMapFreeRef.current = true
+    setNavMapFree(true)
+    setShowReCenter(true)
+    const H = typeof window !== 'undefined' ? window.innerHeight : 844
+    const m = mapRef.current
+    if (!m) return
+    m.stop()
+    if (pos && pos.lat !== 0) {
+      m.fitBounds(
+        [[Math.min(pos.lng, navDest.lng), Math.min(pos.lat, navDest.lat)], [Math.max(pos.lng, navDest.lng), Math.max(pos.lat, navDest.lat)]],
+        { padding: { top: Math.round(H * 0.22), bottom: 240, left: 60, right: 60 }, maxZoom: 18.6, bearing: headingAtualRef.current, pitch: 30, duration: 900 } as any,
+      )
+    } else {
+      m.easeTo({ center: [navDest.lng, navDest.lat], zoom: 18.4, pitch: 30, duration: 900 } as any)
+    }
+    diag('chegada-mapa', { nome: navDestName, porta: numeroDaPorta(navDestName) })
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [hasArrived, isNavigating])
+
   const resumeFollow = useCallback(() => {
     if (snapTimerRef.current !== null) { clearTimeout(snapTimerRef.current); snapTimerRef.current = null }
     const s = rafNavStateRef.current
@@ -2019,6 +2047,7 @@ export default function MapView({ groupMembers = EMPTY_MEMBERS, currentUserId, g
 
   const followedMember = followUserId ? groupMembers.find(m => m.userId === followUserId) ?? null : null
   const currentStep = navSteps[currentStepIdx]
+  maneuverRef.current = { type: currentStep?.maneuver?.type ?? null, modifier: currentStep?.maneuver?.modifier ?? null }
 
   return (
     <div className="relative w-full h-full">
@@ -2390,7 +2419,9 @@ export default function MapView({ groupMembers = EMPTY_MEMBERS, currentUserId, g
         )}
         {isNavigating && altRoute && (() => {
           const d = altRoute.deltaS
-          const txt = Math.abs(d) < 60 ? 'Mesmo tempo' : d > 0 ? `+${Math.round(d / 60)} min` : `${Math.round(-d / 60)} min mais rápida`
+          const base = Math.abs(d) < 60 ? 'Mesmo tempo' : d > 0 ? `+${Math.round(d / 60)} min` : `${Math.round(-d / 60)} min mais rápida`
+          const zm = altRoute.zoneM ?? 0
+          const txt = zm > 0 ? `${base} · ⚠️ ${zm >= 1000 ? (zm / 1000).toFixed(1) + ' km' : Math.round(zm / 10) * 10 + ' m'} em zona` : base
           return (
             <Marker longitude={altRoute.label[0]} latitude={altRoute.label[1]} anchor="bottom">
               <button onClick={(e) => { e.stopPropagation(); switchToAlt(); toast('Rota alternativa escolhida') }}
@@ -2448,7 +2479,12 @@ export default function MapView({ groupMembers = EMPTY_MEMBERS, currentUserId, g
         {/* Destination marker — bounces on appear */}
         {navDest && (
           <Marker longitude={navDest.lng} latitude={navDest.lat} anchor="bottom">
-            <div style={{ textAlign: 'center', pointerEvents: 'none', animation: 'pinBounce 0.55s ease-out' }}>
+            <div style={{ textAlign: 'center', pointerEvents: 'none', animation: 'pinBounce 0.55s ease-out', display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
+              {(hasArrived || (remainingDist > 0 && remainingDist < 300)) && numeroDaPorta(navDestName) && (
+                <div style={{ background: '#111827', color: '#fff', fontWeight: 800, fontSize: 13, borderRadius: 8, padding: '2px 8px', marginBottom: 2, boxShadow: '0 2px 6px rgba(0,0,0,0.4)', whiteSpace: 'nowrap' }}>
+                  Nº {numeroDaPorta(navDestName)}
+                </div>
+              )}
               <div style={{ fontSize: 30, filter: 'drop-shadow(0 3px 8px rgba(0,0,0,0.5))' }}>📍</div>
             </div>
           </Marker>
@@ -2647,45 +2683,52 @@ export default function MapView({ groupMembers = EMPTY_MEMBERS, currentUserId, g
 
       </SafeBoundary>
 
-      {/* Arrived overlay */}
-      {hasArrived && (
-        <div style={{
-          position: 'absolute', inset: 0, zIndex: 500,
-          display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center',
-          background: 'rgba(0,0,0,0.55)', backdropFilter: 'blur(4px)',
-        }}>
-          <div style={{
-            background: '#0d1117', border: '2px solid #10b981', borderRadius: 24,
-            padding: '36px 32px', maxWidth: 320, width: '90%', textAlign: 'center',
-            boxShadow: '0 8px 32px rgba(0,0,0,0.5)',
-          }}>
-            <div style={{ fontSize: 52, marginBottom: 12 }}>📍</div>
-            <h2 style={{ color: '#10b981', fontSize: 22, fontWeight: 800, margin: '0 0 8px' }}>Chegou ao destino!</h2>
-            <p style={{ color: '#9ca3af', fontSize: 14, margin: '0 0 28px' }}>
-              {navTotalDist > 0 ? `${(navTotalDist / 1000).toFixed(1)} km percorridos` : 'Entrega concluída'}
-            </p>
-            <button
-              onClick={cancelNavigation}
-              style={{
-                width: '100%', padding: '14px', background: '#10b981', border: 'none',
-                color: '#fff', borderRadius: 14, fontSize: 16, fontWeight: 800, cursor: 'pointer',
-                marginBottom: 10,
-              }}
-            >
-              ✓ Confirmar Entrega
+      {/* Chegada — cartão pequeno em baixo; o mapa continua visível e aproximado na porta */}
+      {hasArrived && isNavigating && (() => {
+        const porta = numeroDaPorta(navDestName)
+        const linha1 = navDestName ? navDestName.split(',')[0].trim() : 'Destino'
+        const resto = navDestName ? navDestName.split(',').slice(1, 3).join(',').trim() : ''
+        if (arrivalMin) return (
+          <div style={{ position: 'absolute', zIndex: 700, left: 12, right: 12, bottom: 'calc(12px + env(safe-area-inset-bottom))', display: 'flex', gap: 8 }}>
+            <button onClick={() => setArrivalMin(false)} style={{ flex: 1, background: '#fff', color: '#111827', border: 'none', borderRadius: 14, padding: '12px 14px', fontWeight: 700, fontSize: 14, textAlign: 'left', boxShadow: '0 4px 16px rgba(0,0,0,0.25)' }}>
+              📍 {porta ? `Nº ${porta} · ` : ''}{linha1}
             </button>
-            <button
-              onClick={() => setHasArrived(false)}
-              style={{
-                width: '100%', padding: '10px', background: 'transparent', border: '1px solid rgba(255,255,255,0.15)',
-                color: '#9ca3af', borderRadius: 14, fontSize: 14, cursor: 'pointer',
-              }}
-            >
-              Continuar navegando
-            </button>
+            <button onClick={cancelNavigation} style={{ background: '#10b981', color: '#fff', border: 'none', borderRadius: 14, padding: '12px 16px', fontWeight: 800, fontSize: 14, boxShadow: '0 4px 16px rgba(0,0,0,0.25)' }}>✓ Concluir</button>
           </div>
-        </div>
-      )}
+        )
+        return (
+          <div style={{
+            position: 'absolute', zIndex: 700, left: 0, right: 0, bottom: 0,
+            background: '#fff', color: '#111827', borderRadius: '20px 20px 0 0',
+            padding: '14px 16px calc(14px + env(safe-area-inset-bottom))', boxShadow: '0 -4px 20px rgba(0,0,0,0.25)',
+          }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+              {porta ? (
+                <div style={{ minWidth: 56, height: 56, borderRadius: 14, background: '#111827', color: '#fff', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', padding: '0 8px' }}>
+                  <span style={{ fontSize: 10, opacity: 0.7, lineHeight: 1 }}>Nº</span>
+                  <span style={{ fontSize: 24, fontWeight: 800, lineHeight: 1.1 }}>{porta}</span>
+                </div>
+              ) : (
+                <div style={{ width: 56, height: 56, borderRadius: 14, background: '#ecfdf5', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 28 }}>📍</div>
+              )}
+              <div style={{ flex: 1, minWidth: 0 }}>
+                <div style={{ color: '#059669', fontWeight: 800, fontSize: 13 }}>Chegou ao destino</div>
+                <div style={{ fontWeight: 700, fontSize: 16, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{linha1}</div>
+                {resto && <div style={{ color: '#6b7280', fontSize: 12, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{resto}</div>}
+              </div>
+              <button aria-label="Minimizar" onClick={() => setArrivalMin(true)} style={{ background: '#f3f4f6', border: 'none', borderRadius: 999, width: 36, height: 36, fontSize: 18, color: '#374151' }}>⌄</button>
+            </div>
+            <div style={{ display: 'flex', gap: 8, marginTop: 12 }}>
+              <button onClick={() => setArrivalMin(true)} style={{ flex: 1, padding: '12px', background: '#f3f4f6', border: 'none', color: '#111827', borderRadius: 12, fontSize: 14, fontWeight: 700 }}>
+                Ver no mapa
+              </button>
+              <button onClick={cancelNavigation} style={{ flex: 1.4, padding: '12px', background: '#10b981', border: 'none', color: '#fff', borderRadius: 12, fontSize: 15, fontWeight: 800 }}>
+                ✓ Concluir entrega
+              </button>
+            </div>
+          </div>
+        )
+      })()}
 
       {/* Navigation overlay (banner + voice + bottom bar) — se o painel falhar, mostra uma barra mínima
           e a navegação (GPS, rota, câmera) continua rodando por baixo */}

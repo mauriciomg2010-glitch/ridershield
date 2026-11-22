@@ -416,7 +416,7 @@ export default function NavigationScreen({
       )}
 
       {/* Barra de baixo — painel branco como no Google Maps (antes era escura e chamava muita atenção) */}
-      <div className="absolute z-[600]" style={{ bottom: 0, left: 0, right: 0 }}>
+      <div className="absolute z-[600]" style={{ bottom: 0, left: 0, right: 0, display: hasArrived ? 'none' : undefined }}>
         <div style={{
           background: '#ffffff',
           borderRadius: '18px 18px 0 0',
