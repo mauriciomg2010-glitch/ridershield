@@ -3,6 +3,8 @@ const nextConfig = {
   reactStrictMode: true,
   transpilePackages: ['mapbox-gl', 'react-map-gl'],
   env: {
+    // versão desta build (commit no Vercel) — a app compara com /api/version e atualiza-se sozinha
+    NEXT_PUBLIC_BUILD_SHA: process.env.VERCEL_GIT_COMMIT_SHA || 'dev',
     NEXT_PUBLIC_FIREBASE_API_KEY: 'AIzaSyCSZbbxxdJF6F5N4dDISkp1QQIbW9lNNW8',
     NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN: 'ridershield-dfe8b.firebaseapp.com',
     NEXT_PUBLIC_FIREBASE_PROJECT_ID: 'ridershield-dfe8b',

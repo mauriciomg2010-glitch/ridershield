@@ -1995,6 +1995,7 @@ export default function MapView({ groupMembers = EMPTY_MEMBERS, currentUserId, g
 
   useEffect(() => {
     onNavigationChange?.(isNavigating)
+    ;(window as any).__zivoNavegando = isNavigating   // a atualização automática espera pelo fim da navegação
   }, [isNavigating, onNavigationChange])
 
   useEffect(() => {
