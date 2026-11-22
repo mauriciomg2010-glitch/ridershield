@@ -543,3 +543,8 @@ test('link do Google Maps → destino', () => {
   assert.deepEqual(destinoDeUrlGoogle(consent), { lat: 53.31, lng: -6.35 })
   assert.equal(textoParaPesquisa(partilha), "Supermac's Tallaght, Main St, Tallaght, Dublin 24")
 })
+
+test('link curto colado sem https ou com texto à volta', () => {
+  assert.equal(findMapsUrl('maps.app.goo.gl/pq5RDGDDBbY9Fhp'), 'https://maps.app.goo.gl/pq5RDGDDBbY9Fhp')
+  assert.equal(findMapsUrl('Ver no mapa: https://maps.app.goo.gl/pq5RDGDDBbY9Fhp?g_st=aw'), 'https://maps.app.goo.gl/pq5RDGDDBbY9Fhp')
+})

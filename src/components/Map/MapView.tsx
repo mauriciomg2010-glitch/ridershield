@@ -1273,9 +1273,18 @@ export default function MapView({ groupMembers = EMPTY_MEMBERS, currentUserId, g
     }
   }, [searchText, searchSuggestions, currentLocation, selectSuggestion])
 
+  // Link do Google Maps escrito/colado na pesquisa (o teclado do Android cola pela sugestão da
+  // área de transferência SEM evento de "colar") → lê o destino em vez de pesquisar o texto
+  useEffect(() => {
+    if (!showSearch || !findMapsUrl(searchText)) return
+    const t = setTimeout(() => abrirDestinoExternoRef.current?.(searchText), 150)
+    return () => clearTimeout(t)
+  }, [searchText, showSearch])
+
   // Debounced suggestions on text change
   useEffect(() => {
     if (!showSearch || !searchText) { if (!searchText) setSearchSuggestions([]); return }
+    if (findMapsUrl(searchText)) { setSearchSuggestions([]); return }
     const timer = setTimeout(() => suggestPlaces(searchText), 250)
     return () => clearTimeout(timer)
   }, [searchText, showSearch, suggestPlaces])

@@ -17,7 +17,13 @@ export async function GET(req: NextRequest) {
     if (d && !/goo\.gl$/i.test(atual.hostname)) return NextResponse.json(d, { headers: { 'Cache-Control': 's-maxage=86400' } })
     let r: Response
     try { r = await fetch(atual.href, { redirect: 'manual', headers: { 'User-Agent': 'Mozilla/5.0 (ZIVO)' } }) } catch { break }
-    const loc = r.headers.get('location')
+    let loc = r.headers.get('location')
+    if (!loc && r.ok) {
+      // às vezes responde com uma página (redirecionamento por HTML/JS) em vez de 302
+      const html = (await r.text()).slice(0, 200000).replace(/\\u0026/g, '&').replace(/&amp;/g, '&')
+      const m = html.match(/https:\/\/(?:www\.)?google\.[a-z.]+\/maps\/[^"'\s<>\\]+/i)
+      if (m) loc = m[0]
+    }
     if (!loc) break
     try { atual = new URL(loc, atual) } catch { break }
   }

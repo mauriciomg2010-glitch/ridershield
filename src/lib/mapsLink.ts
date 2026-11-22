@@ -8,6 +8,8 @@ const ok = (lat: number, lng: number) => isFinite(lat) && isFinite(lng) && Math.
 
 /** Primeiro link do Google Maps dentro de um texto partilhado ("Nome\nMorada\nhttps://maps.app.goo.gl/…"). */
 export function findMapsUrl(text: string): string | null {
+  const curto = text.match(/(?:https?:\/\/)?(maps\.app\.goo\.gl\/[A-Za-z0-9_-]+)/i)
+  if (curto) return 'https://' + curto[1]
   const m = text.match(/https?:\/\/(?:maps\.app\.goo\.gl|goo\.gl\/maps|(?:www\.|maps\.)?google\.[a-z.]+\/maps|maps\.google\.[a-z.]+)[^\s]*/i)
   return m ? m[0].replace(/[).,]+$/, '') : null
 }
