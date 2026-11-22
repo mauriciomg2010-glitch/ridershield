@@ -22,7 +22,7 @@ import ReportPromptCard from '@/components/Report/ReportPromptCard'
 import { isReportActive, MAX_TTL_MIN, reportAppliesToDirection } from '@/lib/reportRules'
 import { sentidoAtual } from '@/lib/reportHeading'
 import { isNight } from '@/lib/sun'
-import { resolverDestino } from '@/lib/sharedDestination'
+import { resolverDestino, variantesMorada } from '@/lib/sharedDestination'
 import { findMapsUrl } from '@/lib/mapsLink'
 import { useLang } from '@/contexts/LangContext'
 import { useTheme } from '@/contexts/ThemeContext'
@@ -1947,8 +1947,11 @@ export default function MapView({ groupMembers = EMPTY_MEMBERS, currentUserId, g
       let alvo: { lat: number; lng: number } | null = null
       if (d && 'lat' in d) alvo = { lat: d.lat, lng: d.lng }
       else if (d && 'query' in d) {
-        const feat = await geocodeAddress(d.query, currentLocation ?? null)
-        if (feat) { const [lng, lat] = feat.geometry.coordinates; alvo = { lat, lng } }
+        // morada completa → sem "Unit…" → sem o nome do restaurante → só rua/zona
+        for (const q of variantesMorada(d.query)) {
+          const feat = await geocodeAddress(q, currentLocation ?? null)
+          if (feat) { const [lng, lat] = feat.geometry.coordinates; alvo = { lat, lng }; break }
+        }
       }
       diag('destino-externo', { ok: !!alvo, tipo: d ? ('lat' in d ? 'coords' : 'texto') : 'nada', link: !!findMapsUrl(texto) })
       if (!alvo) { setNavError('Não consegui ler o destino. Copia o link do Google Maps e tenta de novo.'); return }
