@@ -6,6 +6,7 @@ import {
   signInWithEmailAndPassword,
   signOut as firebaseSignOut,
   onAuthStateChanged,
+  sendEmailVerification,
   User as FirebaseUser,
 } from 'firebase/auth'
 import { auth } from '@/lib/firebase'
@@ -64,6 +65,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   async function signUp(email: string, password: string, name: string, referrerId?: string, referralCode?: string) {
     const cred = await createUserWithEmailAndPassword(auth, email, password)
     const uid = cred.user.uid
+    // verificação de email (evita contas falsas e reports fantasma) — não bloqueia o uso
+    try { auth.languageCode = 'pt'; await sendEmailVerification(cred.user) } catch (e) { console.warn('[Auth] verificação de email não enviada', e) }
     await createUserProfile(uid, name, email)
     if (referrerId && referralCode) {
       try {

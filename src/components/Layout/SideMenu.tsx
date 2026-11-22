@@ -12,6 +12,7 @@ import { db } from '@/lib/firebase'
 import { collection, query, where, onSnapshot, getDoc, doc } from 'firebase/firestore'
 import AdSlot from '@/components/Ads/AdSlot'
 import { VERSAO } from '@/lib/version'
+import EmailVerifyRow from '@/components/Account/EmailVerifyRow'
 import { isAdminUser, ADMIN_UID as MENU_ADMIN_UID } from '@/lib/admin'
 import { EmergencyContacts } from '@/types'
 import ReferralPanel from '@/components/Referral/ReferralPanel'
@@ -493,6 +494,7 @@ export default function SideMenu({ open, onClose, onNavigate, categories = [], a
               </div>
 
               <DiagnosticsSection />
+              <EmailVerifyRow />
               <DeleteAccountSection />
             </div>
           </div>
@@ -720,6 +722,7 @@ export default function SideMenu({ open, onClose, onNavigate, categories = [], a
 
           <p className="text-center text-xs pb-6" style={{ color: 'var(--muted)' }}>
             ZIVO {VERSAO}
+            <br /><a href="/privacidade" style={{ color: 'var(--muted)', textDecoration: 'underline' }}>Privacidade</a> · <a href="/termos" style={{ color: 'var(--muted)', textDecoration: 'underline' }}>Termos</a>
           </p>
         </div>
         </div>{/* end show-when-no-panel wrapper */}

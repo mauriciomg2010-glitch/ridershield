@@ -297,6 +297,12 @@ export default function AuthScreen() {
           )}
         </form>
 
+        {/* exigido pela Play Store: link para a política de privacidade e termos */}
+        <p className="text-center mt-5" style={{ fontSize: 11, color: 'rgba(255,255,255,0.45)' }}>
+          {mode === 'signup' ? 'Ao criar conta aceitas os ' : ''}
+          <a href="/termos" style={{ color: '#f59e0b' }}>Termos de Uso</a> e a <a href="/privacidade" style={{ color: '#f59e0b' }}>Política de Privacidade</a>
+        </p>
+
       </div>
     </div>
   )
