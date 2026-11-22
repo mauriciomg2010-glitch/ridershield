@@ -555,3 +555,11 @@ test('morada do Google: variantes para pesquisar', () => {
   assert.equal(v[0], 'Musashi Tallaght, UNIT A3, CROSS EAST, Tallaght, Dublin 24, D24 RX94')
   assert.ok(v.includes('CROSS EAST, Tallaght, Dublin 24, D24 RX94'))
 })
+
+import { pareceDestinoExterno } from '../src/lib/sharedDestination'
+test('caixa de pesquisa reconhece link do Google e coordenadas do Deliveroo', () => {
+  assert.ok(pareceDestinoExterno('https://maps.app.goo.gl/FWRge1DxWWQcCUk77?g_st=ic'))
+  assert.ok(pareceDestinoExterno('53.29355724,-6.383914948'))
+  assert.ok(!pareceDestinoExterno('Tesco Cookstown'))
+  assert.ok(!pareceDestinoExterno('D24 RX94'))
+})

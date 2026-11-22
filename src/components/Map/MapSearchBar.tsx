@@ -1,5 +1,6 @@
 // src/components/Map/MapSearchBar.tsx
 'use client'
+import { destinoParaPonto, pareceDestinoExterno } from '@/lib/sharedDestination'
 import { normalizeEircode, lookupEircode } from '@/lib/eircode'
 import { useState, useRef, useCallback, useEffect } from 'react'
 
@@ -123,11 +124,36 @@ export default function MapSearchBar({ onPlaceSelected, userLocation }: Props) {
     onPlaceSelected(item.lat, item.lng, item.name)
   }, [onPlaceSelected])
 
+  // Link do Google Maps / coordenadas (Deliveroo → Google Maps → Partilhar → Copiar) → vai direto ao destino
+  const [lendo, setLendo] = useState(false)
+  const [erroLink, setErroLink] = useState<string | null>(null)
+  const abrirExterno = useCallback(async (t: string) => {
+    setLendo(true); setErroLink(null); setSuggestions([])
+    try {
+      const p = await destinoParaPonto(t, userLocation ?? null)
+      if (p) { saveToHistory({ id: `link-${p.lat.toFixed(5)},${p.lng.toFixed(5)}`, name: p.label?.split(',')[0] || 'Destino copiado', address: p.label || '', lat: p.lat, lng: p.lng }); setOpen(false); setText(''); onPlaceSelected(p.lat, p.lng, p.label) }
+      else setErroLink('Não consegui ler o destino deste link.')
+    } catch { setErroLink('Não consegui ler o destino deste link.') }
+    finally { setLendo(false) }
+  }, [userLocation, onPlaceSelected])
+
+  const colar = useCallback(async () => {
+    try {
+      const t = await navigator.clipboard.readText()
+      if (t?.trim()) { setText(t.trim()); return }
+      setErroLink('Nada copiado. No Google Maps: Partilhar → Copiar.')
+    } catch { setErroLink('Sem acesso ao que copiaste: mantém premida a caixa e escolhe Colar.') }
+  }, [])
+
   useEffect(() => {
-    if (!open || !text) { if (!text) setSuggestions([]); return }
+    if (!open || !text) { if (!text) { setSuggestions([]); setErroLink(null) }; return }
+    if (pareceDestinoExterno(text)) {
+      const timer = setTimeout(() => abrirExterno(text), 120)
+      return () => clearTimeout(timer)
+    }
     const timer = setTimeout(() => suggestPlaces(text), 250)
     return () => clearTimeout(timer)
-  }, [text, open, suggestPlaces])
+  }, [text, open, suggestPlaces, abrirExterno])
 
   return (
     <>
@@ -167,6 +193,7 @@ export default function MapSearchBar({ onPlaceSelected, userLocation }: Props) {
               value={text}
               onChange={e => setText(e.target.value)}
               onKeyDown={e => {
+                if (e.key === 'Enter' && pareceDestinoExterno(text)) { abrirExterno(text); return }
                 if (e.key === 'Enter' && suggestions.length > 0) selectSuggestion(suggestions[0])
                 if ((e.metaKey || e.ctrlKey) && e.key === 'z') e.preventDefault()
               }}
@@ -188,8 +215,25 @@ export default function MapSearchBar({ onPlaceSelected, userLocation }: Props) {
 
           {/* Content area */}
           <div style={{ flex: 1, overflowY: 'auto' }}>
+            {/* link do Google Maps / coordenadas: a ler, ou erro */}
+            {(lendo || erroLink) && (
+              <div style={{ padding: '14px 16px', fontSize: 14, fontWeight: 600, color: erroLink ? '#d93025' : 'var(--text)' }}>
+                {lendo ? '📍 A ler o destino do link…' : erroLink}
+              </div>
+            )}
+            {/* Colar destino copiado no Google Maps (Deliveroo/Uber → Google Maps → Partilhar → Copiar) */}
+            {!text && (
+              <button onClick={colar}
+                style={{ width: '100%', display: 'flex', alignItems: 'center', gap: 10, padding: '13px 16px', background: 'transparent', border: 'none', borderBottom: '1px solid var(--border)', cursor: 'pointer', textAlign: 'left' }}>
+                <span style={{ fontSize: 20 }}>📋</span>
+                <span style={{ flex: 1 }}>
+                  <span style={{ display: 'block', fontSize: 14, fontWeight: 700, color: 'var(--text)' }}>Colar destino copiado</span>
+                  <span style={{ display: 'block', fontSize: 12, color: 'var(--muted)' }}>Link do Google Maps, coordenadas, morada ou Eircode</span>
+                </span>
+              </button>
+            )}
             {/* Live suggestions when typing */}
-            {text.length >= 2 ? (
+            {pareceDestinoExterno(text) ? null : text.length >= 2 ? (
               <>
                 {suggestions.map((s, i) => (
                   <button key={i} onClick={() => selectSuggestion(s)}

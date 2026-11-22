@@ -46,3 +46,31 @@ export function variantesMorada(q: string): string[] {
   const v = [q, semUnit.join(', '), semUnit.slice(1).join(', '), partes.slice(-3).join(', ')]
   return [...new Set(v.filter(x => x.length >= 4))]
 }
+
+/** Pesquisa simples de morada (Mapbox) — usada quando o link só traz texto. */
+async function geocodeTexto(q: string, perto?: { lat: number; lng: number } | null): Promise<{ lat: number; lng: number } | null> {
+  const token = process.env.NEXT_PUBLIC_MAPBOX_TOKEN
+  if (!token) return null
+  const prox = perto ? `&proximity=${perto.lng},${perto.lat}` : ''
+  try {
+    const r = await fetch(`https://api.mapbox.com/geocoding/v5/mapbox.places/${encodeURIComponent(q)}.json?access_token=${token}&country=ie&limit=1${prox}`)
+    const f = (await r.json()).features?.[0]
+    return f ? { lat: f.center[1], lng: f.center[0] } : null
+  } catch { return null }
+}
+
+/** Texto (link do Google Maps, coordenadas, Eircode ou morada) → ponto no mapa, ou null. */
+export async function destinoParaPonto(texto: string, perto?: { lat: number; lng: number } | null): Promise<{ lat: number; lng: number; label?: string } | null> {
+  const d = await resolverDestino(texto)
+  if (!d) return null
+  if ('lat' in d) return d
+  for (const q of variantesMorada(d.query)) {
+    const p = await geocodeTexto(q, perto)
+    if (p) return { ...p, label: d.query }
+  }
+  return null
+}
+
+/** O texto parece um destino "de fora" (link do Google Maps ou coordenadas) e não uma pesquisa normal? */
+export const pareceDestinoExterno = (t: string) =>
+  !!findMapsUrl(t) || /^\s*-?\d{1,2}\.\d{3,}\s*,\s*-?\d{1,3}\.\d{3,}\s*$/.test(t)
