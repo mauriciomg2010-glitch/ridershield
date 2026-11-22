@@ -18,6 +18,7 @@ import { recordTrip, overlap, simplifyTrace } from '@/lib/navigation/habits'
 import { projectAhead } from '@/lib/navigation/reportAhead'
 import { diag } from '@/lib/diagnostics'
 import { ChoiceState, newChoiceState, isDetour, registerReroute } from '@/lib/navigation/riderChoice'
+import { AltCheckState, newAltState, shouldCheckAlt, slipS } from '@/lib/navigation/altCheck'
 
 type LatLng = { lat: number; lng: number }
 export type LiveProgress = Progress & { time: number; speedMps: number; onRoute: boolean }
@@ -44,7 +45,7 @@ interface Options {
 }
 
 const REROUTE_COOLDOWN_MS = 8000
-const FASTER_ROUTE_EVERY_MS = 90000
+const FASTER_ROUTE_EVERY_MS = 15000   // só avalia; o pedido à API depende de altCheck.ts
 const FASTER_ROUTE_MIN_GAIN_S = 120
 
 const byFewestZones = (a: any, b: any) => (a._hits?.length ?? 0) - (b._hits?.length ?? 0) || a.duration - b.duration
@@ -78,6 +79,7 @@ export function useNavigationCore({ isNavigating, currentFix, navDest, routeProf
   const lastRerouteRef = useRef(0)
   const rerouteBusyRef = useRef(false)
   const passIdsRef = useRef<Set<string>>(new Set())   // zonas que a rota só corta de passagem
+  const altStateRef = useRef<AltCheckState | null>(null)   // quando procurar alternativas (poupa pedidos)
   const choiceRef = useRef<ChoiceState>(newChoiceState())   // rider recusou a rota segura?
   const onDetourRef = useRef(true)   // rota atual é um desvio de segurança (a inicial costuma ser)
   const moveHeadingRef = useRef<{ deg: number; time: number } | null>(null)   // direção real do rider (GPS)
@@ -177,6 +179,7 @@ export function useNavigationCore({ isNavigating, currentFix, navDest, routeProf
 
   const applyRoute = useCallback((route: any) => {
     setAltRoute(null)
+    altStateRef.current = newAltState(Date.now(), Number(route?.duration) || 0)
     guard('applyRoute', () => {
       if (tripRef.current && !tripRef.current.firstRoute && Array.isArray(route?.geometry?.coordinates)) {
         tripRef.current.firstRoute = route.geometry.coordinates as LngLat[]
@@ -372,14 +375,20 @@ export function useNavigationCore({ isNavigating, currentFix, navDest, routeProf
     if (!isNavigating) { setHasArrived(false); hasArrivedRef.current = false }
   }, [isNavigating])
 
-  // ── a cada 2 min: procura rota SEGURA mais rápida (trânsito mudou) ──
+  // ── procura rota SEGURA mais rápida quando o rider atrasa (trânsito) — ver altCheck.ts ──
   useEffect(() => {
     if (!isNavigating) return
     const check = async () => {
       const dest = navDestRef.current
       const fix = useStore.getState().currentFix
       const pr = progressRef.current
-      if (!dest || !fix || !pr || !pr.onRoute || rerouteBusyRef.current || pr.remainingM < 1500) return
+      if (!dest || !fix || !pr || !pr.onRoute || rerouteBusyRef.current) return
+      const st = altStateRef.current
+      const agora = Date.now()
+      const motivo = st ? shouldCheckAlt(st, agora, pr.remainingS, pr.remainingM) : null
+      if (!st || !motivo) return
+      st.lastCheck = agora; st.checks++
+      diag('alt-verificar', { motivo, atrasoS: Math.round(slipS(st, agora, pr.remainingS)), n: st.checks, faltaS: Math.round(pr.remainingS) })
       try {
         const [routes, zones] = await Promise.all([
           fetchMapboxRoutes(fix, dest, profileRef.current, { alternatives: true }),
@@ -417,9 +426,9 @@ export function useNavigationCore({ isNavigating, currentFix, navDest, routeProf
         diag('alternativa', { delta: Math.round(escolhida.duration - cur.remainingS) })
       } catch { /* sem rede: tenta no próximo ciclo */ }
     }
-    const first = setTimeout(check, 25_000)          // 1ª verificação logo no início
+    // avalia a cada 15 s (sem custo); só pede rotas quando shouldCheckAlt diz que vale a pena
     const interval = setInterval(check, FASTER_ROUTE_EVERY_MS)
-    return () => { clearTimeout(first); clearInterval(interval); setAltRoute(null) }
+    return () => { clearInterval(interval); setAltRoute(null) }
   }, [isNavigating, applyRoute])
 
   /** Rider tocou na alternativa cinzenta: passa a navegar por ela. */

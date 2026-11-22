@@ -563,3 +563,25 @@ test('caixa de pesquisa reconhece link do Google e coordenadas do Deliveroo', ()
   assert.ok(!pareceDestinoExterno('Tesco Cookstown'))
   assert.ok(!pareceDestinoExterno('D24 RX94'))
 })
+
+import { newAltState, shouldCheckAlt, ALT } from '../src/lib/navigation/altCheck'
+test('alternativas: corrida curta sem trânsito não gasta pedidos; atraso dispara logo', () => {
+  const t0 = 0
+  // corrida de 7 min (420 s), a correr como previsto
+  let s = newAltState(t0, 420)
+  let pedidos = 0
+  for (let t = 15; t <= 420; t += 15) {
+    const restante = 420 - t
+    if (shouldCheckAlt(s, t * 1000, restante, restante * 8)) { pedidos++; s.lastCheck = t * 1000; s.checks++ }
+  }
+  assert.ok(pedidos <= 1, `pedidos=${pedidos}`)
+  // presa no trânsito: aos 90 s só fez 20 s do previsto → 70 s de atraso → verifica já
+  const s2 = newAltState(t0, 600)
+  assert.equal(shouldCheckAlt(s2, 90_000, 580, 4000), 'atraso')
+  // nos últimos 3 min nunca
+  assert.equal(shouldCheckAlt(newAltState(t0, 600), 500_000, 150, 1200), null)
+  // corrida longa sem atraso: periódica a cada 3 min, máximo 4
+  let s3 = newAltState(t0, 1800); let n = 0
+  for (let t = 15; t <= 1800; t += 15) { const r = 1800 - t; if (shouldCheckAlt(s3, t * 1000, r, r * 8)) { n++; s3.lastCheck = t * 1000; s3.checks++ } }
+  assert.ok(n >= 3 && n <= ALT.MAX_CHECKS, `n=${n}`)
+})
