@@ -527,3 +527,19 @@ test('sol em Dublin: meio-dia de verão alto, meia-noite e 7h de novembro escura
   assert.ok(isNight(new Date('2026-11-18T17:15:00Z'), lat, lng), 'pôr do sol ~16:25')
   assert.ok(!isNight(new Date('2026-11-18T16:20:00Z'), lat, lng))
 })
+
+import { findMapsUrl, destinoDeUrlGoogle, isShortMapsUrl, textoParaPesquisa } from '../src/lib/mapsLink'
+test('link do Google Maps → destino', () => {
+  const partilha = "Supermac's Tallaght\nMain St, Tallaght, Dublin 24\nhttps://maps.app.goo.gl/AbC123xyz"
+  assert.equal(findMapsUrl(partilha), 'https://maps.app.goo.gl/AbC123xyz')
+  assert.ok(isShortMapsUrl('https://maps.app.goo.gl/AbC123xyz'))
+  const place = 'https://www.google.com/maps/place/Supermac%27s/@53.2880,-6.3700,17z/data=!3m1!4b1!4m6!3m5!1s0x0:0x1!8m2!3d53.28812!4d-6.37021!16s'
+  assert.deepEqual(destinoDeUrlGoogle(place), { lat: 53.28812, lng: -6.37021, label: "Supermac's" })
+  assert.deepEqual(destinoDeUrlGoogle('https://www.google.com/maps/dir/?api=1&destination=53.3498,-6.2603&travelmode=driving'), { lat: 53.3498, lng: -6.2603 })
+  assert.deepEqual(destinoDeUrlGoogle('https://www.google.com/maps/dir/?api=1&destination=D24%20X4Y2'), { query: 'D24 X4Y2' })
+  assert.deepEqual(destinoDeUrlGoogle('https://www.google.com/maps/dir/My+Location/53.29,-6.37/@53.3,-6.3,14z'), { lat: 53.29, lng: -6.37 })
+  assert.deepEqual(destinoDeUrlGoogle('https://maps.google.com/?q=53.30,-6.36'), { lat: 53.30, lng: -6.36 })
+  const consent = 'https://consent.google.com/m?continue=' + encodeURIComponent('https://www.google.com/maps/search/53.31,+-6.35?entry=tts')
+  assert.deepEqual(destinoDeUrlGoogle(consent), { lat: 53.31, lng: -6.35 })
+  assert.equal(textoParaPesquisa(partilha), "Supermac's Tallaght, Main St, Tallaght, Dublin 24")
+})

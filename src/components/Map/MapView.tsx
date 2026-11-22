@@ -22,6 +22,8 @@ import ReportPromptCard from '@/components/Report/ReportPromptCard'
 import { isReportActive, MAX_TTL_MIN, reportAppliesToDirection } from '@/lib/reportRules'
 import { sentidoAtual } from '@/lib/reportHeading'
 import { isNight } from '@/lib/sun'
+import { resolverDestino } from '@/lib/sharedDestination'
+import { findMapsUrl } from '@/lib/mapsLink'
 import { useLang } from '@/contexts/LangContext'
 import { useTheme } from '@/contexts/ThemeContext'
 import { Incident, IncidentType } from '@/types'
@@ -1239,16 +1241,15 @@ export default function MapView({ groupMembers = EMPTY_MEMBERS, currentUserId, g
     }
   }, [retrievePlace])
 
+  const abrirDestinoExternoRef = useRef<((t: string) => void) | null>(null)
   const handlePaste = useCallback((e: React.ClipboardEvent<HTMLInputElement>) => {
     const text = e.clipboardData.getData('text').trim()
     // Coordinates
     const coords = parseCoordinates(text)
     if (coords) { e.preventDefault(); goToCoords(coords.lat, coords.lng); return }
     // Google Maps URL with @lat,lng
-    if (text.includes('google.com/maps') || text.includes('maps.app.goo.gl')) {
-      const m = text.match(/@(-?\d+\.?\d+),(-?\d+\.?\d+)/)
-      if (m) { e.preventDefault(); goToCoords(parseFloat(m[1]), parseFloat(m[2])); return }
-    }
+    // Link do Google Maps (curto maps.app.goo.gl ou longo): lê o destino e abre as rotas
+    if (findMapsUrl(text)) { e.preventDefault(); abrirDestinoExternoRef.current?.(text); return }
     // Plain text — let paste happen, suggestions will fire via debounce
   }, [goToCoords])
 
@@ -1926,6 +1927,59 @@ export default function MapView({ groupMembers = EMPTY_MEMBERS, currentUserId, g
     setTappedLocation(null)
     onNavRequested?.()
   }, [requestNavTo, onNavRequested])
+
+  // ── Destino vindo de fora: link do Google Maps (Deliveroo → Google Maps → Partilhar/Copiar),
+  //    coordenadas, Eircode ou morada. Abre logo o painel de rotas.
+  const [lendoDestino, setLendoDestino] = useState(false)
+  const abrirDestinoExterno = useCallback(async (texto: string) => {
+    setLendoDestino(true); setNavError(null)
+    try {
+      const d = await resolverDestino(texto)
+      let alvo: { lat: number; lng: number } | null = null
+      if (d && 'lat' in d) alvo = { lat: d.lat, lng: d.lng }
+      else if (d && 'query' in d) {
+        const feat = await geocodeAddress(d.query, currentLocation ?? null)
+        if (feat) { const [lng, lat] = feat.geometry.coordinates; alvo = { lat, lng } }
+      }
+      diag('destino-externo', { ok: !!alvo, tipo: d ? ('lat' in d ? 'coords' : 'texto') : 'nada', link: !!findMapsUrl(texto) })
+      if (!alvo) { setNavError('Não consegui ler o destino. Copia o link do Google Maps e tenta de novo.'); return }
+      if (isNavigating) { cancelNavigation(); setAltRoutes([]); setSafeRouteData(null) }
+      setShowSearch(false); setSearchText(''); setSearchSuggestions([])
+      mapRef.current?.flyTo({ center: [alvo.lng, alvo.lat], zoom: 15, duration: 800 })
+      setPendingNavDest(alvo)
+      setShowModeSelector(true)
+      setTappedLocation(null)
+    } catch {
+      setNavError('Não consegui ler o destino.')
+    } finally { setLendoDestino(false) }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [currentLocation, isNavigating])
+
+  abrirDestinoExternoRef.current = abrirDestinoExterno
+
+  // Partilhar do Android (share target do manifest → /?text=…&url=…) e atalho do iOS (?address=)
+  useEffect(() => {
+    if (typeof window === 'undefined') return
+    const sp = new URLSearchParams(window.location.search)
+    const recebido = [sp.get('address'), sp.get('title'), sp.get('text'), sp.get('url')].filter(Boolean).join('\n')
+    if (!recebido.trim()) return
+    const limpo = new URL(window.location.href)
+    ;['address', 'title', 'text', 'url'].forEach(k => limpo.searchParams.delete(k))
+    window.history.replaceState({}, '', limpo.toString())
+    abrirDestinoExterno(recebido)
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
+
+  // botão "Colar destino": lê o que foi copiado no Google Maps (o iPhone pede para confirmar "Colar")
+  const colarDestino = useCallback(async () => {
+    try {
+      const t = await navigator.clipboard.readText()
+      if (!t?.trim()) { setNavError('Nada copiado. No Google Maps: Partilhar → Copiar link.'); return }
+      abrirDestinoExterno(t)
+    } catch {
+      setNavError('Sem acesso ao que copiaste. Toca na caixa de pesquisa e cola (manter premido → Colar).')
+    }
+  }, [abrirDestinoExterno])
 
   useEffect(() => {
     onNavigationChange?.(isNavigating)
@@ -3045,6 +3099,18 @@ export default function MapView({ groupMembers = EMPTY_MEMBERS, currentUserId, g
                 Cancelar
               </button>
             </div>
+
+            {/* Colar destino copiado no Google Maps (Deliveroo/Uber → Google Maps → Partilhar → Copiar) */}
+            {!searchText.trim() && (
+              <button onClick={colarDestino} disabled={lendoDestino}
+                style={{ display: 'flex', alignItems: 'center', gap: 10, width: '100%', padding: '11px 14px', background: 'none', border: 'none', borderTop: '1px solid var(--border)', cursor: 'pointer', textAlign: 'left' }}>
+                <span style={{ fontSize: 18 }}>📋</span>
+                <span style={{ flex: 1 }}>
+                  <span style={{ display: 'block', fontSize: 14, fontWeight: 700, color: 'var(--text)' }}>{lendoDestino ? 'A ler o destino…' : 'Colar destino copiado'}</span>
+                  <span style={{ display: 'block', fontSize: 12, color: 'var(--muted)' }}>Link do Google Maps, morada ou Eircode</span>
+                </span>
+              </button>
+            )}
 
             {/* Destinos frequentes (aprendidos no aparelho) — com a caixa vazia */}
             {!searchText.trim() && searchSuggestions.length === 0 && (() => {
