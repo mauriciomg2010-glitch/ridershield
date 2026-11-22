@@ -674,3 +674,46 @@ test('entrada fechada: viragem recusada é guardada e a rota que volta a ela é 
   assert.equal(viragemRecusada(tr, { stepIdx: 1, distToManeuver: 150, along: 50 }, aqui), null)
   void coords
 })
+
+// ── nov 2026: parceiros (horários, filtro, anúncio perto) ──
+import { disponivelAgora, textoHorario, proximaAbertura, filtrarParceiros, anuncioPerto, categoriaDe, textoDias } from '../src/lib/partners'
+
+test('parceiros: desconto só em dias/horas menos movimentados', () => {
+  const p: any = { id: 'a', name: 'Burrito', offer: '15% OFF', windows: [{ days: [1, 2, 3, 4, 5], from: '14:30', to: '17:00' }] }
+  const seg15 = new Date(2026, 10, 23, 15, 0)   // segunda 15:00
+  const seg18 = new Date(2026, 10, 23, 18, 0)
+  const sab15 = new Date(2026, 10, 28, 15, 0)
+  assert.equal(disponivelAgora(p, seg15), true)
+  assert.equal(disponivelAgora(p, seg18), false)
+  assert.equal(disponivelAgora(p, sab15), false)
+  assert.equal(textoHorario(p), 'Seg–Sex 14:30–17:00')
+  assert.equal(proximaAbertura(p, seg18), 'Amanhã às 14:30')
+  assert.equal(proximaAbertura(p, sab15), 'Seg às 14:30')
+  // sem horários = sempre; inativo = nunca
+  assert.equal(disponivelAgora({ id: 'b', name: 'X', offer: 'y' } as any, seg18), true)
+  assert.equal(disponivelAgora({ id: 'c', name: 'X', offer: 'y', active: false } as any, seg15), false)
+  // passa da meia-noite (sexta 22:00–02:00 → sábado 01:00 vale)
+  const noite: any = { id: 'd', name: 'Kebab', offer: 'Menu €6', windows: [{ days: [5], from: '22:00', to: '02:00' }] }
+  assert.equal(disponivelAgora(noite, new Date(2026, 10, 28, 1, 0)), true)
+  assert.equal(disponivelAgora(noite, new Date(2026, 10, 28, 3, 0)), false)
+  assert.equal(textoDias([0, 6]), 'Fim de semana')
+  assert.equal(categoriaDe({ category: 'food' } as any), 'restaurante')
+})
+
+test('parceiros: filtro e ordem (vale agora primeiro, depois mais perto) e anúncio no fim da entrega', () => {
+  const aqui = { lat: 53.3438, lng: -6.2546 }
+  const ps: any[] = [
+    { id: 'longe', name: 'Longe', offer: '10%', category: 'restaurante', locations: [{ lat: 53.37, lng: -6.25 }], sponsored: true },
+    { id: 'perto', name: 'Perto', offer: '15%', category: 'restaurante', locations: [{ lat: 53.3445, lng: -6.2550 }], sponsored: true },
+    { id: 'fechado', name: 'Fechado', offer: '20%', category: 'cafe', locations: [{ lat: 53.3439, lng: -6.2547 }], windows: [{ days: [0], from: '03:00', to: '04:00' }], sponsored: true },
+    { id: 'mec', name: 'Oficina', offer: '5%', category: 'mechanic', locations: [{ lat: 53.344, lng: -6.255 }] },
+  ]
+  const t = new Date(2026, 10, 23, 15, 0)
+  const todos = filtrarParceiros(ps, { categorias: [], soAgora: false }, aqui, t).map(x => x.p.id)
+  assert.deepEqual(todos.slice(0, 3), ['mec', 'perto', 'longe'])
+  assert.equal(todos[3], 'fechado')
+  assert.deepEqual(filtrarParceiros(ps, { categorias: ['restaurante'], soAgora: true }, aqui, t).map(x => x.p.id), ['perto', 'longe'])
+  // anúncio: patrocinado, a valer agora, ≤ 1,5 km → "perto" (o "fechado" está mais perto mas fora de horas)
+  assert.equal(anuncioPerto(ps, aqui, 1500, t)?.p.id, 'perto')
+  assert.equal(anuncioPerto(ps, { lat: 53.5, lng: -6.0 }, 1500, t), null)
+})

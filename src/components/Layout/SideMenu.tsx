@@ -11,6 +11,8 @@ import { getRiderID, saveEmergencyContacts, clearLocation, clearGlobalPresence, 
 import { db } from '@/lib/firebase'
 import { collection, query, where, onSnapshot, getDoc, doc } from 'firebase/firestore'
 import AdSlot from '@/components/Ads/AdSlot'
+import { useMostraAnuncios } from '@/hooks/useMostraAnuncios'
+import { verComoFree, setVerComoFree } from '@/lib/ads'
 import { VERSAO } from '@/lib/version'
 import EmailVerifyRow from '@/components/Account/EmailVerifyRow'
 import { isAdminUser, ADMIN_UID as MENU_ADMIN_UID } from '@/lib/admin'
@@ -30,15 +32,12 @@ interface Props {
   categories?: readonly MenuCategory[]
   activeCategoryKey?: string | null
   onCategory?: (cat: MenuCategory) => void
+  /** abre o formulário de sugestões/feedback */
+  onFeedback?: () => void
 }
 
-// Como as buscas ficam agrupadas no menu
-const CATEGORY_GROUPS: { title: string; keys: string[] }[] = [
-  { title: '🛠️ Para a moto / bike', keys: ['mechanic', 'charging', 'partners'] },
-  { title: '☕ Pausa e emergência', keys: ['cafe', 'hospital'] },
-]
 
-export default function SideMenu({ open, onClose, onNavigate, categories = [], activeCategoryKey = null, onCategory }: Props) {
+export default function SideMenu({ open, onClose, onNavigate, categories = [], activeCategoryKey = null, onCategory, onFeedback }: Props) {
   const router = useRouter()
   const { signOut, firebaseUser } = useAuth()
   const { theme, toggleTheme } = useTheme()
@@ -52,8 +51,6 @@ export default function SideMenu({ open, onClose, onNavigate, categories = [], a
   const [langOpen, setLangOpen] = useState(false)
   const [showAccountPanel, setShowAccountPanel] = useState(false)
   const [showReferralPanel, setShowReferralPanel] = useState(false)
-  const [showShortcutPanel, setShowShortcutPanel] = useState(false)
-  const [shortcutUrlCopied, setShortcutUrlCopied] = useState(false)
   const emergencyContacts = useStore((s) => s.emergencyContacts)
   const setEmergencyContacts = useStore((s) => s.setEmergencyContacts)
   const [c1Name, setC1Name] = useState('')
@@ -66,6 +63,9 @@ export default function SideMenu({ open, onClose, onNavigate, categories = [], a
   const [pendingServicesCount, setPendingServicesCount] = useState(0)
   const [hasOwnedServices, setHasOwnedServices] = useState(false)
   const [referralCredits, setReferralCredits] = useState(0)
+  const anuncios = useMostraAnuncios()
+  const [previewFree, setPreviewFree] = useState(false)
+  useEffect(() => { if (open) setPreviewFree(verComoFree()) }, [open])
 
   const currentLang = LANGUAGES.find((l) => l.code === lang) ?? LANGUAGES[0]
 
@@ -178,15 +178,6 @@ export default function SideMenu({ open, onClose, onNavigate, categories = [], a
     }
   }
 
-  const SHORTCUT_URL = 'https://ridershield.vercel.app/?address='
-
-  function copyShortcutUrl() {
-    navigator.clipboard.writeText(SHORTCUT_URL)
-    setShortcutUrlCopied(true)
-    setTimeout(() => setShortcutUrlCopied(false), 2000)
-    toast.success('URL copiado!')
-  }
-
   function copyRiderId() {
     if (!riderId) return
     navigator.clipboard.writeText(riderId)
@@ -205,16 +196,39 @@ export default function SideMenu({ open, onClose, onNavigate, categories = [], a
   const planColor = user?.isPremium ? '#3b82f6' : '#6b7280'
   const planBg = user?.isPremium ? 'rgba(59,130,246,0.15)' : 'rgba(107,114,128,0.15)'
 
-  const navItems: { tab: string; label: string; icon: string; badge?: number | string }[] = [
-    ...(!user?.isPremium ? [{ tab: 'upgrade', label: 'ZIVO Pro', icon: '⭐' }] : []),
-    { tab: 'referral-panel', label: 'Indicações', icon: '💰', badge: referralCredits > 0 ? `€${referralCredits.toFixed(2)}` : undefined },
-    { tab: 'services', label: 'Preciso de ajuda', icon: '🔧' },
-    { tab: 'safety', label: t('safety'), icon: '🛡️' },
-    { tab: 'safety-tips', label: t('safety_tips_nav'), icon: '🎥' },
-    { tab: 'account-panel', label: t('account'), icon: '👤' },
-    ...(showRequests ? [{ tab: 'service-requests', label: 'Solicitações', icon: '📋', badge: pendingServicesCount > 0 ? pendingServicesCount : undefined }] : []),
-    ...(isAdmin ? [{ tab: 'painel-admin', label: '⚙️ Painel Admin', icon: '⚙️' }] : []),
+  type Item = { tab: string; label: string; icon: string; badge?: number | string; sub?: string; on?: boolean }
+  const oficina = categories.find(c => c.key === 'mechanic')
+  const secoes: { titulo: string; itens: Item[] }[] = [
+    { titulo: 'Para riders', itens: [
+      { tab: 'partners', label: 'Restaurantes e parceiros', icon: '🍔', sub: 'Descontos para riders' },
+      ...(oficina ? [{ tab: 'cat:mechanic', label: 'Oficinas perto de mim', icon: '🔧', on: activeCategoryKey === 'mechanic' }] : []),
+      { tab: 'services', label: 'Preciso de ajuda', icon: '🆘', sub: 'Mecânico ou resgate ZIVO' },
+      { tab: 'referral-panel', label: 'Indicações', icon: '💰', badge: referralCredits > 0 ? `€${referralCredits.toFixed(2)}` : undefined },
+    ] },
+    { titulo: 'Segurança', itens: [
+      { tab: 'safety', label: t('safety'), icon: '🛡️' },
+      { tab: 'safety-tips', label: t('safety_tips_nav'), icon: '🎥' },
+    ] },
+    { titulo: 'Conta', itens: [
+      { tab: 'account-panel', label: t('account'), icon: '👤' },
+      ...(!user?.isPremium ? [{ tab: 'upgrade', label: 'ZIVO Pro', icon: '⭐', sub: 'Sem anúncios' }] : []),
+      ...(onFeedback ? [{ tab: 'feedback', label: 'Enviar sugestão', icon: '💬' }] : []),
+    ] },
+    ...((showRequests || isAdmin) ? [{ titulo: 'Admin', itens: [
+      ...(showRequests ? [{ tab: 'service-requests', label: 'Solicitações', icon: '📋', badge: pendingServicesCount > 0 ? pendingServicesCount : undefined }] : []),
+      ...(isAdmin ? [{ tab: 'painel-admin', label: 'Painel Admin', icon: '⚙️' }] : []),
+    ] }] : []),
   ]
+
+  function abrir(tab: string) {
+    if (tab === 'safety-tips') { router.push('/safety-tips'); onClose() }
+    else if (tab === 'painel-admin') { onClose(); window.location.href = '/painel-admin' }
+    else if (tab === 'account-panel') setShowAccountPanel(true)
+    else if (tab === 'referral-panel') setShowReferralPanel(true)
+    else if (tab === 'feedback') { onClose(); onFeedback?.() }
+    else if (tab.startsWith('cat:')) { const c = categories.find(x => x.key === tab.slice(4)); if (c && onCategory) { onCategory(c); onClose() } }
+    else { onNavigate(tab); onClose() }
+  }
 
   return (
     <>
@@ -234,132 +248,6 @@ export default function SideMenu({ open, onClose, onNavigate, categories = [], a
         {/* Referral Panel — overlays the main menu */}
         {showReferralPanel && firebaseUser?.uid && (
           <ReferralPanel uid={firebaseUser.uid} onClose={() => setShowReferralPanel(false)} onUpgrade={() => { setShowReferralPanel(false); onNavigate('upgrade'); onClose() }} />
-        )}
-
-        {/* iOS Shortcut Panel — overlays the main menu */}
-        {showShortcutPanel && (
-          <div style={{ position: 'absolute', inset: 0, background: 'var(--surface)', zIndex: 10, overflowY: 'auto' }}>
-            {/* Header */}
-            <div className="flex items-center gap-2 px-4 pt-14 pb-4 border-b flex-shrink-0"
-              style={{ borderColor: 'var(--border)' }}>
-              <button onClick={() => setShowShortcutPanel(false)} className="p-2 -ml-2" style={{ color: 'var(--text)' }}>
-                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
-                  <polyline points="15 18 9 12 15 6" />
-                </svg>
-              </button>
-              <h2 className="text-lg font-bold" style={{ color: 'var(--text)' }}>⚡ Deteção Automática</h2>
-            </div>
-
-            <div className="px-4 py-5 space-y-4">
-              {/* Intro */}
-              <div className="rounded-xl p-4" style={{ background: 'rgba(245,158,11,0.1)', border: '1px solid rgba(245,158,11,0.25)' }}>
-                <p className="text-sm font-semibold mb-1" style={{ color: '#93c5fd' }}>Como funciona</p>
-                <p className="text-xs leading-relaxed" style={{ color: 'var(--muted)' }}>
-                  Cria um Atalho no iPhone que lê o endereço copiado e abre o ZIVO com a rota já verificada — sem trocar de app manualmente.
-                </p>
-              </div>
-
-              {/* Steps */}
-              <div>
-                <p className="text-xs font-semibold uppercase tracking-widest mb-3" style={{ color: 'var(--muted)' }}>Passo a passo</p>
-                <div className="space-y-2">
-                  {[
-                    { n: '1', icon: '📱', title: 'Abre a app "Atalhos"', sub: 'Vem instalada no iPhone (iOS 13+). Procura no Spotlight se não estiver no ecrã.' },
-                    { n: '2', icon: '➕', title: 'Toca em + para criar novo atalho', sub: 'Canto superior direito.' },
-                    { n: '3', icon: '🔍', title: 'Pesquisa "Obter clipboard"', sub: 'Adiciona a ação "Obter conteúdo do clipboard". Não precisa de configuração.' },
-                    { n: '4', icon: '🌐', title: 'Adiciona ação "Abrir URLs"', sub: 'Cola o URL abaixo no campo. O [Clipboard] será substituído pelo endereço copiado.' },
-                    { n: '5', icon: '✏️', title: 'Dá o nome "ZIVO"', sub: 'Toca no título no topo. Podes também adicionar ao ecrã inicial como ícone.' },
-                    { n: '6', icon: '✅', title: 'Guarda e testa', sub: 'Copia um endereço → executa o atalho → o ZIVO abre com a rota verificada.' },
-                  ].map(({ n, icon, title, sub }) => (
-                    <div key={n} className="rounded-xl px-4 py-3 flex gap-3"
-                      style={{ background: 'var(--card)', border: '1px solid var(--border)' }}>
-                      <div style={{
-                        flexShrink: 0, width: 24, height: 24, borderRadius: '50%',
-                        background: 'rgba(245,158,11,0.2)', border: '1px solid rgba(245,158,11,0.35)',
-                        display: 'flex', alignItems: 'center', justifyContent: 'center',
-                        fontSize: 11, fontWeight: 700, color: '#93c5fd',
-                      }}>{n}</div>
-                      <div className="min-w-0">
-                        <p className="text-sm font-semibold" style={{ color: 'var(--text)' }}>{icon} {title}</p>
-                        <p className="text-xs mt-0.5 leading-relaxed" style={{ color: 'var(--muted)' }}>{sub}</p>
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              </div>
-
-              {/* URL to copy */}
-              <div>
-                <p className="text-xs font-semibold uppercase tracking-widest mb-2" style={{ color: 'var(--muted)' }}>URL para o passo 4</p>
-                <div className="rounded-xl overflow-hidden" style={{ background: 'var(--card)', border: '1px solid var(--border)' }}>
-                  <div className="px-3 py-2.5" style={{ borderBottom: '1px solid var(--border)' }}>
-                    <p className="text-xs font-mono break-all" style={{ color: '#93c5fd' }}>
-                      {SHORTCUT_URL}<span style={{ color: '#fbbf24' }}>[Clipboard]</span>
-                    </p>
-                  </div>
-                  <button
-                    onClick={copyShortcutUrl}
-                    className="w-full py-2.5 text-sm font-semibold flex items-center justify-center gap-2"
-                    style={{ color: shortcutUrlCopied ? '#10b981' : '#93c5fd', background: 'none', border: 'none', cursor: 'pointer' }}
-                  >
-                    {shortcutUrlCopied ? '✓ Copiado!' : '📋 Copiar URL base'}
-                  </button>
-                </div>
-                <p className="text-xs mt-2 leading-relaxed" style={{ color: 'var(--muted)' }}>
-                  No campo "Abrir URLs" do Atalho, cola este URL e substitui <span style={{ color: '#fbbf24' }}>[Clipboard]</span> pela variável "Resultado do Clipboard" que aparece nas sugestões.
-                </p>
-              </div>
-
-              {/* iOS Share Sheet tip */}
-              <div className="rounded-xl p-4" style={{ background: 'rgba(16,185,129,0.08)', border: '1px solid rgba(16,185,129,0.2)' }}>
-                <p className="text-sm font-semibold mb-1" style={{ color: '#34d399' }}>Dica extra — Folha de Partilha iOS</p>
-                <p className="text-xs leading-relaxed" style={{ color: 'var(--muted)' }}>
-                  Nas definições do Atalho, ativa <strong style={{ color: 'var(--text)' }}>"Usar na Folha de Partilha"</strong> e seleciona texto como tipo de entrada. Assim podes partilhar um endereço diretamente do Uber ou Google Maps para o ZIVO em 2 toques.
-                </p>
-              </div>
-
-              {/* Divider */}
-              <div style={{ height: 1, background: 'var(--border)', margin: '4px 0' }} />
-
-              {/* Android section */}
-              <div>
-                <p className="text-xs font-semibold uppercase tracking-widest mb-3" style={{ color: 'var(--muted)' }}>Android — Partilha direta</p>
-                <div className="rounded-xl p-4 mb-3" style={{ background: 'rgba(52,211,153,0.08)', border: '1px solid rgba(52,211,153,0.2)' }}>
-                  <p className="text-sm font-semibold mb-1" style={{ color: '#34d399' }}>Como usar no Android</p>
-                  <p className="text-xs leading-relaxed" style={{ color: 'var(--muted)' }}>
-                    O ZIVO aparece na <strong style={{ color: 'var(--text)' }}>Folha de Partilha</strong> do Android depois de instalar como PWA. Partilha qualquer texto com endereço diretamente para o app.
-                  </p>
-                </div>
-                <div className="space-y-2">
-                  {[
-                    { n: '1', icon: '📲', title: 'Instala o ZIVO como app', sub: 'Abre no Chrome → menu (⋮) → "Adicionar ao ecrã inicial". Só é necessário uma vez.' },
-                    { n: '2', icon: '🔔', title: 'Recebe notificação do Uber Eats', sub: 'Quando chega um pedido com endereço, faz long-press na notificação.' },
-                    { n: '3', icon: '↗️', title: 'Toca em "Partilhar"', sub: 'Aparece no menu da notificação ou nas opções de texto selecionado.' },
-                    { n: '4', icon: '🛡️', title: 'Escolhe ZIVO', sub: 'O app abre imediatamente com o endereço extraído e a análise de zona de risco.' },
-                  ].map(({ n, icon, title, sub }) => (
-                    <div key={n} className="rounded-xl px-4 py-3 flex gap-3"
-                      style={{ background: 'var(--card)', border: '1px solid var(--border)' }}>
-                      <div style={{
-                        flexShrink: 0, width: 24, height: 24, borderRadius: '50%',
-                        background: 'rgba(52,211,153,0.15)', border: '1px solid rgba(52,211,153,0.3)',
-                        display: 'flex', alignItems: 'center', justifyContent: 'center',
-                        fontSize: 11, fontWeight: 700, color: '#34d399',
-                      }}>{n}</div>
-                      <div className="min-w-0">
-                        <p className="text-sm font-semibold" style={{ color: 'var(--text)' }}>{icon} {title}</p>
-                        <p className="text-xs mt-0.5 leading-relaxed" style={{ color: 'var(--muted)' }}>{sub}</p>
-                      </div>
-                    </div>
-                  ))}
-                </div>
-                <div className="rounded-xl p-3 mt-3" style={{ background: 'rgba(251,191,36,0.08)', border: '1px solid rgba(251,191,36,0.2)' }}>
-                  <p className="text-xs leading-relaxed" style={{ color: 'var(--muted)' }}>
-                    <strong style={{ color: '#fbbf24' }}>Nota:</strong> também funciona com texto copiado de qualquer app. A deteção automática por clipboard já está ativa em segundo plano no Android — se copiares um endereço, o banner aparece sem precisar de partilhar.
-                  </p>
-                </div>
-              </div>
-            </div>
-          </div>
         )}
 
         {/* Account Panel — overlays the main menu */}
@@ -406,6 +294,7 @@ export default function SideMenu({ open, onClose, onNavigate, categories = [], a
               {/* Upgrade button — only for Free users */}
               {!user?.isPremium && (
                 <button
+                  onClick={() => { setShowAccountPanel(false); onNavigate('upgrade'); onClose() }}
                   className="w-full py-3 rounded-xl text-sm font-bold"
                   style={{ background: 'linear-gradient(135deg, #7c3aed, #4f46e5)', color: 'white', border: 'none' }}
                 >
@@ -501,11 +390,11 @@ export default function SideMenu({ open, onClose, onNavigate, categories = [], a
         )}
 
         {/* Header + main content — hidden when any sub-panel is open */}
-        <div style={{ display: showAccountPanel || showReferralPanel || showShortcutPanel ? 'none' : 'block' }}>
+        <div style={{ display: showAccountPanel || showReferralPanel ? 'none' : 'block' }}>
         {/* Header */}
         <div className="relative" style={{ borderBottom: '1px solid var(--border)' }}>
-          {/* Espaço de anúncio (vazio, para mostrar a parceiros) */}
-          <AdSlot variante="topo" />
+          {/* Espaço de anúncio — só no plano Free */}
+          {anuncios && <AdSlot variante="topo" />}
 
           {/* Name + rider ID */}
           <div className="px-5 pt-3 pb-4" style={{ background: 'linear-gradient(135deg, rgba(245,158,11,0.1), var(--surface))' }}>
@@ -522,10 +411,67 @@ export default function SideMenu({ open, onClose, onNavigate, categories = [], a
                 </svg>
               </button>
             )}
+            {!user?.isPremium ? (
+              <button onClick={() => abrir('upgrade')}
+                className="w-full mt-3 py-2.5 rounded-xl text-sm font-bold flex items-center justify-center gap-2"
+                style={{ background: 'linear-gradient(135deg, #7c3aed, #4f46e5)', color: 'white', border: 'none' }}>
+                ⭐ Assinar ZIVO Pro <span style={{ fontWeight: 500, opacity: 0.85 }}>· sem anúncios</span>
+              </button>
+            ) : (
+              <span className="inline-block mt-3 text-xs font-bold px-3 py-1 rounded-full" style={{ background: planBg, color: planColor }}>⭐ Pro</span>
+            )}
           </div>
         </div>
 
         <div className="px-4 py-4 space-y-5">
+
+          {secoes.map(sec => (
+            <div key={sec.titulo}>
+              <p className="text-xs font-semibold uppercase tracking-widest mb-2" style={{ color: 'var(--muted)' }}>{sec.titulo}</p>
+              <div className="rounded-xl overflow-hidden" style={{ background: 'var(--card)', border: '1px solid var(--border)' }}>
+                {sec.itens.map(({ tab, label, icon, badge, sub, on }, i) => (
+                  <button key={tab} onClick={() => abrir(tab)}
+                    className="w-full flex items-center gap-3 px-4 py-3 text-left active:bg-blue-900/20"
+                    style={{ borderBottom: i < sec.itens.length - 1 ? '1px solid var(--border)' : 'none', background: on ? 'rgba(245,158,11,0.12)' : undefined }}>
+                    <span className="text-base">{icon}</span>
+                    <span className="flex-1 min-w-0">
+                      <span className="block text-sm font-medium" style={{ color: 'var(--text)' }}>{label}</span>
+                      {sub && <span className="block text-xs" style={{ color: 'var(--muted)' }}>{sub}</span>}
+                    </span>
+                    {on && <span className="text-xs font-bold" style={{ color: '#f59e0b' }}>no mapa ✓</span>}
+                    {badge ? (
+                      <span className="text-xs font-bold px-1.5 rounded-full mr-1 leading-5"
+                        style={{
+                          background: typeof badge === 'string' ? 'rgba(16,185,129,0.2)' : '#ef4444',
+                          color: typeof badge === 'string' ? '#10b981' : 'white',
+                          minWidth: '20px', textAlign: 'center', display: 'inline-block',
+                          border: typeof badge === 'string' ? '1px solid rgba(16,185,129,0.4)' : 'none',
+                        }}>
+                        {typeof badge === 'number' && badge > 99 ? '99+' : badge}
+                      </span>
+                    ) : null}
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"
+                      style={{ color: 'var(--muted)', flexShrink: 0 }}>
+                      <polyline points="9 18 15 12 9 6" />
+                    </svg>
+                  </button>
+                ))}
+                {sec.titulo === 'Admin' && (
+                  <div className="px-4 py-3 flex items-center justify-between" style={{ borderTop: '1px solid var(--border)' }}>
+                    <span className="flex-1 min-w-0">
+                      <span className="block text-sm font-medium" style={{ color: 'var(--text)' }}>👁️ Ver anúncios (como Free)</span>
+                      <span className="block text-xs" style={{ color: 'var(--muted)' }}>Só neste telemóvel</span>
+                    </span>
+                    <button onClick={() => { const v = !previewFree; setPreviewFree(v); setVerComoFree(v) }}
+                      className="w-11 h-6 rounded-full relative transition-colors"
+                      style={{ background: previewFree ? '#d97706' : '#d1d5db' }}>
+                      <div className="w-4 h-4 bg-white rounded-full absolute top-1 transition-all shadow" style={{ left: previewFree ? '24px' : '4px' }} />
+                    </button>
+                  </div>
+                )}
+              </div>
+            </div>
+          ))}
 
           {/* Preferences */}
           <div>
@@ -624,94 +570,8 @@ export default function SideMenu({ open, onClose, onNavigate, categories = [], a
             </div>
           </div>
 
-          {/* Encontrar perto de mim — buscas no mapa agrupadas */}
-          {onCategory && categories.length > 0 && (
-            <div>
-              <p className="text-xs font-semibold uppercase tracking-widest mb-2" style={{ color: 'var(--muted)' }}>
-                Encontrar perto de mim
-              </p>
-              {CATEGORY_GROUPS.map(g => {
-                const items = g.keys.map(k => categories.find(c => c.key === k)).filter(Boolean) as MenuCategory[]
-                if (!items.length) return null
-                return (
-                  <div key={g.title} className="mb-3">
-                    <p className="text-xs mb-1.5" style={{ color: 'var(--muted)' }}>{g.title}</p>
-                    <div className="rounded-xl overflow-hidden" style={{ background: 'var(--card)', border: '1px solid var(--border)' }}>
-                      {items.map((cat, i) => {
-                        const on = cat.key === activeCategoryKey
-                        return (
-                          <button key={cat.key}
-                            onClick={() => { onCategory(cat); onClose() }}
-                            className="w-full flex items-center gap-3 px-4 py-3 text-left active:bg-blue-900/20"
-                            style={{ borderBottom: i < items.length - 1 ? '1px solid var(--border)' : 'none', background: on ? 'rgba(245,158,11,0.12)' : undefined }}>
-                            <span className="text-base">{cat.icon}</span>
-                            <span className="text-sm font-medium flex-1" style={{ color: 'var(--text)' }}>{cat.label}</span>
-                            {on && <span className="text-xs font-bold" style={{ color: '#f59e0b' }}>no mapa ✓</span>}
-                          </button>
-                        )
-                      })}
-                    </div>
-                  </div>
-                )
-              })}
-            </div>
-          )}
-
-          {/* Navigation shortcuts */}
-          <div>
-            <p className="text-xs font-semibold uppercase tracking-widest mb-2" style={{ color: 'var(--muted)' }}>
-              {t('navigation')}
-            </p>
-            <div className="rounded-xl overflow-hidden" style={{ background: 'var(--card)', border: '1px solid var(--border)' }}>
-              {navItems.map(({ tab, label, icon, badge }, i) => (
-                <button key={tab}
-                  onClick={() => {
-                    if (tab === 'safety-tips') {
-                      router.push('/safety-tips')
-                      onClose()
-                    } else if (tab === 'painel-admin') {
-                      onClose()
-                      window.location.href = '/painel-admin'
-                    } else if (tab === 'account-panel') {
-                      setShowAccountPanel(true)
-                    } else if (tab === 'referral-panel') {
-                      setShowReferralPanel(true)
-                    } else if (tab === 'shortcut-panel') {
-                      setShowShortcutPanel(true)
-                    } else if (tab === 'upgrade') {
-                      onNavigate('upgrade')
-                      onClose()
-                    } else {
-                      onNavigate(tab)
-                      onClose()
-                    }
-                  }}
-                  className="w-full flex items-center gap-3 px-4 py-3 text-left active:bg-blue-900/20"
-                  style={{ borderBottom: i < navItems.length - 1 ? '1px solid var(--border)' : 'none' }}>
-                  <span className="text-base">{icon}</span>
-                  <span className="text-sm font-medium flex-1" style={{ color: 'var(--text)' }}>{label}</span>
-                  {badge ? (
-                    <span className="text-xs font-bold px-1.5 rounded-full mr-1 leading-5"
-                      style={{
-                        background: typeof badge === 'string' ? 'rgba(16,185,129,0.2)' : '#ef4444',
-                        color: typeof badge === 'string' ? '#10b981' : 'white',
-                        minWidth: '20px', textAlign: 'center', display: 'inline-block',
-                        border: typeof badge === 'string' ? '1px solid rgba(16,185,129,0.4)' : 'none',
-                      }}>
-                      {typeof badge === 'number' && badge > 99 ? '99+' : badge}
-                    </span>
-                  ) : null}
-                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"
-                    style={{ color: 'var(--muted)', flexShrink: 0 }}>
-                    <polyline points="9 18 15 12 9 6" />
-                  </svg>
-                </button>
-              ))}
-            </div>
-          </div>
-
-          {/* Espaço de anúncio (vazio, para mostrar a parceiros) */}
-          <AdSlot />
+          {/* Espaço de anúncio — só no plano Free */}
+          {anuncios && <AdSlot />}
 
           {/* Sign out */}
           <button onClick={handleSignOut}

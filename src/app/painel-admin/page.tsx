@@ -18,8 +18,9 @@ import { canDeleteData, ADMIN_UID } from '@/lib/admin'
 import { useStore } from '@/lib/store'
 
 const ZoneEditor = dynamic(() => import('@/components/Admin/ZoneEditor'), { ssr: false })
+const PartnersAdmin = dynamic(() => import('@/components/Admin/PartnersAdmin'), { ssr: false })
 
-type Tab = 'visao' | 'zonas' | 'usuarios' | 'feedbacks' | 'emergencias' | 'indicados' | 'limpeza'
+type Tab = 'visao' | 'zonas' | 'parceiros' | 'usuarios' | 'feedbacks' | 'emergencias' | 'indicados' | 'limpeza'
 
 const INCIDENT_PT: Record<string, string> = {
   assault_robbery: 'Assalto', bike_theft: 'Furto Bike', physical_assault: 'Agressão',
@@ -360,6 +361,7 @@ export default function PainelAdmin() {
   const ALL_TABS: { key: Tab; label: string; badge?: number; superOnly?: boolean }[] = [
     { key: 'visao',       label: '📊 Visão Geral',  superOnly: true },
     { key: 'zonas',       label: '📍 Zonas' },
+    { key: 'parceiros',   label: '🍔 Parceiros',     superOnly: true },
     { key: 'usuarios',    label: '👥 Usuários',      superOnly: true },
     { key: 'feedbacks',   label: '💬 Feedbacks',     superOnly: true, badge: feedbacks.filter(f => !f.read).length || undefined },
     { key: 'emergencias', label: '🚨 Emergências',   superOnly: true, badge: emergencias.filter(e => e.status === 'active').length || undefined },
@@ -401,6 +403,8 @@ export default function PainelAdmin() {
       </div>
 
       <div style={{ padding: '20px 16px', maxWidth: 860, margin: '0 auto' }}>
+
+        {activeTab === 'parceiros' && <PartnersAdmin aviso={showToast} />}
 
         {/* ══ VISÃO GERAL ═══════════════════════════════════════════════════════ */}
         {activeTab === 'visao' && <>

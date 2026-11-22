@@ -35,11 +35,10 @@ import GroupSosListener from '@/components/Groups/GroupSosListener'
 
 const SHOW_DEMO_BANNER = false
 
+// Buscas no mapa a partir do menu. (Recarga, Pausa e Emergência saíram em nov 2026: não eram
+// usadas — os cafés/restaurantes com desconto estão em Parceiros e a emergência é o botão SOS.)
 const CATEGORIES = [
-  { key: 'charging',  label: 'Recarga',    icon: '🔋', query: 'ev charging station' },
-  { key: 'mechanic',  label: 'Mecânico',   icon: '🔧', query: 'bicycle repair' },
-  { key: 'cafe',      label: 'Pausa',      icon: '☕', query: 'cafe coffee' },
-  { key: 'hospital',  label: 'Emergência', icon: '🏥', query: 'hospital' },
+  { key: 'mechanic',  label: 'Oficinas',   icon: '🔧', query: 'bicycle repair' },
   { key: 'partners',  label: 'Parceiros',  icon: '🤝', query: '' },
 ] as const
 
@@ -80,6 +79,8 @@ export default function Home() {
   const [activeSearchCategory, setActiveSearchCategory] = useState<typeof CATEGORIES[number] | null>(null)
   const [categoryLoading, setCategoryLoading] = useState(false)
   const [showUpgradeScreen, setShowUpgradeScreen] = useState(false)
+  // parceiros escolhidos no ecrã Parceiros para aparecerem no mapa (só esses)
+  const [partnerIds, setPartnerIds] = useState<string[] | null>(null)
 
   useGeolocation({
     groupId: activeGroupId || undefined,
@@ -229,6 +230,8 @@ export default function Home() {
             onNavigationChange={setIsNavigating}
             onModeSelectorChange={setIsModeSelector}
             searchCategory={activeSearchCategory}
+            partnerIds={partnerIds}
+            onOpenPartners={() => setActiveTab('partners' as Tab)}
             onCategorySearching={setCategoryLoading}
             onSOS={() => setShowSOS(true)}
             workMode={isShiftActive}
@@ -253,13 +256,13 @@ export default function Home() {
             {activeSearchCategory && (
               <div className="pointer-events-auto" style={{ marginTop: 8 }}>
                 <button
-                  onClick={() => setActiveSearchCategory(null)}
+                  onClick={() => { setActiveSearchCategory(null); setPartnerIds(null) }}
                   style={{ display: 'inline-flex', alignItems: 'center', gap: 6, padding: '6px 12px', borderRadius: 20, fontSize: 12, fontWeight: 700, background: '#f59e0b', color: '#0a0e1a', border: 'none', boxShadow: '0 2px 10px rgba(0,0,0,0.35)' }}
                 >
                   {categoryLoading
                     ? <span style={{ display: 'inline-block', width: 12, height: 12, borderRadius: '50%', border: '2px solid rgba(0,0,0,0.3)', borderTopColor: '#0a0e1a', animation: 'spin 0.7s linear infinite' }} />
                     : <span>{activeSearchCategory.icon}</span>}
-                  {activeSearchCategory.label} ✕
+                  {activeSearchCategory.key === 'partners' && partnerIds ? `${partnerIds.length} parceiro${partnerIds.length === 1 ? '' : 's'}` : activeSearchCategory.label} ✕
                 </button>
               </div>
             )}
@@ -270,7 +273,11 @@ export default function Home() {
         {activeTab==='services' && <div className="absolute inset-0 z-10 overflow-y-auto"><SafeBoundary name="aba"><ServicesScreen /></SafeBoundary></div>}
         {activeTab==='safety' && <div className="absolute inset-0 z-10 overflow-y-auto"><SafeBoundary name="aba"><SafetyScreen /></SafeBoundary></div>}
         {activeTab==='earnings' && <div className="absolute inset-0 z-10 overflow-y-auto"><SafeBoundary name="aba"><EarningsScreen /></SafeBoundary></div>}
-        {activeTab==='partners' && <div className="absolute inset-0 z-10 overflow-y-auto"><SafeBoundary name="aba"><PartnersScreen /></SafeBoundary></div>}
+        {activeTab==='partners' && <div className="absolute inset-0 z-10 overflow-y-auto"><SafeBoundary name="aba"><PartnersScreen
+          onBack={() => setActiveTab('map' as Tab)}
+          onShowOnMap={(ids) => { setPartnerIds(ids); setActiveSearchCategory(null); setActiveTab('map' as Tab); setTimeout(() => setActiveSearchCategory(CATEGORIES.find(c => c.key === 'partners') ?? null), 0) }}
+          onNavigate={(lat, lng) => { setActiveTab('map' as Tab); setSearchDest({ lat, lng }) }}
+        /></SafeBoundary></div>}
         {activeTab==='service-requests' && <div className="absolute inset-0 z-10 overflow-y-auto"><SafeBoundary name="aba"><ServiceRequestsScreen onBack={() => setActiveTab('map' as Tab)} /></SafeBoundary></div>}
         {activeTab==='my-services' && <div className="absolute inset-0 z-10 overflow-y-auto"><SafeBoundary name="aba"><MyServicesScreen onBack={() => setActiveTab('map' as Tab)} /></SafeBoundary></div>}
       </div>
@@ -293,7 +300,8 @@ export default function Home() {
       <SideMenu open={showSideMenu} onClose={() => setShowSideMenu(false)}
         categories={CATEGORIES}
         activeCategoryKey={activeSearchCategory?.key ?? null}
-        onCategory={(cat) => { setActiveTab('map' as Tab); setActiveSearchCategory(prev => prev?.key === cat.key ? null : (CATEGORIES.find(c => c.key === cat.key) ?? null)) }}
+        onCategory={(cat) => { setActiveTab('map' as Tab); setPartnerIds(null); setActiveSearchCategory(prev => prev?.key === cat.key ? null : (CATEGORIES.find(c => c.key === cat.key) ?? null)) }}
+        onFeedback={() => setShowFeedback(true)}
         onNavigate={(tab) => {
         if (tab === 'upgrade') { setShowUpgradeScreen(true) } else { setActiveTab(tab as Tab) }
       }} />

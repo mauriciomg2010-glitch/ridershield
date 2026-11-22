@@ -1,24 +1,49 @@
 // src/components/Upgrade/UpgradeScreen.tsx
 'use client'
+// ZIVO Pro. O pagamento vai ser feito pela Google Play (obrigatório para assinaturas na app da
+// Play Store). Até lá o botão regista o interesse do rider e avisa que chega com a app.
+import { useState } from 'react'
+import { collection, query, where, getDocs, updateDoc, serverTimestamp } from 'firebase/firestore'
+import { db } from '@/lib/firebase'
+import { useAuth } from '@/contexts/AuthContext'
+import toast from 'react-hot-toast'
 
 interface Props {
   onClose: () => void
 }
 
+// Só o que é verdade hoje (nov 2026). Acrescentar aqui quando houver mais funções Pro.
 const FREE_FEATURES = [
   { label: 'Mapa de zonas de risco', free: true },
-  { label: 'Alertas de segurança', free: true },
-  { label: 'Grupos de riders (até 5)', free: true },
-  { label: 'Navegação GPS básica', free: true },
-  { label: 'Histórico de rotas (7 dias)', free: false },
-  { label: 'Alertas em tempo real (todas as zonas)', free: false },
-  { label: 'Grupos ilimitados', free: false },
-  { label: 'Estatísticas de ganhos avançadas', free: false },
+  { label: 'Navegação que evita zonas', free: true },
+  { label: 'Reports e alertas de segurança', free: true },
+  { label: 'Grupos e SOS', free: true },
+  { label: 'Descontos dos parceiros', free: true },
+  { label: 'Sem anúncios (mapa, menu e fim de entrega)', free: false },
   { label: 'Suporte prioritário', free: false },
-  { label: 'Sem anúncios', free: false },
+  { label: 'Novas funções Pro primeiro', free: false },
 ]
 
 export default function UpgradeScreen({ onClose }: Props) {
+  const { firebaseUser } = useAuth()
+  const [registado, setRegistado] = useState(false)
+  const [aGuardar, setAGuardar] = useState(false)
+
+  async function quero() {
+    if (!firebaseUser?.uid) return
+    setAGuardar(true)
+    try {
+      const snap = await getDocs(query(collection(db, 'users'), where('id', '==', firebaseUser.uid)))
+      if (!snap.empty) await updateDoc(snap.docs[0].ref, { proInteresse: true, proInteresseEm: serverTimestamp() })
+      setRegistado(true)
+      toast.success('Combinado! Avisamos-te quando o Pro abrir na app.')
+    } catch {
+      toast.error('Não foi possível guardar. Tenta outra vez.')
+    } finally {
+      setAGuardar(false)
+    }
+  }
+
   return (
     <div style={{
       position: 'fixed', inset: 0, zIndex: 9999,
@@ -98,19 +123,6 @@ export default function UpgradeScreen({ onClose }: Props) {
           </div>
         </div>
 
-        {/* Social proof */}
-        <div style={{
-          borderRadius: 12, padding: '14px 16px',
-          background: 'rgba(124,58,237,0.08)', border: '1px solid rgba(124,58,237,0.2)',
-        }}>
-          <p style={{ fontSize: 13, color: 'var(--text)', fontStyle: 'italic', lineHeight: 1.6, marginBottom: 8 }}>
-            "Desde que comecei a usar o ZIVO Pro consigo evitar as zonas de risco em tempo real. Vale cada cêntimo."
-          </p>
-          <p style={{ fontSize: 11, color: 'var(--muted)', fontWeight: 600 }}>
-            — Miguel S., Uber Eats Dublin · 3 anos de rider
-          </p>
-        </div>
-
         {/* Referral offer */}
         <div style={{
           borderRadius: 12, padding: '14px 16px',
@@ -142,17 +154,22 @@ export default function UpgradeScreen({ onClose }: Props) {
           <p style={{ fontSize: 12, color: 'var(--muted)' }}>Cancela quando quiseres</p>
         </div>
 
-        {/* CTA buttons */}
+        {/* CTA: pagamento chega com a app da Play Store */}
         <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+          <div style={{ borderRadius: 12, padding: '12px 14px', background: 'rgba(59,130,246,0.08)', border: '1px solid rgba(59,130,246,0.25)', fontSize: 13, color: 'var(--text)', lineHeight: 1.5 }}>
+            📲 A assinatura Pro vai estar disponível na <b>app ZIVO da Google Play</b>, já a seguir ao lançamento. O pagamento é feito em segurança pela Google.
+          </div>
           <button
+            onClick={quero}
+            disabled={registado || aGuardar}
             style={{
               padding: '15px 0', borderRadius: 12,
-              background: 'linear-gradient(135deg, #4f46e5, #7c3aed)',
-              border: 'none', color: 'white', fontWeight: 800, fontSize: 16,
-              cursor: 'pointer',
+              background: registado ? 'rgba(16,185,129,0.2)' : 'linear-gradient(135deg, #4f46e5, #7c3aed)',
+              border: 'none', color: registado ? '#10b981' : 'white', fontWeight: 800, fontSize: 16,
+              cursor: 'pointer', opacity: aGuardar ? 0.7 : 1,
             }}
           >
-            ⭐ Começar Pro — €4,99/mês
+            {registado ? '✓ Vais ser avisado' : aGuardar ? 'A guardar…' : '🔔 Avisa-me quando abrir'}
           </button>
           <button
             onClick={onClose}
@@ -167,7 +184,7 @@ export default function UpgradeScreen({ onClose }: Props) {
         </div>
 
         <p style={{ textAlign: 'center', fontSize: 11, color: 'var(--muted)', paddingBottom: 8 }}>
-          Renovação automática mensal · Sem contratos
+          Preço previsto · renovação mensal · cancela quando quiseres
         </p>
       </div>
     </div>

@@ -45,6 +45,10 @@ import UserPuck from './UserPuck'
 import { formatDistance } from '@/lib/navigation/instructions'
 import { navZoom, zoomPorVelocidade, numeroDaPorta } from '@/lib/navigation/cameraZoom'
 import { aplicarVisualGoogle, paleta } from '@/lib/googleLook'
+import { carregarParceiros } from '@/lib/ads'
+import { moradasDe, anuncioPerto, PartnerDoc } from '@/lib/partners'
+import { SponsoredPins, SponsorCard, PostDeliveryAd } from '@/components/Ads/SponsoredAds'
+import { useMostraAnuncios } from '@/hooks/useMostraAnuncios'
 
 const DUBLIN_LNG = -6.2603
 const DUBLIN_LAT = 53.3498
@@ -302,6 +306,10 @@ interface Props {
   onNavRequested?: () => void
   onNavigationChange?: (navigating: boolean) => void
   searchCategory?: { key: string; label: string; icon: string; query: string } | null
+  /** parceiros escolhidos no ecrã Parceiros: só estes aparecem no mapa (null = todos) */
+  partnerIds?: string[] | null
+  /** abre o ecrã Parceiros (a partir do anúncio patrocinado) */
+  onOpenPartners?: () => void
   onSOS?: () => void
   onModeSelectorChange?: (isOpen: boolean) => void
   workMode?: boolean
@@ -372,7 +380,7 @@ function RiderPin({ name, isEmergency = false }: { name: string; isEmergency?: b
   )
 }
 
-export default function MapView({ groupMembers = EMPTY_MEMBERS, currentUserId, groupId, onPanelChange, followUserId, onFollowChange, requestNavTo, onNavRequested, onNavigationChange, searchCategory = null, onSOS, onModeSelectorChange, workMode = false, onReport, onCategorySearching, controlsTopOffset = 12, externalReportOpen = false, isActive = true }: Props) {
+export default function MapView({ groupMembers = EMPTY_MEMBERS, currentUserId, groupId, onPanelChange, followUserId, onFollowChange, requestNavTo, onNavRequested, onNavigationChange, searchCategory = null, partnerIds = null, onOpenPartners, onSOS, onModeSelectorChange, workMode = false, onReport, onCategorySearching, controlsTopOffset = 12, externalReportOpen = false, isActive = true }: Props) {
   const { t } = useLang()
   const { theme } = useTheme()
   const mapUser = useStore((s) => s.user)
@@ -420,6 +428,10 @@ export default function MapView({ groupMembers = EMPTY_MEMBERS, currentUserId, g
   const [northLocked, setNorthLocked] = useState(false)
   const [navTotalDist, setNavTotalDist] = useState(0)
   const [navDestName, setNavDestName] = useState<string | null>(null)
+  // anúncios do plano Free (pin patrocinado e cartão no fim da entrega)
+  const anuncios = useMostraAnuncios()
+  const [sponsorSel, setSponsorSel] = useState<PartnerDoc | null>(null)
+  const [posEntrega, setPosEntrega] = useState<PartnerDoc | null>(null)
   const [arrivalMin, setArrivalMin] = useState(false)
   const [navSpeed, setNavSpeed] = useState(0)
   const [heading, setHeading] = useState(0)
@@ -494,6 +506,7 @@ export default function MapView({ groupMembers = EMPTY_MEMBERS, currentUserId, g
   const zoomBiasRef = useRef(0)
   const maneuverRef = useRef<{ type: string | null; modifier: string | null }>({ type: null, modifier: null })
   const pendingNavDestRef = useRef<{ lat: number; lng: number } | null>(null)
+  const partnerIdsRef = useRef<string[] | null>(null)
   const enquadrarPreviewRef = useRef<((l: [number, number][][], d?: number) => void) | null>(null)
   const modeSelectorAbertoRef = useRef(false)
   const compassInfoRef = useRef<{ t: number; acc: number | null }>({ t: 0, acc: null })
@@ -1150,6 +1163,22 @@ export default function MapView({ groupMembers = EMPTY_MEMBERS, currentUserId, g
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [hasArrived, isNavigating])
 
+  // "Concluir entrega": termina a navegação e (só plano Free) mostra o parceiro patrocinado mais perto
+  const concluirEntrega = useCallback(() => {
+    const pos = posAtualRef.current.lat !== 0 ? { lat: posAtualRef.current.lat, lng: posAtualRef.current.lng } : (useStore.getState().currentLocation ?? null)
+    cancelNavigation()
+    if (!anuncios || !pos) return
+    carregarParceiros().then(ps => { const a = anuncioPerto(ps, pos, 1500); if (a) setPosEntrega(a.p) }).catch(() => {})
+  }, [cancelNavigation, anuncios])
+
+  const irPara = useCallback((lat: number, lng: number) => {
+    setSponsorSel(null); setPosEntrega(null)
+    mapRef.current?.flyTo({ center: [lng, lat], zoom: 15, duration: 800 })
+    setPendingNavDest({ lat, lng })
+    setShowModeSelector(true)
+    setTappedLocation(null)
+  }, [])
+
   const resumeFollow = useCallback(() => {
     if (snapTimerRef.current !== null) { clearTimeout(snapTimerRef.current); snapTimerRef.current = null }
     const s = rafNavStateRef.current
@@ -1346,6 +1375,7 @@ export default function MapView({ groupMembers = EMPTY_MEMBERS, currentUserId, g
   }, [])
 
   enquadrarPreviewRef.current = enquadrarPreview
+  partnerIdsRef.current = partnerIds
   pendingNavDestRef.current = pendingNavDest
   modeSelectorAbertoRef.current = showModeSelector
 
@@ -1790,8 +1820,10 @@ export default function MapView({ groupMembers = EMPTY_MEMBERS, currentUserId, g
     setCategorySearchLoading(true)
     onCategorySearching?.(true)
     try {
-      const snap = await getDocs(collection(db, 'partners'))
-      const partners = snap.docs.map(d => ({ id: d.id, ...d.data() } as { id: string; name?: string; lat?: number; lng?: number; offer?: string; emoji?: string; mapboxQuery?: string }))
+      const ids = partnerIdsRef.current
+      const partners = (await carregarParceiros())
+        .filter(p => p.active !== false)
+        .filter(p => !ids || ids.includes(p.id))
       const token = process.env.NEXT_PUBLIC_MAPBOX_TOKEN
       // Dublin bounding box — ensures city-wide coverage regardless of rider position
       const DUBLIN_BBOX = '-6.49,53.23,-6.06,53.55'
@@ -1806,6 +1838,12 @@ export default function MapView({ groupMembers = EMPTY_MEMBERS, currentUserId, g
       }
 
       for (const p of partners) {
+        const fixas = moradasDe(p)
+        if (fixas.length) {
+          // moradas registadas no painel admin (o normal para os restaurantes parceiros)
+          for (const l of fixas) addPin(l.lat, l.lng, p.name, p.emoji ?? '🍔', p.offer ?? '', `${p.offer ?? ''}${p.offerDetail ? ' · ' + p.offerDetail : ''}${l.address ? ' · ' + l.address : ''}`)
+          continue
+        }
         if (p.mapboxQuery) {
           const icon = (p.emoji as string) ?? '🤝'
           const offerText = (p.offer as string) ?? ''
@@ -1966,7 +2004,7 @@ export default function MapView({ groupMembers = EMPTY_MEMBERS, currentUserId, g
     if (searchCategory.key === 'mechanic') { searchServiceProvidersFromFirestore(); return }
     doSearchInArea(searchCategory.query, searchCategory.label, searchCategory.icon, searchCategory.key)
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [searchCategory?.key])
+  }, [searchCategory?.key, (partnerIds ?? []).join(',')])
 
   useEffect(() => {
     if (!requestNavTo) return
@@ -2592,6 +2630,9 @@ export default function MapView({ groupMembers = EMPTY_MEMBERS, currentUserId, g
         </Source>
 
         {/* Category search pins — tap opens info sheet, not auto-navigation */}
+        {/* Anúncio: parceiros patrocinados perto (só plano Free, fora da navegação) */}
+        <SponsoredPins ativo={anuncios && !isNavigating && !showModeSelector} aqui={currentLocation ?? null} onSelect={p => { setPosEntrega(null); setSponsorSel(p) }} />
+
         {categoryPins.map((pin, i) => {
           const color = CAT_COLORS[pin.catKey] ?? '#d97706'
           return (
@@ -2705,6 +2746,15 @@ export default function MapView({ groupMembers = EMPTY_MEMBERS, currentUserId, g
 
       </SafeBoundary>
 
+      {/* Anúncios do plano Free — nunca durante a navegação nem com o painel de rotas aberto */}
+      {anuncios && !isNavigating && !showModeSelector && sponsorSel && (
+        <SponsorCard p={sponsorSel} aqui={currentLocation ?? null} onClose={() => setSponsorSel(null)} onIr={irPara}
+          onMaisParceiros={onOpenPartners ? () => { setSponsorSel(null); onOpenPartners() } : undefined} />
+      )}
+      {anuncios && !isNavigating && !showModeSelector && !sponsorSel && posEntrega && (
+        <PostDeliveryAd p={posEntrega} aqui={currentLocation ?? null} onVer={() => { setSponsorSel(posEntrega); setPosEntrega(null) }} onClose={() => setPosEntrega(null)} />
+      )}
+
       {/* Chegada — cartão pequeno em baixo; o mapa continua visível e aproximado na porta */}
       {hasArrived && isNavigating && (() => {
         const porta = numeroDaPorta(navDestName)
@@ -2715,7 +2765,7 @@ export default function MapView({ groupMembers = EMPTY_MEMBERS, currentUserId, g
             <button onClick={() => setArrivalMin(false)} style={{ flex: 1, background: '#fff', color: '#111827', border: 'none', borderRadius: 14, padding: '12px 14px', fontWeight: 700, fontSize: 14, textAlign: 'left', boxShadow: '0 4px 16px rgba(0,0,0,0.25)' }}>
               📍 {porta ? `Nº ${porta} · ` : ''}{linha1}
             </button>
-            <button onClick={cancelNavigation} style={{ background: '#10b981', color: '#fff', border: 'none', borderRadius: 14, padding: '12px 16px', fontWeight: 800, fontSize: 14, boxShadow: '0 4px 16px rgba(0,0,0,0.25)' }}>✓ Concluir</button>
+            <button onClick={concluirEntrega} style={{ background: '#10b981', color: '#fff', border: 'none', borderRadius: 14, padding: '12px 16px', fontWeight: 800, fontSize: 14, boxShadow: '0 4px 16px rgba(0,0,0,0.25)' }}>✓ Concluir</button>
           </div>
         )
         return (
@@ -2744,7 +2794,7 @@ export default function MapView({ groupMembers = EMPTY_MEMBERS, currentUserId, g
               <button onClick={() => setArrivalMin(true)} style={{ flex: 1, padding: '12px', background: '#f3f4f6', border: 'none', color: '#111827', borderRadius: 12, fontSize: 14, fontWeight: 700 }}>
                 Ver no mapa
               </button>
-              <button onClick={cancelNavigation} style={{ flex: 1.4, padding: '12px', background: '#10b981', border: 'none', color: '#fff', borderRadius: 12, fontSize: 15, fontWeight: 800 }}>
+              <button onClick={concluirEntrega} style={{ flex: 1.4, padding: '12px', background: '#10b981', border: 'none', color: '#fff', borderRadius: 12, fontSize: 15, fontWeight: 800 }}>
                 ✓ Concluir entrega
               </button>
             </div>
