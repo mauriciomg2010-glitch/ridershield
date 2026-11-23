@@ -718,18 +718,3 @@ test('parceiros: filtro e ordem (vale agora primeiro, depois mais perto) e anún
   assert.equal(anuncioPerto(ps, { lat: 53.5, lng: -6.0 }, 1500, t), null)
 })
 
-// ── nov 2026: linha cortada debaixo da seta ──
-import { progressoMercator, fracaoNaLinha } from '../src/lib/navigation/lineProgress'
-
-test('corte da linha: fração Mercator bate com os metros (sem rabo em rota longa norte–sul)', () => {
-  const a: LngLat = [-7.8, 52.6]
-  const coords: LngLat[] = [a, destination(a, 5000, 0), destination(destination(a, 5000, 0), 5000, 0)]
-  const cum = [0, distM(coords[0], coords[1]), distM(coords[0], coords[1]) + distM(coords[1], coords[2])]
-  const merc = progressoMercator(coords)
-  assert.equal(fracaoNaLinha(cum, merc, 0), 0)
-  assert.equal(fracaoNaLinha(cum, merc, cum[2]), 1)
-  // a meio dos metros ≈ meio da linha, e o erro em metros fica abaixo de 1 m
-  const f = fracaoNaLinha(cum, merc, 5000)
-  assert.ok(Math.abs(f * cum[2] - 5000) < 30, String(f * cum[2]))
-  assert.ok(Math.abs(fracaoNaLinha(cum, merc, cum[1]) - merc[1]) < 1e-12)
-})

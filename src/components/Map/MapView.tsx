@@ -44,7 +44,6 @@ import SafeBoundary from '@/components/SafeBoundary'
 import UserPuck from './UserPuck'
 import { formatDistance } from '@/lib/navigation/instructions'
 import { navZoom, zoomPorVelocidade, numeroDaPorta } from '@/lib/navigation/cameraZoom'
-import { progressoMercator, fracaoNaLinha } from '@/lib/navigation/lineProgress'
 import { aplicarVisualGoogle, paleta } from '@/lib/googleLook'
 import { carregarParceiros } from '@/lib/ads'
 import { moradasDe, anuncioPerto, PartnerDoc } from '@/lib/partners'
@@ -198,6 +197,12 @@ function buildCongestionGeoJSON(coords: [number, number][], congestion: string[]
   }
   features.push({ type: 'Feature', properties: { congestion: level }, geometry: { type: 'LineString', coordinates: coords.slice(start) } })
   return { type: 'FeatureCollection', features }
+}
+
+function cumMetros(coords: [number, number][]): number[] {
+  const out = [0]
+  for (let i = 1; i < coords.length; i++) out.push(out[i - 1] + distMeters({ lat: coords[i - 1][1], lng: coords[i - 1][0] }, { lat: coords[i][1], lng: coords[i][0] }))
+  return out
 }
 
 function distMeters(a: { lat: number; lng: number }, b: { lat: number; lng: number }): number {
@@ -509,7 +514,7 @@ export default function MapView({ groupMembers = EMPTY_MEMBERS, currentUserId, g
   const pendingNavDestRef = useRef<{ lat: number; lng: number } | null>(null)
   const partnerIdsRef = useRef<string[] | null>(null)
   // corte da linha azul debaixo da seta, a cada quadro (ver lineProgress.ts)
-  const trimRef = useRef<{ tr: any; merc: number[]; along: number; frac: number }>({ tr: null, merc: [], along: 0, frac: -1 })
+  const trimRef = useRef<{ tr: any; coords: [number, number][] | null; cum: number[]; along: number; sentAlong: number; sentT: number }>({ tr: null, coords: null, cum: [], along: 0, sentAlong: -1, sentT: 0 })
   const enquadrarPreviewRef = useRef<((l: [number, number][][], d?: number) => void) | null>(null)
   const modeSelectorAbertoRef = useRef(false)
   const compassInfoRef = useRef<{ t: number; acc: number | null }>({ t: 0, acc: null })
@@ -726,13 +731,11 @@ export default function MapView({ groupMembers = EMPTY_MEMBERS, currentUserId, g
 
   const routeCongestionGeoJSON = useMemo(() => {
     if (!routeGeoJSON?.coordinates) return null
-    const coords: [number, number][] = routeGeoJSON.coordinates
-    if (isNavigating && routeTrim && routeTrim.seg < coords.length - 1) {
-      const rest: [number, number][] = [routeTrim.point, ...coords.slice(routeTrim.seg + 1)]
-      return buildCongestionGeoJSON(rest, routeCongestion.slice(routeTrim.seg))
-    }
-    return buildCongestionGeoJSON(coords, routeCongestion)
-  }, [routeGeoJSON, routeCongestion, routeTrim, isNavigating])
+    // rota inteira; durante a navegação o loop da câmara corta-a debaixo da seta (ver trimRef)
+    return buildCongestionGeoJSON(routeGeoJSON.coordinates as [number, number][], routeCongestion)
+  }, [routeGeoJSON, routeCongestion])
+  const routeCoordsRef = useRef<{ coords: [number, number][]; cong: string[] }>({ coords: [], cong: [] })
+  routeCoordsRef.current = { coords: (routeGeoJSON?.coordinates ?? []) as [number, number][], cong: routeCongestion }
 
   // Keep currentHour in sync (updates at the top of each hour)
   useEffect(() => {
@@ -825,22 +828,31 @@ export default function MapView({ groupMembers = EMPTY_MEMBERS, currentUserId, g
       const newLng = posAtualRef.current.lng + (target.lng - posAtualRef.current.lng) * k
       posAtualRef.current = { lat: newLat, lng: newLng }
 
-      // A linha azul acaba exatamente debaixo da seta (sem "rabo"): mesma suavização que a seta
+      // A linha azul acaba debaixo da seta (sem "rabo"): o ponto de corte segue a mesma previsão e
+      // suavização da seta; os dados da linha são trocados no máx. 4×/s e só se andou ≥ 2 m
+      // (cortar a cada quadro com line-trim-offset fazia a seta tremer). A seta (~20 m de raio no zoom
+      // de autoestrada) tapa o que anda entre trocas: a 108 km/h são ~7 m.
       const T = trimRef.current
       if (tr) {
-        if (T.tr !== tr) { T.tr = tr; T.merc = progressoMercator(tr.coords); T.along = pr?.along ?? 0; T.frac = -1 }
+        if (T.tr !== tr) { T.tr = tr; T.along = pr?.along ?? 0; T.sentAlong = -1; T.sentT = 0 }
+        if (T.coords !== routeCoordsRef.current.coords) { T.coords = routeCoordsRef.current.coords; T.cum = cumMetros(T.coords); T.sentAlong = -1 }
         if (pr && pr.onRoute) {
           const elapsed = Math.min(1.5, Math.max(0, (Date.now() - pr.time) / 1000))
           const ahead = Math.min(tr.length, pr.along + (pr.speedMps > 1 ? pr.speedMps * elapsed : 0))
           T.along += (ahead - T.along) * k
         }
-        const frac = fracaoNaLinha(tr.cum, T.merc, T.along)
-        if (Math.abs(frac - T.frac) > 1e-6) {
-          T.frac = frac
-          const m = mapRef.current?.getMap()
-          if (m?.getLayer('route-full-line')) {
-            m.setPaintProperty('route-full-line', 'line-trim-offset', [0, Math.min(0.9999, frac)])
-            m.setPaintProperty('route-full-casing', 'line-trim-offset', [0, Math.min(0.9999, frac)])
+        if (ts - T.sentT > 250 && Math.abs(T.along - T.sentAlong) >= 2) {
+          const src = mapRef.current?.getMap()?.getSource('route') as any
+          const { coords, cong } = routeCoordsRef.current
+          if (src?.setData && coords.length >= 2 && T.cum.length === coords.length) {
+            let lo = 0, hi = T.cum.length - 1
+            while (hi - lo > 1) { const mid = (lo + hi) >> 1; if (T.cum[mid] <= T.along) lo = mid; else hi = mid }
+            const seg = T.cum[hi] - T.cum[lo]
+            const t = seg > 0 ? Math.min(1, Math.max(0, (T.along - T.cum[lo]) / seg)) : 0
+            const p0 = coords[lo], p1 = coords[hi]
+            const pt: [number, number] = [p0[0] + (p1[0] - p0[0]) * t, p0[1] + (p1[1] - p0[1]) * t]
+            src.setData(buildCongestionGeoJSON([pt, ...coords.slice(lo + 1)], cong.slice(lo)))
+            T.sentAlong = T.along; T.sentT = ts
           }
         }
       }
@@ -959,6 +971,9 @@ export default function MapView({ groupMembers = EMPTY_MEMBERS, currentUserId, g
         .filter((r: any) => r?.lat && r?.lng && !groupIds.has(r.userId) && Date.now() - r.lastUpdated < FIVE_MIN)
         .map((r: any): R => ({ userId: r.userId, lat: r.lat, lng: r.lng, dist: haversineDist(pos, { lat: r.lat, lng: r.lng }) }))
         .filter(r => r.dist < MAX_DIST)
+        // a menos de 35 m é quase sempre outro telemóvel no mesmo carro/bike: o ponto ficava a
+        // "saltar" colado à seta (posição do outro aparelho chega com atraso)
+        .filter(r => r.dist > 35)
         .sort((a, b) => a.dist - b.dist)
         .slice(0, 20)
       setNearbyNavRiders(filtered.map(({ userId, lat, lng }) => ({ userId, lat, lng })))
@@ -2515,23 +2530,15 @@ export default function MapView({ groupMembers = EMPTY_MEMBERS, currentUserId, g
         })()}
 
         {/* Linha da rota estilo Google Maps: azul; laranja/vermelho só onde há trânsito */}
-        {/* Linha inteira (uma só): cortada a cada quadro debaixo da seta com line-trim-offset */}
-        {routeGeoJSON?.coordinates && (
-          <Source id="route-full" type="geojson" lineMetrics data={asFeature(routeGeoJSON)}>
-            <Layer id="route-full-casing" type="line"
-              layout={{ 'line-cap': 'butt', 'line-join': 'round' }}
-              paint={{ 'line-color': rotaContorno, 'line-width': ['interpolate', ['linear'], ['zoom'], 12, 7, 16, 14, 18, 23] as any, 'line-trim-offset': [0, 0] as any }} />
-            <Layer id="route-full-line" type="line"
-              layout={{ 'line-cap': 'butt', 'line-join': 'round' }}
-              paint={{ 'line-color': rotaAzul, 'line-width': ['interpolate', ['linear'], ['zoom'], 12, 4.5, 16, 10, 18, 17] as any, 'line-trim-offset': [0, 0] as any }} />
-          </Source>
-        )}
-        {/* Trânsito por cima (laranja/vermelho só onde há) */}
+        {/* Linha da rota estilo Google Maps: azul; laranja/vermelho só onde há trânsito.
+            Durante a navegação os dados são cortados debaixo da seta pelo loop da câmara (setData). */}
         {routeCongestionGeoJSON && (
           <Source id="route" type="geojson" data={routeCongestionGeoJSON}>
+            <Layer id="route-line-casing" type="line"
+              layout={{ 'line-cap': 'round', 'line-join': 'round' }}
+              paint={{ 'line-color': rotaContorno, 'line-width': ['interpolate', ['linear'], ['zoom'], 12, 7, 16, 14, 18, 23] as any }} />
             <Layer id="route-line" type="line"
-              filter={['in', ['get', 'congestion'], ['literal', ['moderate', 'heavy', 'severe']]] as any}
-              layout={{ 'line-cap': 'butt', 'line-join': 'round' }}
+              layout={{ 'line-cap': 'round', 'line-join': 'round' }}
               paint={{
                 'line-color': ['match', ['get', 'congestion'],
                   'moderate', '#f29900',
