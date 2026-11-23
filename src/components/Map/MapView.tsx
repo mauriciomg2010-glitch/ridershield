@@ -44,6 +44,7 @@ import SafeBoundary from '@/components/SafeBoundary'
 import UserPuck from './UserPuck'
 import { formatDistance } from '@/lib/navigation/instructions'
 import { navZoom, zoomPorVelocidade, numeroDaPorta } from '@/lib/navigation/cameraZoom'
+import { progressoMercator, fracaoNaLinha } from '@/lib/navigation/lineProgress'
 import { aplicarVisualGoogle, paleta } from '@/lib/googleLook'
 import { carregarParceiros } from '@/lib/ads'
 import { moradasDe, anuncioPerto, PartnerDoc } from '@/lib/partners'
@@ -507,6 +508,8 @@ export default function MapView({ groupMembers = EMPTY_MEMBERS, currentUserId, g
   const maneuverRef = useRef<{ type: string | null; modifier: string | null }>({ type: null, modifier: null })
   const pendingNavDestRef = useRef<{ lat: number; lng: number } | null>(null)
   const partnerIdsRef = useRef<string[] | null>(null)
+  // corte da linha azul debaixo da seta, a cada quadro (ver lineProgress.ts)
+  const trimRef = useRef<{ tr: any; merc: number[]; along: number; frac: number }>({ tr: null, merc: [], along: 0, frac: -1 })
   const enquadrarPreviewRef = useRef<((l: [number, number][][], d?: number) => void) | null>(null)
   const modeSelectorAbertoRef = useRef(false)
   const compassInfoRef = useRef<{ t: number; acc: number | null }>({ t: 0, acc: null })
@@ -821,6 +824,26 @@ export default function MapView({ groupMembers = EMPTY_MEMBERS, currentUserId, g
       const newLat = posAtualRef.current.lat + (target.lat - posAtualRef.current.lat) * k
       const newLng = posAtualRef.current.lng + (target.lng - posAtualRef.current.lng) * k
       posAtualRef.current = { lat: newLat, lng: newLng }
+
+      // A linha azul acaba exatamente debaixo da seta (sem "rabo"): mesma suavização que a seta
+      const T = trimRef.current
+      if (tr) {
+        if (T.tr !== tr) { T.tr = tr; T.merc = progressoMercator(tr.coords); T.along = pr?.along ?? 0; T.frac = -1 }
+        if (pr && pr.onRoute) {
+          const elapsed = Math.min(1.5, Math.max(0, (Date.now() - pr.time) / 1000))
+          const ahead = Math.min(tr.length, pr.along + (pr.speedMps > 1 ? pr.speedMps * elapsed : 0))
+          T.along += (ahead - T.along) * k
+        }
+        const frac = fracaoNaLinha(tr.cum, T.merc, T.along)
+        if (Math.abs(frac - T.frac) > 1e-6) {
+          T.frac = frac
+          const m = mapRef.current?.getMap()
+          if (m?.getLayer('route-full-line')) {
+            m.setPaintProperty('route-full-line', 'line-trim-offset', [0, Math.min(0.9999, frac)])
+            m.setPaintProperty('route-full-casing', 'line-trim-offset', [0, Math.min(0.9999, frac)])
+          }
+        }
+      }
 
       // Direção (como o Google Maps): segue SEMPRE a direção da rota onde o rider está — parado ou
       // a andar. A bússola só entra antes de haver rota e se for fiável. Os diagnósticos mostraram:
@@ -2492,13 +2515,23 @@ export default function MapView({ groupMembers = EMPTY_MEMBERS, currentUserId, g
         })()}
 
         {/* Linha da rota estilo Google Maps: azul; laranja/vermelho só onde há trânsito */}
+        {/* Linha inteira (uma só): cortada a cada quadro debaixo da seta com line-trim-offset */}
+        {routeGeoJSON?.coordinates && (
+          <Source id="route-full" type="geojson" lineMetrics data={asFeature(routeGeoJSON)}>
+            <Layer id="route-full-casing" type="line"
+              layout={{ 'line-cap': 'butt', 'line-join': 'round' }}
+              paint={{ 'line-color': rotaContorno, 'line-width': ['interpolate', ['linear'], ['zoom'], 12, 7, 16, 14, 18, 23] as any, 'line-trim-offset': [0, 0] as any }} />
+            <Layer id="route-full-line" type="line"
+              layout={{ 'line-cap': 'butt', 'line-join': 'round' }}
+              paint={{ 'line-color': rotaAzul, 'line-width': ['interpolate', ['linear'], ['zoom'], 12, 4.5, 16, 10, 18, 17] as any, 'line-trim-offset': [0, 0] as any }} />
+          </Source>
+        )}
+        {/* Trânsito por cima (laranja/vermelho só onde há) */}
         {routeCongestionGeoJSON && (
           <Source id="route" type="geojson" data={routeCongestionGeoJSON}>
-            <Layer id="route-line-casing" type="line"
-              layout={{ 'line-cap': 'round', 'line-join': 'round' }}
-              paint={{ 'line-color': rotaContorno, 'line-width': ['interpolate', ['linear'], ['zoom'], 12, 7, 16, 14, 18, 23] as any }} />
             <Layer id="route-line" type="line"
-              layout={{ 'line-cap': 'round', 'line-join': 'round' }}
+              filter={['in', ['get', 'congestion'], ['literal', ['moderate', 'heavy', 'severe']]] as any}
+              layout={{ 'line-cap': 'butt', 'line-join': 'round' }}
               paint={{
                 'line-color': ['match', ['get', 'congestion'],
                   'moderate', '#f29900',
