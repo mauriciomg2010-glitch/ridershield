@@ -392,9 +392,17 @@ export function useNavigationCore({ isNavigating, currentFix, navDest, routeProf
       setRemainingDist(p.remainingM)
       setRemainingSec(p.remainingS)
       setNavEta(Math.max(0, Math.round(p.remainingS / 60)))
+      // A linha azul começa um pouco À FRENTE do último GPS (ideia do Maurício): entre dois GPS a seta
+      // anda sozinha para a frente e deixava um "rabo" de linha atrás dela. Com o corte adiantado
+      // ~0,6 s (máx. 18 m) a seta vai "comendo" a ponta da linha e tapa-a. Só 1 corte por GPS — nada
+      // por quadro, para a seta continuar suave.
+      const lead = p.offRouteM < 40 ? Math.min(18, Math.max(0, v * 0.6)) : 0
+      const cutAlong = Math.min(Math.max(0, tr.length - 1), p.along + lead)
+      const cutSeg = lead > 0 ? tr.segAt(cutAlong) : tr.currentSeg
+      const cutPt = (lead > 0 ? tr.pointAt(cutAlong) : p.snapped) as [number, number]
       setRouteTrim(prevTrim =>
-        prevTrim && prevTrim.seg === tr.currentSeg && Math.abs(prevTrim.point[0] - p.snapped[0]) < 1e-6 && Math.abs(prevTrim.point[1] - p.snapped[1]) < 1e-6
-          ? prevTrim : { seg: tr.currentSeg, point: p.snapped })
+        prevTrim && prevTrim.seg === cutSeg && Math.abs(prevTrim.point[0] - cutPt[0]) < 1e-6 && Math.abs(prevTrim.point[1] - cutPt[1]) < 1e-6
+          ? prevTrim : { seg: cutSeg, point: cutPt })
       if (v > 2) cbRef.current.onBearing?.(Math.round(p.offRouteM < 40 ? p.routeBearing : (headingGps ?? p.routeBearing)))
 
       // modo alerta nas zonas (separado: um erro aqui não afeta as instruções da rota)

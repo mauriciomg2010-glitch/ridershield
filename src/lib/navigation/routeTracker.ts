@@ -87,6 +87,15 @@ export class RouteTracker {
     }
   }
 
+  /** Índice do segmento onde fica o ponto a `m` metros do início. */
+  segAt(m: number): number {
+    if (m <= 0) return 0
+    if (m >= this.length) return Math.max(0, this.cum.length - 2)
+    let lo = 0, hi = this.cum.length - 1
+    while (hi - lo > 1) { const mid = (lo + hi) >> 1; if (this.cum[mid] <= m) lo = mid; else hi = mid }
+    return lo
+  }
+
   /** Ponto a `m` metros do início da rota. */
   pointAt(m: number): LngLat {
     const c = this.coords
