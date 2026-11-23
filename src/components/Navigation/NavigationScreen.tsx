@@ -261,10 +261,16 @@ export default function NavigationScreen({
         const isRot = /roundabout|rotary/.test(tipo)
         const exitN = currentStep.maneuver?.exit
         const via = (currentStep.name || '').trim()
-        const ref = (currentStep.ref || '').split(';')[0].trim()
+        // Como o Google: título curto. Saídas sem nome ("Pegue a saída 3 para N82 em direção à…")
+        // passam a "N82" no quadradinho + "Citywest" em grande + "Saída 3" por baixo.
+        const destStr = String(currentStep.destinations || '')
+        const destRefs = destStr.includes(':') ? destStr.split(':')[0].split(/[,;]/)[0].trim() : ''
+        const destNomes = (destStr.includes(':') ? destStr.split(':').slice(1).join(':') : destStr).split(',').map((x: string) => x.trim()).filter(Boolean).slice(0, 2).join(', ')
+        const saida = String(currentStep.exits || '').split(';')[0].trim()
+        const ref = ((currentStep.ref || '').split(';')[0].trim()) || (!via ? destRefs : '')
         const nomeSemRef = ref && via.toUpperCase().startsWith(ref.toUpperCase()) ? via.slice(ref.length).replace(/^[\s/,-]+/, '') : via
-        const titulo = chegando ? 'Destino' : (nomeSemRef || bannerText(currentStep, distToNext))
-        const sub = isRot && exitN ? `Rotatória · ${exitN}ª saída` : ''
+        const titulo = chegando ? 'Destino' : (nomeSemRef || destNomes || (saida ? `Saída ${saida}` : '') || (ref ? '' : bannerText(currentStep, distToNext))) || ref
+        const sub = isRot && exitN ? `Rotatória · ${exitN}ª saída` : (saida && titulo !== `Saída ${saida}` ? `Saída ${saida}` : '')
         const mostrarDepois = !!nextStep?.maneuver && nextStep.maneuver.type !== 'arrive' && nextGap != null && nextGap < 250
         // Faixas (lane guidance): faixas certas a branco, as outras apagadas
         const faixas: any[] = Array.isArray(currentStep.intersections?.[0]?.lanes) ? currentStep.intersections[0].lanes : []
@@ -287,7 +293,7 @@ export default function NavigationScreen({
                 </span>
               </div>
               <div style={{ flex: 1, minWidth: 0 }}>
-                {ref && !chegando && (
+                {ref && !chegando && titulo !== ref && (
                   <span style={{ display: 'inline-block', background: 'white', color: '#202124', fontWeight: 800, fontSize: 15, borderRadius: 4, padding: '1px 7px', marginBottom: 4 }}>
                     {ref}
                   </span>

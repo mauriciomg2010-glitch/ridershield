@@ -392,11 +392,11 @@ export function useNavigationCore({ isNavigating, currentFix, navDest, routeProf
       setRemainingDist(p.remainingM)
       setRemainingSec(p.remainingS)
       setNavEta(Math.max(0, Math.round(p.remainingS / 60)))
-      // A linha azul começa um pouco À FRENTE do último GPS (ideia do Maurício): entre dois GPS a seta
-      // anda sozinha para a frente e deixava um "rabo" de linha atrás dela. Com o corte adiantado
-      // ~0,6 s (máx. 18 m) a seta vai "comendo" a ponta da linha e tapa-a. Só 1 corte por GPS — nada
-      // por quadro, para a seta continuar suave.
-      const lead = p.offRouteM < 40 ? Math.min(18, Math.max(0, v * 0.6)) : 0
+      // A linha azul começa À FRENTE do último GPS (ideia do Maurício): entre dois GPS (≈1 s) a seta
+      // anda sozinha para a frente e deixava um "rabo" de linha atrás dela. O corte vai ~1,1 s à
+      // frente (máx. 40 m): a seta vai "comendo" a ponta da linha e nunca fica linha atrás dela.
+      // Só 1 corte por GPS — nada por quadro, para a seta continuar suave.
+      const lead = p.offRouteM < 40 && v > 1.5 ? Math.min(40, v * 1.1) : 0
       const cutAlong = Math.min(Math.max(0, tr.length - 1), p.along + lead)
       const cutSeg = lead > 0 ? tr.segAt(cutAlong) : tr.currentSeg
       const cutPt = (lead > 0 ? tr.pointAt(cutAlong) : p.snapped) as [number, number]
