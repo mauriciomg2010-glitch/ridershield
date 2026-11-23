@@ -41,8 +41,12 @@ export class ZoneAlertGuide {
   private lastReminder = 0
   private clearAnnounced = false
   private insideId: string | null = null
+  /** zona onde fica o destino (entrega dentro de zona): avisos com outra frase e um aviso a ~1 km */
+  destinoId: string | null = null
 
   constructor(readonly spans: ZoneSpan[]) {}
+
+  setDestino(id: string | null): this { this.destinoId = id; return this }
 
   /** Depois de um recálculo: mantém o que já foi falado (não repete "você entrou" na mesma zona). */
   adoptFrom(prev: ZoneAlertGuide | null): this {
@@ -121,9 +125,17 @@ export class ZoneAlertGuide {
     const distToEntry = Math.max(0, cur.entry - along)
     const warnAt = Math.max(300, speedMps * 30)   // ~30 s antes, nunca menos de 300 m
     const phase: AlertPhase = distToEntry <= warnAt ? 'approaching' : 'ahead'
+    const eDestino = !!this.destinoId && cur.zone.id === this.destinoId
+    // destino dentro de zona: lembrete extra a ~1 km (numa viagem longa é fácil esquecer)
+    if (eDestino && phase === 'ahead' && distToEntry <= 1000 && !this.said.has(`early:${cur.zone.id}`) && !speak) {
+      this.said.add(`early:${cur.zone.id}`)
+      speak = `Lembrete: o destino fica dentro de zona de risco${cur.zone.name ? `, ${cur.zone.name}` : ''}. Entras em ${spoken(distToEntry)}.`
+    }
     if (phase === 'approaching' && !this.said.has(`warn:${cur.zone.id}`) && !speak) {
       this.said.add(`warn:${cur.zone.id}`)
-      speak = `Atenção: zona de risco em ${spoken(distToEntry)}${cur.zone.name ? `, ${cur.zone.name}` : ''}.`
+      speak = eDestino
+        ? `Atenção: vais entrar em zona de risco em ${spoken(distToEntry)}${cur.zone.name ? `, ${cur.zone.name}` : ''}. O destino fica lá dentro.`
+        : `Atenção: zona de risco em ${spoken(distToEntry)}${cur.zone.name ? `, ${cur.zone.name}` : ''}.`
     }
     return {
       state: { phase, zoneId: cur.zone.id, zoneName: cur.zone.name, level: cur.zone.level, distToEntry, remaining, total },

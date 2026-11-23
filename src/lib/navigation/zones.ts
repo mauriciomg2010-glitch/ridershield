@@ -207,6 +207,9 @@ export function insideRuns(coords: LngLat[], z: AvoidZone): { entry: number; exi
  * avenida é passagem, mas atravessar uma zona pequena marcada num cruzamento continua a contar.
  */
 export function isShortCrossing(coords: LngLat[], z: AvoidZone, maxM = CROSSING_MAX_M): boolean {
+  // destino dentro da zona não é "passagem": o rider vai entrar e ficar lá (caso "Teste casa",
+  // 23 nov 2026 — a zona foi tratada como passagem e não houve nenhum aviso antes de entrar)
+  if (coords.length && pointInZone(coords[coords.length - 1], z)) return false
   const lim = Math.min(maxM, 0.35 * 2 * z.radiusM)
   const runs = insideRuns(coords, z)
   return runs.length > 0 && runs.every(r => r.exit - r.entry <= lim)

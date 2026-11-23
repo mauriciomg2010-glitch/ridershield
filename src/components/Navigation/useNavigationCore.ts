@@ -125,12 +125,12 @@ export function useNavigationCore({ isNavigating, currentFix, navDest, routeProf
         allZonesRef.current = zs
         // modo alerta: trechos da rota dentro de cada zona (usa a mesma geometria do rastreador)
         const trCoords = trackerRef.current?.coords ?? coords
-        alertGuideRef.current = new ZoneAlertGuide(zoneSpansOnRoute(trCoords, hits)).adoptFrom(navigatingRef.current ? alertGuideRef.current : null)
-        zoneAlertRef.current = null
-        setZoneAlert(null)
         // destino dentro de uma zona (entrega em zona de risco) — aviso diferente, sem "rota segura"
         const dest = navDestRef.current
         const dz = dest ? zs.find(z => pointInZone([dest.lng, dest.lat], z)) ?? null : null
+        alertGuideRef.current = new ZoneAlertGuide(zoneSpansOnRoute(trCoords, hits)).adoptFrom(navigatingRef.current ? alertGuideRef.current : null).setDestino(dz?.id ?? null)
+        zoneAlertRef.current = null
+        setZoneAlert(null)
         setDestZone(dz ? { id: dz.id, name: dz.name } : null)
         // existe rota que evita as OUTRAS zonas? (calcula em segundo plano; o botão só aparece se sim)
         const evitaveis = hits.filter(z => z.id !== dz?.id)

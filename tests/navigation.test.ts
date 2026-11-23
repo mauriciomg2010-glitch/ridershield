@@ -718,3 +718,25 @@ test('parceiros: filtro e ordem (vale agora primeiro, depois mais perto) e anún
   assert.equal(anuncioPerto(ps, { lat: 53.5, lng: -6.0 }, 1500, t), null)
 })
 
+
+test('destino dentro de uma zona nunca é "só passagem" (há aviso antes de entrar)', () => {
+  const c: LngLat = DUB
+  const z = fromFirestoreZone({ id: 'casa', areaName: 'Teste casa', lat: c[1], lng: c[0], radius: 150 })!
+  // rota vem de fora e acaba 40 m dentro da zona (entra ~40 m: seria "passagem curta")
+  const borda = destination(c, 150, 270)
+  const coords = line(destination(c, 800, 270), destination(c, 110, 270))
+  assert.equal(isShortCrossing(coords, z), false)
+  assert.equal(zonesOnRoute(coords, [z]).length, 1)
+  void borda
+})
+
+test('destino em zona: lembrete a ~1 km e aviso antes de entrar', () => {
+  const c: LngLat = DUB
+  const z = fromFirestoreZone({ id: 'casa', areaName: 'Teste casa', lat: c[1], lng: c[0], radius: 150 })!
+  const g = new ZoneAlertGuide([{ zone: z, entry: 5000, exit: 5100 }]).setDestino('casa')
+  assert.equal(g.update(3000, new Set(), 25, 0).speak, null)
+  const r1 = g.update(4100, new Set(), 25, 1000)
+  assert.match(r1.speak ?? '', /destino fica dentro de zona de risco/)
+  const r2 = g.update(4300, new Set(), 25, 2000)
+  assert.match(r2.speak ?? '', /vais entrar em zona de risco.*O destino fica lá dentro/)
+})

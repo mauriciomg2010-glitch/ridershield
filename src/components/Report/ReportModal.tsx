@@ -165,33 +165,8 @@ export default function ReportModal({ onClose, initialLocation, quick = false }:
               </button>
             </div>
 
-            {initialLocation ? (
-              <div className="mb-4 rounded-xl overflow-hidden" style={{ border: '1px solid var(--border)' }}>
-                <img
-                  src={
-                    `https://api.mapbox.com/styles/v1/mapbox/streets-v12/static/` +
-                    `pin-s+dc3545(${initialLocation.lng},${initialLocation.lat})/` +
-                    `${initialLocation.lng},${initialLocation.lat},16,0/300x100@2x` +
-                    `?access_token=${process.env.NEXT_PUBLIC_MAPBOX_TOKEN}`
-                  }
-                  alt="Local do reporte"
-                  className="w-full block"
-                  style={{ height: 80, objectFit: 'cover' }}
-                />
-                <div className="flex items-center gap-2 px-3 py-2 text-xs" style={{ background: 'rgba(34,197,94,0.08)', color: '#4ade80' }}>
-                  <div className="w-1.5 h-1.5 rounded-full bg-green-400 flex-shrink-0" />
-                  📍 Local congelado ao tocar em reportar
-                  {initialLocation.timestamp && (
-                    <span className="ml-auto opacity-60">
-                      {new Date(initialLocation.timestamp).toLocaleTimeString('pt-PT', { hour: '2-digit', minute: '2-digit', second: '2-digit' })}
-                    </span>
-                  )}
-                </div>
-                {initialLocation.roadSegment && (
-                  <div className="px-3 pb-2 text-xs" style={{ color: 'var(--muted)' }}>{initialLocation.roadSegment}</div>
-                )}
-              </div>
-            ) : (
+            {/* o local fica gravado no momento do toque em reportar (em segundo plano, sem mapa) */}
+            {initialLocation ? null : (
               <div className="flex items-center gap-2 px-3 py-2 rounded-xl mb-4 text-sm bg-red-500/10 border border-red-500/20 text-red-400">
                 <div className="w-2 h-2 rounded-full bg-red-400" />
                 A aguardar GPS…
