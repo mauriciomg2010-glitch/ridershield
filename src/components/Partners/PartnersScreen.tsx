@@ -238,7 +238,7 @@ function CartaoZivo({ p, onClose }: { p: PartnerDoc; onClose: () => void }) {
       <div className="w-full max-w-sm rounded-3xl p-6 text-center" onClick={e => e.stopPropagation()}
         style={{ background: `linear-gradient(110deg, ${cor}, #7c3aed, ${cor})`, backgroundSize: '200% 100%', animation: 'zivoCard 4s linear infinite', boxShadow: '0 10px 40px rgba(0,0,0,0.5)' }}>
         <div className="flex items-center justify-center gap-2">
-          <img src="/icons/icon-zivo.svg" alt="" width={28} height={28} style={{ borderRadius: 8 }} />
+          <img src="/icons/v2/zivo-app.svg" alt="" width={28} height={28} style={{ borderRadius: 8 }} />
           <span className="text-white font-black tracking-wide">ZIVO RIDER</span>
         </div>
         <div className="mt-4 text-white/80 text-sm">{p.emoji ?? '🍔'} {p.name}</div>

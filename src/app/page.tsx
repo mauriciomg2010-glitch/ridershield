@@ -188,7 +188,7 @@ export default function Home() {
         {/* Shield logo with glow */}
         <div style={{ position: 'relative', marginBottom: 28 }}>
           <div style={{ position: 'absolute', inset: -20, borderRadius: '50%', background: 'radial-gradient(circle, rgba(245,158,11,0.22) 0%, transparent 70%)', filter: 'blur(14px)', pointerEvents: 'none' }} />
-          <img src="/icons/icon-zivo.svg" alt="ZIVO" width={112} height={112} style={{ position: 'relative', borderRadius: 28 }} />
+          <img src="/icons/v2/zivo-app.svg" alt="ZIVO" width={112} height={112} style={{ position: 'relative', borderRadius: 28 }} />
         </div>
         <h1 style={{ fontSize: 52, fontWeight: 900, color: 'white', letterSpacing: -2, margin: 0, lineHeight: 1 }}>ZIVO</h1>
         <p style={{ fontSize: 15, color: 'rgba(255,255,255,0.45)', marginTop: 10, letterSpacing: 1.5, textTransform: 'uppercase', fontWeight: 500 }}>Ride smart. Go home.</p>

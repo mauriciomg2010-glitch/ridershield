@@ -25,8 +25,8 @@ export async function POST(req: NextRequest) {
         notification: {
           title: '🚨 Emergency Alert',
           body: `${userName} needs immediate help! Open the app now.`,
-          icon: '/icons/icon-192x192.png',
-          badge: '/icons/icon-72x72.png',
+          icon: '/icons/v2/zivo-192.png',
+          badge: '/icons/v2/zivo-72.png',
         },
         data: {
           type: 'emergency',

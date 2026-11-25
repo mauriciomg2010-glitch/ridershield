@@ -127,7 +127,7 @@ export default function AuthScreen() {
       {/* Logo */}
       <div className="mb-10 text-center">
         <div className="inline-flex items-center justify-center w-16 h-16 mb-4">
-          <img src="/icons/icon-zivo.svg" alt="ZIVO" width={64} height={64} style={{ borderRadius: 16, boxShadow: '0 6px 24px rgba(245,158,11,0.25)' }} />
+          <img src="/icons/v2/zivo-app.svg" alt="ZIVO" width={64} height={64} style={{ borderRadius: 16, boxShadow: '0 6px 24px rgba(245,158,11,0.25)' }} />
         </div>
         <h1 className="text-3xl font-bold text-white tracking-tight">ZIVO</h1>
         <p className="text-shield-muted text-sm mt-1">{t('safety_tagline')}</p>

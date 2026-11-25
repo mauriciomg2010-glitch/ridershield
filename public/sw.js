@@ -1,5 +1,5 @@
-const CACHE_NAME = 'ridershield-v4'
-const DATA_CACHE = 'ridershield-data-v4'
+const CACHE_NAME = 'ridershield-v5'
+const DATA_CACHE = 'ridershield-data-v5'
 const TILES_CACHE = 'ridershield-tiles-v4'
 
 const PRECACHE_URLS = [
@@ -140,8 +140,8 @@ self.addEventListener('push', (event) => {
   const title = data.title || 'ZIVO'
   const options = {
     body: data.body || 'New notification',
-    icon: '/icons/icon-192x192.png',
-    badge: '/icons/icon-96x96.png',
+    icon: '/icons/v2/zivo-192.png',
+    badge: '/icons/v2/zivo-96.png',
     data: data.url ? { url: data.url } : {},
   }
   event.waitUntil(self.registration.showNotification(title, options))

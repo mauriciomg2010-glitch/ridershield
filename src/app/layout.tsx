@@ -14,14 +14,15 @@ import AudioUnlockInit from '@/components/AudioUnlockInit'
 export const metadata: Metadata = {
   title: 'ZIVO',
   description: 'Navigate safe. Arrive alive. Safety for Dublin delivery riders.',
-  manifest: '/manifest.json?v=2',
+  manifest: '/manifest.json?v=3',
   appleWebApp: {
     capable: true,
     statusBarStyle: 'black-translucent',
     title: 'ZIVO',
   },
   icons: {
-    apple: '/icons/apple-touch-icon.png',
+    apple: '/icons/v2/apple-touch-icon.png',
+    icon: [{ url: '/favicon-32x32.png', sizes: '32x32' }, { url: '/icons/v2/zivo.svg', type: 'image/svg+xml' }],
   },
 }
 

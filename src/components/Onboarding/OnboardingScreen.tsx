@@ -108,7 +108,7 @@ function Screen0({ onNext }: { onNext: () => void }) {
 
       {/* Logo */}
       <div style={{ marginBottom: 32, position: 'relative' }}>
-        <img src="/icons/icon-zivo.svg" alt="ZIVO" width={104} height={104} style={{ borderRadius: 26, boxShadow: '0 8px 32px rgba(245,158,11,0.25)' }} />
+        <img src="/icons/v2/zivo-app.svg" alt="ZIVO" width={104} height={104} style={{ borderRadius: 26, boxShadow: '0 8px 32px rgba(245,158,11,0.25)' }} />
         {/* Glow */}
         <div style={{
           position: 'absolute', inset: -8, borderRadius: '50%',
@@ -357,7 +357,7 @@ function Screen4({ userName, onComplete }: { userName: string; onComplete: () =>
         display: 'flex', alignItems: 'center', justifyContent: 'center',
         fontSize: 44, marginBottom: 24, overflow: 'hidden',
         boxShadow: `0 0 0 14px ${AMBER}08`,
-      }}><img src="/icons/icon-zivo.svg" alt="" width={88} height={88} /></div>
+      }}><img src="/icons/v2/zivo-app.svg" alt="" width={88} height={88} /></div>
 
       <h2 style={{ fontSize: 28, fontWeight: 900, color: 'white', textAlign: 'center', margin: '0 0 10px' }}>
         Estás protegido,<br />{userName}!
