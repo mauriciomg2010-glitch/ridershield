@@ -1,0 +1,33 @@
+// App Android do ZIVO: Trusted Web Activity que abre o ZIVO (ridershield.vercel.app) em ecrã inteiro.
+// As atualizações da app web chegam a todos sem nova versão na Play Store.
+plugins { id 'com.android.application' }
+
+def host = 'ridershield.vercel.app'
+
+android {
+    namespace 'app.zivo.rider'
+    compileSdk 36
+    defaultConfig {
+        applicationId 'app.zivo.rider'
+        minSdk 23
+        targetSdk 36
+        versionCode 1
+        versionName '1.0.0'
+        resValue 'string', 'app_name', 'ZIVO'
+        resValue 'string', 'launcher_name', 'ZIVO'
+        manifestPlaceholders = [hostName: host, defaultUrl: "https://${host}/?source=twa"]
+        resValue 'string', 'asset_statements',
+            "[{ \\\"relation\\\": [\\\"delegate_permission/common.handle_all_urls\\\"], \\\"target\\\": {\\\"namespace\\\": \\\"web\\\", \\\"site\\\": \\\"https://${host}\\\"}}]"
+    }
+    buildTypes {
+        release { minifyEnabled false }
+    }
+    compileOptions {
+        sourceCompatibility JavaVersion.VERSION_17
+        targetCompatibility JavaVersion.VERSION_17
+    }
+}
+
+dependencies {
+    implementation 'com.google.androidbrowserhelper:androidbrowserhelper:2.5.0'
+}

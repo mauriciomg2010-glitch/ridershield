@@ -1,0 +1,12 @@
+[
+  {
+    "relation": ["delegate_permission/common.handle_all_urls"],
+    "target": {
+      "namespace": "android_app",
+      "package_name": "app.zivo.rider",
+      "sha256_cert_fingerprints": [
+        "7A:8A:DA:10:EE:C9:AC:7B:38:86:94:F8:DF:73:D0:E9:D2:30:BB:94:C3:7C:AB:AC:31:65:04:2E:94:B0:7B:2D"
+      ]
+    }
+  }
+]

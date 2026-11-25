@@ -1,0 +1,42 @@
+# Compila a app Android (TWA) do ZIVO e guarda o .aab (sem assinatura) no ramo android-build.
+# A assinatura é feita fora do GitHub, com a chave de upload guardada pelo Maurício.
+name: Android AAB
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths: ['android/**', '.github/workflows/android.yml']
+
+permissions:
+  contents: write
+
+jobs:
+  aab:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 17
+      - uses: android-actions/setup-android@v3
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: 8.14.3
+      - name: Compilar bundleRelease
+        run: gradle -p android bundleRelease --stacktrace
+      - name: Guardar o .aab no ramo android-build
+        run: |
+          mkdir -p /tmp/out
+          cp android/app/build/outputs/bundle/release/app-release.aab /tmp/out/zivo-unsigned.aab
+          git config user.name "zivo-bot"
+          git config user.email "zivo-bot@users.noreply.github.com"
+          git checkout --orphan android-build
+          git rm -rf . > /dev/null
+          cp /tmp/out/zivo-unsigned.aab .
+          echo "${GITHUB_SHA}" > COMMIT
+          git add zivo-unsigned.aab COMMIT
+          git commit -m "AAB de ${GITHUB_SHA}"
+          git push -f origin android-build
