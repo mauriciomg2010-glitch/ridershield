@@ -20,6 +20,8 @@ export default function AuthScreen() {
   const [referralStatus, setReferralStatus] = useState<'idle' | 'checking' | 'valid' | 'invalid'>('idle')
   const referrerIdRef = useRef<string | null>(null)
   const [loading, setLoading] = useState(false)
+  // aceitar termos e privacidade é obrigatório para criar conta (RGPD / Play Store)
+  const [aceito, setAceito] = useState(false)
   const [showResetInput, setShowResetInput] = useState(false)
   const [resetEmail, setResetEmail] = useState('')
   const [resetLoading, setResetLoading] = useState(false)
@@ -83,6 +85,7 @@ export default function AuthScreen() {
         toast.success('Welcome back!')
       } else {
         if (!name.trim()) { toast.error(`${t('full_name')} is required`); setLoading(false); return }
+        if (!aceito) { toast.error('Aceita os Termos e a Política de Privacidade para continuar.'); setLoading(false); return }
 
         // If a referral code was typed it MUST be valid — block otherwise
         const codeTyped = referralCode.trim()
@@ -248,10 +251,22 @@ export default function AuthScreen() {
             </div>
           )}
 
+          {mode === 'signup' && (
+            <label className="flex items-start gap-3 text-left" style={{ fontSize: 13, color: 'rgba(255,255,255,0.75)', lineHeight: 1.4 }}>
+              <input type="checkbox" checked={aceito} onChange={e => setAceito(e.target.checked)}
+                style={{ width: 20, height: 20, marginTop: 1, accentColor: '#f59e0b', flexShrink: 0 }} />
+              <span>
+                Tenho 18 anos ou mais e aceito os <a href="/termos" target="_blank" style={{ color: '#f59e0b' }}>Termos de Uso</a> e
+                a <a href="/privacidade" target="_blank" style={{ color: '#f59e0b' }}>Política de Privacidade</a>.
+              </span>
+            </label>
+          )}
+
           <button
             type="submit"
             disabled={
               loading ||
+              (mode === 'signup' && !aceito) ||
               (mode === 'signup' && referralCode.trim().length > 0 &&
                 (referralStatus === 'invalid' || referralStatus === 'checking'))
             }
@@ -299,7 +314,6 @@ export default function AuthScreen() {
 
         {/* exigido pela Play Store: link para a política de privacidade e termos */}
         <p className="text-center mt-5" style={{ fontSize: 11, color: 'rgba(255,255,255,0.45)' }}>
-          {mode === 'signup' ? 'Ao criar conta aceitas os ' : ''}
           <a href="/termos" style={{ color: '#f59e0b' }}>Termos de Uso</a> e a <a href="/privacidade" style={{ color: '#f59e0b' }}>Política de Privacidade</a>
         </p>
 

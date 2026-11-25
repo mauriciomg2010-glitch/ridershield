@@ -44,6 +44,8 @@ export async function createUserProfile(
     referralCredits: 0,
     referralCreditsPaid: 0,
     referralEarnings: 0,
+    // aceitou termos e privacidade (caixa obrigatória no registo)
+    termsAcceptedAt: serverTimestamp(),
   })
   // Index immediately so unauthenticated signup validation works
   await indexReferralCode(code, uid)
@@ -75,7 +77,16 @@ export async function getUserProfile(uid: string): Promise<User | null> {
     adminLevel: data.adminLevel ?? null,
     sharingLocation: data.sharingLocation ?? false,
     createdAt: data.createdAt?.toDate() ?? new Date(),
+    onboardingDone: !!data.onboardingDone,
+    hasEmergencyContacts: !!data.emergencyContacts?.contact1?.phone,
   }
+}
+
+// Apresentação inicial vista: guardado na conta (o localStorage perde-se no iPhone e ao trocar de telemóvel)
+export async function markOnboardingDone(uid: string): Promise<void> {
+  try { await updateDoc(doc(db, 'users', uid), { onboardingDone: true }); return } catch { /* conta antiga com id aleatório */ }
+  const snap = await getDocs(query(collection(db, 'users'), where('id', '==', uid)))
+  if (!snap.empty) await updateDoc(snap.docs[0].ref, { onboardingDone: true })
 }
 
 export async function updateUserPremium(uid: string, isPremium: boolean): Promise<void> {

@@ -34,6 +34,8 @@ export interface User {
   currentLocation?: { lat: number; lng: number }
   sharingLocation: boolean
   createdAt: Date
+  onboardingDone?: boolean
+  hasEmergencyContacts?: boolean
 }
 
 export interface Incident {

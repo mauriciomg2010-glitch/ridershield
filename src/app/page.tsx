@@ -6,10 +6,11 @@ import { useAuth } from '@/contexts/AuthContext'
 import { useStore } from '@/lib/store'
 import { useGeolocation } from '@/hooks/useGeolocation'
 import { getDemoInfo } from '@/lib/demo'
-import { getEmergencyContacts, saveEmergencyContacts, clearLocation, clearGlobalPresence, seedTestService, getOwnedService, publishServicePresence, clearServicePresence, seedPartners, seedServiceProviders, migrateServiceProvidersV2, migrateServiceProvidersV3, migrateManualZonesSource } from '@/lib/firestore'
+import { getEmergencyContacts, saveEmergencyContacts, clearLocation, clearGlobalPresence, seedTestService, getOwnedService, publishServicePresence, clearServicePresence, seedPartners, seedServiceProviders, migrateServiceProvidersV2, migrateServiceProvidersV3, migrateManualZonesSource, markOnboardingDone } from '@/lib/firestore'
 // firebase/firestore direct imports removed — all Firestore access goes through src/lib/firestore.ts
 import { EmergencyContacts } from '@/types'
 import AuthScreen from '@/components/Auth/AuthScreen'
+import VerifyEmailGate from '@/components/Auth/VerifyEmailGate'
 import BottomNav, { Tab } from '@/components/Layout/BottomNav'
 import ReportModal from '@/components/Report/ReportModal'
 import GroupsScreen from '@/components/Groups/GroupsScreen'
@@ -99,12 +100,15 @@ export default function Home() {
   // It used localStorage as guard, which failed on new devices/browsers and wiped ALL zones.
 
   // Show onboarding on first login
+  // Só aparece a quem nunca a viu: a marca fica na conta (Firestore), não só no telemóvel.
+  // Quem já tem contactos de emergência também não volta a ver.
   useEffect(() => {
-    if (firebaseUser?.uid && user) {
-      if (!localStorage.getItem(`ridershield_onboarding_${firebaseUser.uid}`)) {
-        setShowOnboarding(true)
-      }
-    }
+    if (!firebaseUser?.uid || !user) return
+    let local = false
+    try { local = !!localStorage.getItem(`ridershield_onboarding_${firebaseUser.uid}`) } catch {}
+    const jaViu = local || !!user.onboardingDone || !!user.hasEmergencyContacts
+    if (!jaViu) { setShowOnboarding(true); return }
+    if (!user.onboardingDone) markOnboardingDone(firebaseUser.uid).catch(() => {})
   }, [firebaseUser?.uid, user?.id])
 
   // Load emergency contacts; seed admin defaults if none exist
@@ -180,6 +184,13 @@ export default function Home() {
     }
   }, [user?.id])
 
+  // email confirmado: obrigatório para usar a app (admins ficam de fora para nunca se trancarem)
+  const [emailOk, setEmailOk] = useState(true)
+  useEffect(() => {
+    if (!firebaseUser) return
+    setEmailOk(firebaseUser.emailVerified || firebaseUser.uid === ADMIN_UID || !!user?.isAdmin)
+  }, [firebaseUser?.uid, firebaseUser?.emailVerified, user?.isAdmin])
+
   if (loading) {
     return (
       <div style={{ position: 'fixed', inset: 0, background: '#0a0e1a', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', zIndex: 9999 }}>
@@ -200,6 +211,7 @@ export default function Home() {
   }
 
   if (!firebaseUser || !user) return <AuthScreen />
+  if (!emailOk) return <VerifyEmailGate onVerified={() => setEmailOk(true)} />
 
   return (
     <div className="flex flex-col h-full" style={{background:'var(--bg)'}}>
@@ -308,7 +320,8 @@ export default function Home() {
       </SafeBoundary>
       {showOnboarding && (
         <OnboardingScreen onComplete={() => {
-          localStorage.setItem(`ridershield_onboarding_${firebaseUser.uid}`, '1')
+          try { localStorage.setItem(`ridershield_onboarding_${firebaseUser.uid}`, '1') } catch {}
+          markOnboardingDone(firebaseUser.uid).catch(() => {})
           setShowOnboarding(false)
         }} />
       )}
