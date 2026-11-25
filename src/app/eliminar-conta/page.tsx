@@ -9,7 +9,7 @@ const en = [
     'Enter your password, type EXCLUIR to confirm and tap the red button.',
   ]] },
   { t: 'Delete only some data (keep the account)', p: [[
-    'Reports: open your report on the map and delete it.',
+    'Reports: they disappear on their own (after 1 hour to 30 days); to remove one sooner, email us.',
     'Emergency contacts: Menu (☰) → Account → clear the contacts and save.',
     'Shared location: turn location sharing off in the menu, or leave the group.',
     `Anything else: email ${CONTACTO} saying which data you want deleted; we do it within 30 days.`,
@@ -32,7 +32,7 @@ const pt = [
     'Escreve a tua senha, escreve EXCLUIR para confirmar e toca no botão vermelho.',
   ]] },
   { t: 'Apagar só alguns dados (sem eliminar a conta)', p: [[
-    'Reports: abre o teu report no mapa e apaga-o.',
+    'Reports: desaparecem sozinhos (entre 1 hora e 30 dias); para apagar um antes, envia-nos um email.',
     'Contactos de emergência: Menu (☰) → Conta → limpa os contactos e guarda.',
     'Localização partilhada: desliga a partilha no menu ou sai do grupo.',
     `Outros dados: envia um email para ${CONTACTO} a dizer que dados queres apagar; fazemos no prazo de 30 dias.`,
