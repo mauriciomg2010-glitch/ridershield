@@ -33,7 +33,7 @@ export default function VerifyEmailGate({ onVerified }: { onVerified: () => void
   }, [])
 
   return (
-    <div style={{ position: 'fixed', inset: 0, background: '#0a0e1a', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 24, zIndex: 9999 }}>
+    <div style={{ position: 'fixed', inset: 0, background: '#0a0e1a', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 24, zIndex: 9999, overflowY: 'auto' }}>
       <div style={{ maxWidth: 380, width: '100%', textAlign: 'center', color: 'white' }}>
         <img src="/icons/v2/zivo-app.svg" alt="ZIVO" width={64} height={64} style={{ borderRadius: 16, margin: '0 auto 20px' }} />
         <h1 style={{ fontSize: 22, fontWeight: 800, margin: 0 }}>Confirma o teu email</h1>

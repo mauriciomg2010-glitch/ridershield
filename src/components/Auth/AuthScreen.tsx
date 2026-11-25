@@ -126,7 +126,10 @@ export default function AuthScreen() {
   }
 
   return (
-    <div className="min-h-screen bg-shield-bg flex flex-col items-center justify-center px-6 py-12">
+    // o body tem overflow:hidden (por causa do mapa): este ecrã rola sozinho, senão em telemóveis
+    // pequenos o botão "Criar conta" ficava escondido por baixo do ecrã
+    <div className="fixed inset-0 bg-shield-bg overflow-y-auto" style={{ WebkitOverflowScrolling: 'touch', overscrollBehavior: 'contain' }}>
+    <div className="min-h-full flex flex-col items-center justify-center px-6 py-10" style={{ paddingBottom: 'calc(40px + env(safe-area-inset-bottom, 0px))' }}>
       {/* Logo */}
       <div className="mb-10 text-center">
         <div className="inline-flex items-center justify-center w-16 h-16 mb-4">
@@ -318,6 +321,7 @@ export default function AuthScreen() {
         </p>
 
       </div>
+    </div>
     </div>
   )
 }
