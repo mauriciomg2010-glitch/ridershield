@@ -46,6 +46,18 @@ interface Options {
 }
 
 const REROUTE_COOLDOWN_MS = 8000
+// depois de mandar fazer o retorno: espera mais um pouco antes de recalcular de novo
+const RETORNO_EXTRA_MS = 6000
+
+function angDif(a: number, b: number) { const d = Math.abs(((a - b) % 360 + 540) % 360 - 180); return d }
+/** Direção dos primeiros ~25 m da rota (para saber se começa "para trás"). */
+function bearingInicial(coords?: number[][]): number | null {
+  if (!coords || coords.length < 2) return null
+  for (let i = 1; i < coords.length; i++) {
+    if (distM(coords[0] as LngLat, coords[i] as LngLat) >= 25 || i === coords.length - 1) return geoBearing(coords[0] as LngLat, coords[i] as LngLat)
+  }
+  return null
+}
 const FASTER_ROUTE_EVERY_MS = 15000   // só avalia; o pedido à API depende de altCheck.ts
 const FASTER_ROUTE_MIN_GAIN_S = 120
 
@@ -317,8 +329,27 @@ export function useNavigationCore({ isNavigating, currentFix, navDest, routeProf
       let seguiuRider = false
       if (res.route && desvio && choiceRef.current.following) { route = fastest; seguiuRider = true }
       onDetourRef.current = !!res.route && route === res.route && desvio
+      // rota nova começa para trás (rua sem saída / sem caminho em frente)? diz "Faça o retorno"
+      // em vez de "Dirija na direção sul…" e dá tempo ao rider para encontrar onde virar
+      let retorno = false
+      if (route && mh && Date.now() - mh.time < 5000) {
+        const ini = bearingInicial(route.geometry?.coordinates)
+        if (ini != null && angDif(ini, mh.deg) >= 120) {
+          retorno = true
+          const st0 = route.legs?.[0]?.steps?.[0]
+          if (st0?.maneuver) {
+            const rua = st0.name ? ` na ${String(st0.name).split(/[;,]/)[0]}` : ''
+            st0.maneuver = { ...st0.maneuver, modifier: 'uturn', instruction: `Faça o retorno${rua}` }
+          }
+        }
+      }
       if (route && navigatingRef.current) {
         applyRoute(route)
+        if (retorno) {
+          diag('retorno', { direcao: Math.round(mh!.deg) })
+          lastRerouteRef.current = Date.now() + RETORNO_EXTRA_MS
+          setZoneSpeech({ id: ++speechIdRef.current, text: 'Faça o retorno quando for seguro' })
+        }
         if (seguiuRider) {
           diag('segue-rider', { recusas: choiceRef.current.rejects, extraS: Math.round((res.route.duration ?? 0) - (fastest.duration ?? 0)) })
           if (!antes.following) toast('A seguir o teu caminho. Atenção: passa por zona de risco', { duration: 6000 })
@@ -396,7 +427,7 @@ export function useNavigationCore({ isNavigating, currentFix, navDest, routeProf
       // anda sozinha para a frente e deixava um "rabo" de linha atrás dela. O corte vai ~1,1 s à
       // frente (máx. 40 m): a seta vai "comendo" a ponta da linha e nunca fica linha atrás dela.
       // Só 1 corte por GPS — nada por quadro, para a seta continuar suave.
-      const lead = p.offRouteM < 40 && v > 1.5 ? Math.min(40, v * 1.1) : 0
+      const lead = p.offRouteM < 40 && v > 1.5 ? Math.min(45, v * 1.1 + 5) : 0  // +5 m: GPS que chega atrasado
       const cutAlong = Math.min(Math.max(0, tr.length - 1), p.along + lead)
       const cutSeg = lead > 0 ? tr.segAt(cutAlong) : tr.currentSeg
       const cutPt = (lead > 0 ? tr.pointAt(cutAlong) : p.snapped) as [number, number]

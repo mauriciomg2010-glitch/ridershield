@@ -740,3 +740,14 @@ test('destino em zona: lembrete a ~1 km e aviso antes de entrar', () => {
   const r2 = g.update(4300, new Set(), 25, 2000)
   assert.match(r2.speak ?? '', /vais entrar em zona de risco.*O destino fica lá dentro/)
 })
+
+test('rastreador: virou para o lado contrário com GPS bom → recalcula em ~2 leituras (diag 25/11)', () => {
+  const tr = new RouteTracker(lRoute())
+  tr.update({ lng: A[0], lat: A[1], speed: 9, heading: 90 })
+  const nearB = destination(B, 10, 270); tr.update({ lng: nearB[0], lat: nearB[1], accuracy: 10, speed: 9, heading: 90 })
+  // a rota segue para norte; o rider vira para sul
+  const q1 = destination(B, 6, 180); let p: any = tr.update({ lng: q1[0], lat: q1[1], accuracy: 10, speed: 9, heading: 180 })
+  assert.ok(!p.offRoute, 'ainda na esquina')
+  const q2 = destination(B, 16, 180); p = tr.update({ lng: q2[0], lat: q2[1], accuracy: 10, speed: 9, heading: 180 })
+  assert.ok(p.offRoute, 'a 16 m e em sentido oposto já recalcula')
+})

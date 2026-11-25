@@ -176,17 +176,23 @@ export class RouteTracker {
     else this.offCount = 0
     // Saída clara (ex.: outra saída da rotunda): a andar, GPS bom, já a 20+ m da rota, a afastar-se
     // e noutra direção → recalcula sem esperar pelos 35 m × 3 leituras (o Google reage em ~3 s)
-    const diverging = moving && heading != null && acc <= 20 && m.dist >= 20 &&
-      this.prevDist != null && m.dist > this.prevDist + 3 && angleDiff(heading, routeBearing) > 50
+    // GPS muito bom (≤ 12 m) → basta estar a 12 m; diagnóstico 25/11: virou para o lado errado e
+    // só recalculou 5 s depois (31 m). Agora: ~3 s, como o Google.
+    const ang = heading != null ? angleDiff(heading, routeBearing) : 0
+    const minDiv = acc <= 12 ? 12 : 20
+    const diverging = moving && heading != null && acc <= 20 && m.dist >= minDiv &&
+      this.prevDist != null && m.dist > this.prevDist + 3 && ang > 50
     if (diverging) this.divCount++
-    else if (m.dist < 15) this.divCount = 0
+    else if (m.dist < 10) this.divCount = 0
     this.prevDist = m.dist
-    const offRoute = this.offCount >= 3 || (m.dist > limit * 2 && this.offCount >= 2) || this.divCount >= 2
+    // a afastar-se quase em sentido oposto (> 120°), a andar a sério: uma leitura chega
+    const clara = diverging && ang > 120 && m.dist >= 15 && (speed ?? 0) > 3
+    const offRoute = this.offCount >= 3 || (m.dist > limit * 2 && this.offCount >= 2) || this.divCount >= 2 || clara
 
     // Contramão: está em cima da rota mas andando no sentido oposto
     if (moving && heading != null && m.dist < limit && angleDiff(heading, routeBearing) > 150) this.wrongCount++
     else this.wrongCount = 0
-    const wrongWay = this.wrongCount >= 5
+    const wrongWay = this.wrongCount >= ((speed ?? 0) > 3 && acc <= 20 ? 3 : 5)
 
     const dest = this.coords[this.coords.length - 1]
     const arrived = remainingM < 25 || (distM(p, dest) < 25 && along > this.length * 0.5)

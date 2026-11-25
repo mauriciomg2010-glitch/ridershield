@@ -2497,11 +2497,12 @@ export default function MapView({ groupMembers = EMPTY_MEMBERS, currentUserId, g
         {/* Linha da rota estilo Google Maps: azul; laranja/vermelho só onde há trânsito */}
         {routeCongestionGeoJSON && (
           <Source id="route" type="geojson" data={routeCongestionGeoJSON}>
+            {/* a navegar: ponta reta (a ponta redonda desenhava ~6 m de linha ATRÁS do corte = "rabo") */}
             <Layer id="route-line-casing" type="line"
-              layout={{ 'line-cap': 'round', 'line-join': 'round' }}
+              layout={{ 'line-cap': isNavigating ? 'butt' : 'round', 'line-join': 'round' }}
               paint={{ 'line-color': rotaContorno, 'line-width': ['interpolate', ['linear'], ['zoom'], 12, 7, 16, 14, 18, 23] as any }} />
             <Layer id="route-line" type="line"
-              layout={{ 'line-cap': 'round', 'line-join': 'round' }}
+              layout={{ 'line-cap': isNavigating ? 'butt' : 'round', 'line-join': 'round' }}
               paint={{
                 'line-color': ['match', ['get', 'congestion'],
                   'moderate', '#f29900',
