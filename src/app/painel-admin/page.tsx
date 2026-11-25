@@ -178,8 +178,11 @@ export default function PainelAdmin() {
     // indicados — todos os referrals feitos pelo utilizador atual
     if (firebaseUser?.uid) {
       indicadosUnsubRef.current = onSnapshot(
-        query(collection(db, 'referrals'), where('referrerId', '==', firebaseUser.uid), orderBy('createdAt', 'desc')),
-        snap => setIndicados(snap.docs.map(d => ({ id: d.id, ...d.data(), createdAt: d.data().createdAt?.toDate() ?? null }))),
+        // sem orderBy: where + orderBy precisava de um índice composto que não existe (a lista ficava vazia)
+        query(collection(db, 'referrals'), where('referrerId', '==', firebaseUser.uid)),
+        snap => setIndicados(snap.docs
+          .map(d => ({ id: d.id, ...d.data(), createdAt: d.data().createdAt?.toDate() ?? null }))
+          .sort((a: any, b: any) => (b.createdAt?.getTime() ?? 0) - (a.createdAt?.getTime() ?? 0))),
         () => {}
       )
     }

@@ -1,9 +1,9 @@
 // Página legal simples (Privacidade / Termos): EN + PT na mesma página, sem login.
 import Link from 'next/link'
 
-export const ATUALIZADO = '22 November 2026'
+export const ATUALIZADO = '25 November 2026'
 /** Contacto para privacidade — trocar pelo email oficial do ZIVO antes da Play Store. */
-export const CONTACTO = process.env.NEXT_PUBLIC_PRIVACY_EMAIL || 'privacy@zivo.app'
+export const CONTACTO = process.env.NEXT_PUBLIC_PRIVACY_EMAIL || 'zivo.app.ie@gmail.com'
 
 export type Secao = { t: string; p: (string | string[])[] }
 
