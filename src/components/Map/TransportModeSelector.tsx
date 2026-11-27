@@ -57,7 +57,8 @@ async function fetchRoutes(
       const [hab] = await fetchMapboxRoutes(origin, dest, profile, { vias: viasFromTrace(trace) })
       const fastest = Math.min(...routes.map(r => r.duration ?? Infinity))
       if (hab && overlap(trace, hab.geometry.coordinates, 50) >= 0.75 && hab.duration <= fastest * 1.25) {
-        routes = [{ ...hab, _habitual: true }, ...routes]
+        // fica como opção a mais (no fim): a 1.ª rota é sempre a recomendada, como no Google Maps
+        if (overlap(hab.geometry.coordinates, routes[0].geometry.coordinates, 40) < 0.9) routes = [...routes, { ...hab, _habitual: true }]
       }
     }
   } catch { /* sem caminho habitual: segue com as rotas normais */ }
@@ -100,6 +101,9 @@ interface Props {
   selectedRouteIdx?: number
   onRouteSelected?: (idx: number) => void
   onSafeRouteReady?: (safeRoute: any | null, zones: ZoneHit[]) => void
+  /** escolha segura/rápida controlada pelo mapa (tocar nas rotas do mapa também escolhe) */
+  routeChoice?: 'safe' | 'fast'
+  onChoiceChange?: (c: 'safe' | 'fast') => void
 }
 
 // ── Component ─────────────────────────────────────────────────────────────────
@@ -107,6 +111,7 @@ interface Props {
 export default function TransportModeSelector({
   destination, origin, onConfirm, onClose,
   onRoutesLoaded, onRouteSelected, onSafeRouteReady,
+  selectedRouteIdx, routeChoice: routeChoiceProp, onChoiceChange,
 }: Props) {
   const [selectedMode, setSelectedMode] = useState<ModeKey>(getSavedMode)
   const [routesByMode, setRoutesByMode] = useState<Partial<Record<ModeKey, any[]>>>({})
@@ -117,7 +122,12 @@ export default function TransportModeSelector({
   const [zonesOnRoute, setZonesOnRoute] = useState<ZoneHit[]>([])
   const [safeRoute, setSafeRoute] = useState<any | null>(null)
   const [safeRouteLoading, setSafeRouteLoading] = useState(false)
-  const [routeChoice, setRouteChoice] = useState<'safe' | 'fast'>('safe')
+  const [routeChoiceLocal, setRouteChoiceLocal] = useState<'safe' | 'fast'>('safe')
+  const routeChoice = routeChoiceProp ?? routeChoiceLocal
+  const onChoiceChangeRef = useRef(onChoiceChange)
+  onChoiceChangeRef.current = onChoiceChange
+  // a escolha passa sempre também para o mapa (antes só mudava o texto: o mapa ficava igual)
+  const setRouteChoice = (c: 'safe' | 'fast') => { setRouteChoiceLocal(c); onChoiceChangeRef.current?.(c) }
   type TipoAnalise = 'loading' | 'sem_zonas' | 'destino_em_zona' | 'tem_rota_segura' | 'todas_passam_por_zona'
   const [tipoAnalise, setTipoAnalise] = useState<TipoAnalise>('loading')
   const [destZonaInfo, setDestZonaInfo] = useState<any | null>(null)
@@ -139,6 +149,12 @@ export default function TransportModeSelector({
   onRoutesLoadedRef.current = onRoutesLoaded
   onRouteSelectedRef.current = onRouteSelected
   onSafeRouteReadyRef.current = onSafeRouteReady
+
+  // tocou numa rota no mapa → o painel acompanha (antes o Iniciar usava outra rota)
+  useEffect(() => {
+    if (selectedRouteIdx == null) return
+    setLocalIdx(i => (i === selectedRouteIdx ? i : selectedRouteIdx))
+  }, [selectedRouteIdx])
 
   const prevNotifiedMode = useRef<ModeKey | null>(null)
   // Tracks which mode's zone check we've run to avoid double-running
@@ -280,7 +296,8 @@ export default function TransportModeSelector({
 
   const routes = routesByMode[selectedMode] ?? []
   const isLoading = loadingModes.includes(selectedMode)
-  const fastRoute = routes[0]
+  // a "rápida" é a alternativa escolhida (por defeito a 1.ª, a mesma que o Google mostraria)
+  const fastRoute = routes[localIdx] ?? routes[0]
   const hasZones = zonesOnRoute.length > 0
 
   const extraMinutos = safeRoute && fastRoute

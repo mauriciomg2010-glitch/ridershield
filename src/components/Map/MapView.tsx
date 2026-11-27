@@ -464,6 +464,8 @@ export default function MapView({ groupMembers = EMPTY_MEMBERS, currentUserId, g
   const [selectedPermZone, setSelectedPermZone] = useState<PermanentZone | null>(null)
   const [currentHour, setCurrentHour] = useState(() => new Date().getHours())
   const [safeRouteData, setSafeRouteData] = useState<any | null>(null)
+  // pré-visualização: rota segura ou a rápida/alternativa escolhida (o mapa mostra a escolhida por cima)
+  const [previewChoice, setPreviewChoice] = useState<'safe' | 'fast'>('safe')
   const [nearbyIncident, setNearbyIncident] = useState<Incident | null>(null)
   const alertedIncidentIdsRef = useRef<Set<string>>(new Set())
   // 'ahead' = aviso antes de chegar (com distância); 'passed' = já passou, pergunta se ainda está
@@ -2389,39 +2391,39 @@ export default function MapView({ groupMembers = EMPTY_MEMBERS, currentUserId, g
         </SafeBoundary>
 
         {/* Alternative routes — shown when mode selector is open */}
-        {showModeSelector && altRoutes.map((route, i) => {
-          const isSel = i === selectedAltIdx
-          return (
-            <Source key={`alt-${i}`} id={`alt-route-${i}`} type="geojson"
-              data={asFeature(route.geometry)}>
-              <Layer id={`alt-casing-${i}`} type="line"
-                layout={{ 'line-cap': 'round', 'line-join': 'round' }}
-                paint={{
-                  'line-color': isSel ? cores.rotaBorda : cores.alternativaBorda,
-                  'line-width': isSel ? 10 : 7,
-                  'line-opacity': isSel ? 1 : 0.9,
-                }} />
-              <Layer id={`alt-line-${i}`} type="line"
-                layout={{ 'line-cap': 'round', 'line-join': 'round' }}
-                paint={{
-                  'line-color': isSel ? cores.rota : cores.alternativa,
-                  'line-width': isSel ? 6 : 4,
-                  'line-opacity': 1,
-                }} />
-            </Source>
-          )
-        })}
+        {/* Pré-visualização das rotas (como no Google): todas as alternativas a cinzento-azulado,
+            e a ESCOLHIDA desenhada por cima. A ordem das camadas no Mapbox é a de criação, por isso
+            a escolhida é uma camada própria ('rota-escolhida') e a segura apagada vai por baixo dela. */}
+        {showModeSelector && altRoutes.map((route, i) => (
+          <Source key={`alt-${i}`} id={`alt-route-${i}`} type="geojson" data={asFeature(route.geometry)}>
+            <Layer id={`alt-casing-${i}`} type="line" layout={{ 'line-cap': 'round', 'line-join': 'round' }}
+              paint={{ 'line-color': cores.alternativaBorda, 'line-width': 7, 'line-opacity': 0.9 }} />
+            <Layer id={`alt-line-${i}`} type="line" layout={{ 'line-cap': 'round', 'line-join': 'round' }}
+              paint={{ 'line-color': cores.alternativa, 'line-width': 4, 'line-opacity': 1 }} />
+          </Source>
+        ))}
+        {showModeSelector && altRoutes[selectedAltIdx] && (
+          <Source id="rota-escolhida" type="geojson" data={asFeature(altRoutes[selectedAltIdx].geometry)}>
+            <Layer id="rota-escolhida-casing" type="line" layout={{ 'line-cap': 'round', 'line-join': 'round' }}
+              paint={{ 'line-color': cores.rotaBorda, 'line-width': 10,
+                'line-opacity': safeRouteData && previewChoice === 'safe' ? 0 : 1 }} />
+            <Layer id="rota-escolhida-line" type="line" layout={{ 'line-cap': 'round', 'line-join': 'round' }}
+              paint={{ 'line-color': cores.rota, 'line-width': 6,
+                'line-opacity': safeRouteData && previewChoice === 'safe' ? 0 : 1 }} />
+          </Source>
+        )}
 
-        {/* Safe route — green, shown when mode selector is open and zones found */}
-        {showModeSelector && safeRouteData && (
-          <Source id="safe-route" type="geojson"
-            data={asFeature(safeRouteData.geometry)}>
-            <Layer id="safe-route-casing" type="line"
-              layout={{ 'line-cap': 'round', 'line-join': 'round' }}
-              paint={{ 'line-color': '#0a4a2a', 'line-width': 11, 'line-opacity': 0.9 }} />
-            <Layer id="safe-route-line" type="line"
-              layout={{ 'line-cap': 'round', 'line-join': 'round' }}
-              paint={{ 'line-color': '#1a9c5b', 'line-width': 7 }} />
+        {/* Rota segura: verde e por cima quando é a escolhida; apagada e POR BAIXO da escolhida quando o rider escolheu a rápida */}
+        {showModeSelector && safeRouteData && altRoutes[selectedAltIdx] && (
+          <Source id="safe-route" type="geojson" data={asFeature(safeRouteData.geometry)}>
+            <Layer id="safe-route-casing" type="line" layout={{ 'line-cap': 'round', 'line-join': 'round' }}
+              beforeId={previewChoice === 'fast' ? 'rota-escolhida-casing' : undefined}
+              paint={{ 'line-color': '#0a4a2a', 'line-width': previewChoice === 'safe' ? 11 : 8,
+                'line-opacity': previewChoice === 'safe' ? 0.9 : 0.35 }} />
+            <Layer id="safe-route-line" type="line" layout={{ 'line-cap': 'round', 'line-join': 'round' }}
+              beforeId={previewChoice === 'fast' ? 'rota-escolhida-casing' : undefined}
+              paint={{ 'line-color': '#1a9c5b', 'line-width': previewChoice === 'safe' ? 7 : 5,
+                'line-opacity': previewChoice === 'safe' ? 1 : 0.55 }} />
           </Source>
         )}
 
@@ -2431,12 +2433,13 @@ export default function MapView({ groupMembers = EMPTY_MEMBERS, currentUserId, g
           const mid = coords[Math.floor(coords.length / 2)]
           return (
             <Marker longitude={mid[0]} latitude={mid[1]} anchor="center">
-              <div style={{
-                background: '#1a6b4a', color: 'white',
+              <div onClick={() => setPreviewChoice('safe')} style={{
+                background: previewChoice === 'safe' ? '#1a6b4a' : '#ffffff', color: previewChoice === 'safe' ? 'white' : '#1a6b4a',
+                border: previewChoice === 'safe' ? 'none' : '1px solid #1a6b4a', cursor: 'pointer', pointerEvents: 'auto',
                 padding: '5px 12px', borderRadius: 16,
                 fontSize: 12, fontWeight: 800,
                 boxShadow: '0 2px 8px rgba(0,0,0,0.35)',
-                pointerEvents: 'none', whiteSpace: 'nowrap',
+                whiteSpace: 'nowrap',
               }}>
                 🛡️ {Math.ceil(safeRouteData.duration / 60)} min
               </div>
@@ -2452,11 +2455,11 @@ export default function MapView({ groupMembers = EMPTY_MEMBERS, currentUserId, g
           return (
             <Marker key={`alt-lbl-${i}`} longitude={mid[0]} latitude={mid[1]} anchor="center">
               <div
-                onClick={() => { setSelectedAltIdx(i); handleRouteSelected(i) }}
+                onClick={() => { setSelectedAltIdx(i); handleRouteSelected(i); if (safeRouteData) setPreviewChoice('fast') }}
                 style={{
-                  background: isSel ? '#d97706' : 'white',
-                  color: isSel ? 'white' : '#333',
-                  border: isSel ? 'none' : '1px solid #ccc',
+                  background: isSel && !(safeRouteData && previewChoice === 'safe') ? '#d97706' : 'white',
+                  color: isSel && !(safeRouteData && previewChoice === 'safe') ? 'white' : '#333',
+                  border: isSel && !(safeRouteData && previewChoice === 'safe') ? 'none' : '1px solid #ccc',
                   padding: '5px 10px', borderRadius: 20,
                   fontWeight: 700, fontSize: 13,
                   boxShadow: '0 2px 8px rgba(0,0,0,0.25)',
@@ -2719,6 +2722,8 @@ export default function MapView({ groupMembers = EMPTY_MEMBERS, currentUserId, g
           onRoutesLoaded={handleRoutesLoaded}
           onRouteSelected={handleRouteSelected}
           onSafeRouteReady={handleSafeRouteReady}
+          routeChoice={previewChoice}
+          onChoiceChange={setPreviewChoice}
           onConfirm={(profile, modeKey, route) => {
             setRouteProfile(profile)
             setNavModeKey(modeKey)
